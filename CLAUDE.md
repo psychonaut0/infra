@@ -18,7 +18,7 @@
 - **RAM:** 32GB
 - **Role:** Primary Proxmox hypervisor node. Clustered with proxmoxnode. Authorized keys are shared across the cluster.
 - **VMs:** blvckserver (VMID 100)
-- **CTs:** ct-mgmt (VMID 108)
+- **CTs:** ct-tunnel (VMID 103), ct-mgmt (VMID 108)
 - **Storage:** See `docs/hardware.md` for full disk and storage layout.
 
 ### proxmoxnode
@@ -42,6 +42,16 @@
 - **Role:** DNS server. Runs Pi-hole via Docker Compose.
 - **Stack:** `/opt/stacks/ct-dns/docker-compose.yml` (local copy: `stacks/ct-dns/`)
 - **Config notes:** AppArmor set to unconfined + proc/sys rw mounts for Docker compatibility. DNS listening mode set to ALL to accept queries from all subnets.
+
+### ct-tunnel (LXC — VMID 103 on proxmoxmain)
+- **IP:** 192.168.3.6
+- **User:** root
+- **OS:** Debian 13 (Trixie), unprivileged LXC
+- **SSH:** Port 22, key-based auth (no password)
+- **Resources:** 1 vCPU, 256MB RAM, 128MB swap, 2GB disk
+- **Role:** Cloudflare Tunnel endpoint. Runs cloudflared for selective public access to internal services, replacing the old nginx-proxy-manager + cloudflare-ddns + port forwarding setup.
+- **Stack:** `/opt/stacks/ct-tunnel/docker-compose.yml` (local copy: `stacks/ct-tunnel/`)
+- **Config notes:** AppArmor set to unconfined for Docker compatibility. Uses `network_mode: host` for cloudflared. Tunnel token stored in `/opt/stacks/ct-tunnel/.env`.
 
 ### ct-mgmt (LXC — VMID 108 on proxmoxmain)
 - **IP:** 192.168.3.12
@@ -81,6 +91,7 @@ Termux (phone)
 blvckmain (main PC)
   ├── ssh blvckserver    → 192.168.3.4:123   (psy, key+2FA, multiplexed)
   ├── ssh ct-dns         → 192.168.3.5:22    (root, key auth)
+  ├── ssh ct-tunnel      → 192.168.3.6:22    (root, key auth)
   └── ssh ct-mgmt        → 192.168.3.12:22   (root, key auth)
 ```
 
