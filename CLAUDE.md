@@ -14,21 +14,31 @@
 - **User:** root
 - **OS:** Proxmox VE
 - **SSH:** Port 22, key-based auth (no password)
+- **CPU:** Intel i5-10400 @ 2.90GHz (6C/12T)
+- **RAM:** 32GB
 - **Role:** Primary Proxmox hypervisor node. Clustered with proxmoxnode. Authorized keys are shared across the cluster.
+- **VMs:** blvckserver (VMID 100)
+- **Storage:** See `docs/hardware.md` for full disk and storage layout.
 
 ### proxmoxnode
 - **IP:** 192.168.3.3
 - **User:** root
 - **OS:** Proxmox VE
 - **SSH:** Port 22, key-based auth (no password)
+- **CPU:** Intel N100 (4C/4T)
+- **RAM:** 16GB
 - **Role:** Secondary Proxmox cluster node. Shares authorized_keys with proxmoxmain via pmxcfs.
+- **VMs:** Home Assistant OS (VMID 101, 8GB RAM, 50GB disk)
+- **Storage:** 476GB SSD, ~300GB LVM thin available.
 
-### blvckserver (Arch Linux VM)
+### blvckserver (Arch Linux VM — VMID 100)
 - **IP:** 192.168.3.4
 - **User:** psy
 - **OS:** Arch Linux (VM under proxmoxmain)
 - **SSH:** Port 123, key-based auth + 2FA (authenticator)
-- **Note:** Migrated from bare-metal Arch to Proxmox VM. SSH multiplexing (ControlMaster) is configured on both Termux and blvckmain to persist connections for 12h and avoid repeated 2FA prompts.
+- **Resources:** 12 vCPU, 24GB RAM, iGPU passthrough (Intel UHD 630)
+- **Note:** Migrated from bare-metal Arch to Proxmox VM. Monolithic server — all services run as Docker containers in this single VM. Being decomposed into proper Proxmox VMs/CTs. See `docs/services.md` for inventory and `docs/migration.md` for plan.
+- **SSH multiplexing:** ControlMaster configured on both Termux and blvckmain to persist connections for 12h and avoid repeated 2FA prompts.
 
 ### Termux (Nothing Phone A024)
 - **User:** u0_a416
@@ -60,6 +70,6 @@ First connection requires 2FA. Subsequent connections within 12h reuse the socke
 
 ## Services
 
-### GitLab
-- **Host:** ssh.blvckhat.dev (port 124)
-- **Configured on:** blvckmain (as `Host gitlab`)
+All services currently run on blvckserver as Docker containers managed via Portainer.
+Full inventory in `docs/services.md`. Hardware and storage details in `docs/hardware.md`.
+Migration plan in `docs/migration.md`.
