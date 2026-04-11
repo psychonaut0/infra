@@ -18,6 +18,7 @@
 - **RAM:** 32GB
 - **Role:** Primary Proxmox hypervisor node. Clustered with proxmoxnode. Authorized keys are shared across the cluster.
 - **VMs:** blvckserver (VMID 100)
+- **CTs:** ct-mgmt (VMID 108)
 - **Storage:** See `docs/hardware.md` for full disk and storage layout.
 
 ### proxmoxnode
@@ -41,6 +42,17 @@
 - **Role:** DNS server. Runs Pi-hole via Docker Compose.
 - **Stack:** `/opt/stacks/ct-dns/docker-compose.yml` (local copy: `stacks/ct-dns/`)
 - **Config notes:** AppArmor set to unconfined + proc/sys rw mounts for Docker compatibility. DNS listening mode set to ALL to accept queries from all subnets.
+
+### ct-mgmt (LXC — VMID 108 on proxmoxmain)
+- **IP:** 192.168.3.12
+- **User:** root
+- **OS:** Debian 13 (Trixie), unprivileged LXC
+- **SSH:** Port 22, key-based auth (no password)
+- **Resources:** 1 vCPU, 512MB RAM, 256MB swap, 4GB disk
+- **Role:** Management and monitoring. Runs Portainer CE for container orchestration across all CTs.
+- **Stack:** `/opt/stacks/ct-mgmt/docker-compose.yml` (local copy: `stacks/ct-mgmt/`)
+- **Ports:** 9443 (Portainer HTTPS UI), 8000 (Edge Agent communication)
+- **Config notes:** AppArmor set to unconfined for Docker compatibility. Portainer manages remote environments via their portainer-agent (port 9001).
 
 ### blvckserver (Arch Linux VM — VMID 100)
 - **IP:** 192.168.3.4
@@ -68,7 +80,8 @@ Termux (phone)
 
 blvckmain (main PC)
   ├── ssh blvckserver    → 192.168.3.4:123   (psy, key+2FA, multiplexed)
-  └── ssh ct-dns         → 192.168.3.5:22    (root, key auth)
+  ├── ssh ct-dns         → 192.168.3.5:22    (root, key auth)
+  └── ssh ct-mgmt        → 192.168.3.12:22   (root, key auth)
 ```
 
 ## SSH Multiplexing
@@ -82,6 +95,7 @@ First connection requires 2FA. Subsequent connections within 12h reuse the socke
 
 ## Services
 
-All services currently run on blvckserver as Docker containers managed via Portainer.
+Portainer CE runs on ct-mgmt (https://192.168.3.12:9443) and manages container environments across CTs via portainer-agent (port 9001).
+Legacy services still run on blvckserver — being decomposed into dedicated CTs.
 Full inventory in `docs/services.md`. Hardware and storage details in `docs/hardware.md`.
 Migration plan in `docs/migration.md`.
