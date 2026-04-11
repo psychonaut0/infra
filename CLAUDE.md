@@ -29,7 +29,18 @@
 - **RAM:** 16GB
 - **Role:** Secondary Proxmox cluster node. Shares authorized_keys with proxmoxmain via pmxcfs.
 - **VMs:** Home Assistant OS (VMID 101, 8GB RAM, 50GB disk)
+- **CTs:** ct-dns (VMID 102)
 - **Storage:** 476GB SSD, ~300GB LVM thin available.
+
+### ct-dns (LXC — VMID 102 on proxmoxnode)
+- **IP:** 192.168.3.5
+- **User:** root
+- **OS:** Debian 13 (Trixie), unprivileged LXC
+- **SSH:** Port 22, key-based auth (no password)
+- **Resources:** 1 vCPU, 512MB RAM, 256MB swap, 4GB disk
+- **Role:** DNS server. Runs Pi-hole via Docker Compose.
+- **Stack:** `/opt/stacks/ct-dns/docker-compose.yml` (local copy: `stacks/ct-dns/`)
+- **Config notes:** AppArmor set to unconfined + proc/sys rw mounts for Docker compatibility. DNS listening mode set to ALL to accept queries from all subnets.
 
 ### blvckserver (Arch Linux VM — VMID 100)
 - **IP:** 192.168.3.4
@@ -56,7 +67,8 @@ Termux (phone)
   └── ssh blvckserver    → 192.168.3.4:123   (psy, key+2FA, multiplexed)
 
 blvckmain (main PC)
-  └── ssh blvckserver    → 192.168.3.4:123   (psy, key+2FA, multiplexed)
+  ├── ssh blvckserver    → 192.168.3.4:123   (psy, key+2FA, multiplexed)
+  └── ssh ct-dns         → 192.168.3.5:22    (root, key auth)
 ```
 
 ## SSH Multiplexing
