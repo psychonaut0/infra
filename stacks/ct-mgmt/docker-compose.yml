@@ -3,12 +3,27 @@ services:
     image: portainer/portainer-ce:latest
     container_name: portainer
     restart: unless-stopped
+    expose:
+      - "9443"
     ports:
-      - "9443:9443"
       - "8000:8000"
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - portainer-data:/data
 
+  caddy:
+    image: caddy:latest
+    container_name: caddy
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+
 volumes:
   portainer-data:
+  caddy-data:
+  caddy-config:
