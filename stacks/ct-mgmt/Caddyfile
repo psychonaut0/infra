@@ -1,0 +1,16 @@
+# Reverse proxy for local services
+# Access via https://service.lan (requires pihole DNS entries)
+
+portainer.lan {
+	tls internal
+	reverse_proxy portainer:9443 {
+		transport http {
+			tls_insecure_skip_verify
+		}
+	}
+}
+
+dns.lan {
+	tls internal
+	reverse_proxy 192.168.3.5:80
+}
