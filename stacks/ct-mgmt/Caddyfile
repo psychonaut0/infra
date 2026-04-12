@@ -52,3 +52,8 @@ homeassistant.lan {
 	tls internal
 	reverse_proxy http://192.168.3.10:8123
 }
+
+files.lan {
+	tls internal
+	reverse_proxy 192.168.3.11:8080
+}
