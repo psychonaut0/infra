@@ -3,11 +3,7 @@
 
 portainer.lan {
 	tls internal
-	reverse_proxy portainer:9443 {
-		transport http {
-			tls_insecure_skip_verify
-		}
-	}
+	reverse_proxy portainer:9000
 }
 
 dns.lan {
