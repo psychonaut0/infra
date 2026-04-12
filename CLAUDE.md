@@ -18,7 +18,7 @@
 - **RAM:** 32GB
 - **Role:** Primary Proxmox hypervisor node. Clustered with proxmoxnode. Authorized keys are shared across the cluster.
 - **VMs:** blvckserver (VMID 100)
-- **CTs:** ct-tunnel (VMID 103), ct-nvr (VMID 104), ct-mgmt (VMID 108)
+- **CTs:** ct-tunnel (VMID 103), ct-nvr (VMID 104), ct-media (VMID 105), ct-mgmt (VMID 108)
 - **Storage:** See `docs/hardware.md` for full disk and storage layout.
 
 ### proxmoxnode
@@ -64,6 +64,17 @@
 - **Ports:** 8971 (Frigate HTTPS UI), 8554 (RTSP), 8555 (WebRTC)
 - **Config notes:** Privileged CT for device access. iGPU passthrough via `lxc.cgroup2.devices.allow: c 226:* rwm` and `/dev/dri` bind mount. NVR data on LVM thin volume (`nvr-data:vm-100-disk-0`) mounted on host via kpartx at `/mnt/nvr-data` and bind-mounted into CT. AppArmor unconfined + proc/sys rw mount for Docker compatibility. Systemd service `mnt-nvr-data.service` on proxmoxmain handles persistent mount across reboots.
 
+### ct-media (LXC — VMID 105 on proxmoxmain)
+- **IP:** 192.168.3.8
+- **User:** root
+- **OS:** Debian 13 (Trixie), privileged LXC
+- **SSH:** Port 22, key-based auth (no password)
+- **Resources:** 4 vCPU, 8192MB RAM, 2048MB swap, 16GB disk
+- **Role:** Media server. Runs Jellyfin (with iGPU passthrough for hardware transcoding), Sonarr, Radarr, Deluge, Prowlarr, and FlareSolverr.
+- **Stack:** `/opt/stacks/ct-media/docker-compose.yml` (local copy: `stacks/ct-media/`)
+- **Ports:** 8096 (Jellyfin HTTP), 8920 (Jellyfin HTTPS), 8989 (Sonarr), 7878 (Radarr), 8112 (Deluge), 9696 (Prowlarr), 8191 (FlareSolverr)
+- **Config notes:** Privileged CT for device access. iGPU passthrough via `lxc.cgroup2.devices.allow: c 226:* rwm` and `/dev/dri` bind mount. Media data on mergerfs pool (`/mnt/cloud/volumes/mediaserver`) bind-mounted into CT at `/mnt/mediaserver`. AppArmor unconfined + proc/sys rw mount for Docker compatibility.
+
 ### ct-mgmt (LXC — VMID 108 on proxmoxmain)
 - **IP:** 192.168.3.12
 - **User:** root
@@ -104,6 +115,7 @@ blvckmain (main PC)
   ├── ssh ct-dns         → 192.168.3.5:22    (root, key auth)
   ├── ssh ct-tunnel      → 192.168.3.6:22    (root, key auth)
   ├── ssh ct-nvr         → 192.168.3.7:22    (root, key auth)
+  ├── ssh ct-media       → 192.168.3.8:22    (root, key auth)
   └── ssh ct-mgmt        → 192.168.3.12:22   (root, key auth)
 ```
 
@@ -118,8 +130,10 @@ First connection requires 2FA. Subsequent connections within 12h reuse the socke
 
 ## Services
 
-Portainer CE runs on ct-mgmt (https://192.168.3.12:9443) and manages container environments across CTs via portainer-agent (port 9001).
+Portainer CE runs on ct-mgmt (https://portainer.lan or https://192.168.3.12:9443) and manages container environments across CTs via portainer-agent (port 9001).
 Frigate NVR runs on ct-nvr (https://nvr.lan or https://192.168.3.7:8971) with iGPU-accelerated video decoding.
+Jellyfin media server runs on ct-media (https://jellyfin.lan or http://192.168.3.8:8096) with iGPU hardware transcoding, alongside Sonarr, Radarr, Deluge, Prowlarr, and FlareSolverr.
+Proxmox VE runs on proxmoxmain (https://proxmox.lan or https://192.168.3.2:8006) and proxmoxnode (https://proxmox-node.lan or https://192.168.3.3:8006).
 Legacy services still run on blvckserver — being decomposed into dedicated CTs.
 Full inventory in `docs/services.md`. Hardware and storage details in `docs/hardware.md`.
 Migration plan in `docs/migration.md`.

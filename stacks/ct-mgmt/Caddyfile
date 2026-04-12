@@ -19,3 +19,26 @@ nvr.lan {
 		}
 	}
 }
+
+proxmox.lan {
+	tls internal
+	reverse_proxy https://192.168.3.2:8006 {
+		transport http {
+			tls_insecure_skip_verify
+		}
+	}
+}
+
+proxmox-node.lan {
+	tls internal
+	reverse_proxy https://192.168.3.3:8006 {
+		transport http {
+			tls_insecure_skip_verify
+		}
+	}
+}
+
+jellyfin.lan {
+	tls internal
+	reverse_proxy 192.168.3.8:8096
+}
