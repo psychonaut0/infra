@@ -1,0 +1,13 @@
+# Pi-hole custom DNS entries (dns.hosts in pihole.toml)
+# All .lan domains point to ct-mgmt (192.168.3.12) where Caddy reverse proxies them
+# To apply: set dns.hosts via pihole-FTL --config on ct-dns
+
+192.168.3.12 portainer.lan
+192.168.3.12 dns.lan
+192.168.3.12 mgmt.lan
+192.168.3.12 nvr.lan
+192.168.3.12 proxmox.lan
+192.168.3.12 proxmox-node.lan
+192.168.3.12 jellyfin.lan
+192.168.3.12 immich.lan
+192.168.3.12 homeassistant.lan
