@@ -17,8 +17,7 @@
 - **CPU:** Intel i5-10400 @ 2.90GHz (6C/12T)
 - **RAM:** 32GB
 - **Role:** Primary Proxmox hypervisor node. Clustered with proxmoxnode. Authorized keys are shared across the cluster.
-- **VMs:** blvckserver (VMID 100)
-- **CTs:** ct-tunnel (VMID 103), ct-nvr (VMID 104), ct-media (VMID 105), ct-files (VMID 107), ct-mgmt (VMID 108)
+- **CTs:** ct-tunnel (VMID 103), ct-nvr (VMID 104), ct-media (VMID 105), ct-photos (VMID 106), ct-files (VMID 107), ct-mgmt (VMID 108)
 - **Storage:** See `docs/hardware.md` for full disk and storage layout.
 
 ### proxmoxnode
@@ -106,14 +105,16 @@
 - **Ports:** 9443 (Portainer HTTPS UI), 8000 (Edge Agent communication)
 - **Config notes:** AppArmor set to unconfined for Docker compatibility. Portainer manages remote environments via their portainer-agent (port 9001).
 
-### blvckserver (Arch Linux VM — VMID 100)
-- **IP:** 192.168.3.4
-- **User:** psy
-- **OS:** Arch Linux (VM under proxmoxmain)
-- **SSH:** Port 123, key-based auth + 2FA (authenticator)
-- **Resources:** 12 vCPU, 24GB RAM (iGPU passthrough removed — now used by ct-nvr/ct-media)
-- **Note:** Migrated from bare-metal Arch to Proxmox VM. Monolithic server — all services run as Docker containers in this single VM. Being decomposed into proper Proxmox VMs/CTs. See `docs/services.md` for inventory and `docs/migration.md` for plan.
-- **SSH multiplexing:** ControlMaster configured on both Termux and blvckmain to persist connections for 12h and avoid repeated 2FA prompts.
+### ct-photos (LXC — VMID 106 on proxmoxmain)
+- **IP:** 192.168.3.9
+- **User:** root
+- **OS:** Debian 13 (Trixie), privileged LXC
+- **SSH:** Port 22, key-based auth (no password)
+- **Resources:** 4 vCPU, 8192MB RAM, 2048MB swap, 16GB disk
+- **Role:** Photo management. Runs Immich with iGPU passthrough for ML inference.
+- **Stack:** `/opt/stacks/ct-photos/docker-compose.yml` (local copy: `stacks/ct-photos/`)
+- **Ports:** 2283 (Immich HTTP UI)
+- **Config notes:** Privileged CT for device access. iGPU passthrough for ML. Immich data on mergerfs pool (`/mnt/cloud/volumes/mediaserver/immich`) bind-mounted into CT at `/mnt/immich`. DB password in `/opt/stacks/ct-photos/.env`.
 
 ### Termux (Nothing Phone A024)
 - **User:** u0_a416
@@ -128,26 +129,15 @@ Termux (phone)
   ├── ssh blvckmain      → 192.168.1.110:22  (psy, key auth)
   ├── ssh proxmoxmain    → 192.168.3.2:22    (root, key auth)
   ├── ssh proxmoxnode    → 192.168.3.3:22    (root, key auth)
-  └── ssh blvckserver    → 192.168.3.4:123   (psy, key+2FA, multiplexed)
-
 blvckmain (main PC)
-  ├── ssh blvckserver    → 192.168.3.4:123   (psy, key+2FA, multiplexed)
   ├── ssh ct-dns         → 192.168.3.5:22    (root, key auth)
   ├── ssh ct-tunnel      → 192.168.3.6:22    (root, key auth)
   ├── ssh ct-nvr         → 192.168.3.7:22    (root, key auth)
   ├── ssh ct-media       → 192.168.3.8:22    (root, key auth)
+  ├── ssh ct-photos      → 192.168.3.9:22    (root, key auth)
   ├── ssh ct-files       → 192.168.3.11:22   (root, key auth)
   └── ssh ct-mgmt        → 192.168.3.12:22   (root, key auth)
 ```
-
-## SSH Multiplexing
-
-blvckserver requires 2FA on every connection. To avoid repeated prompts, SSH multiplexing is configured on both Termux and blvckmain:
-- `ControlMaster auto`
-- `ControlPath ~/.ssh/sockets/%r@%h-%p`
-- `ControlPersist 12h`
-
-First connection requires 2FA. Subsequent connections within 12h reuse the socket.
 
 ## Services
 
@@ -157,6 +147,5 @@ Jellyfin media server runs on ct-media (https://jellyfin.lan or http://192.168.3
 Samba + FileBrowser run on ct-files (https://files.lan or http://192.168.3.11:8080) for SMB file shares and web-based file management.
 Home Assistant runs on proxmoxnode (https://homeassistant.lan or http://192.168.3.10:8123) for home automation.
 Proxmox VE runs on proxmoxmain (https://proxmox.lan or https://192.168.3.2:8006) and proxmoxnode (https://proxmox-node.lan or https://192.168.3.3:8006).
-Legacy services still run on blvckserver — being decomposed into dedicated CTs.
+Immich photo management runs on ct-photos (https://immich.lan or http://192.168.3.9:2283) with iGPU ML inference.
 Full inventory in `docs/services.md`. Hardware and storage details in `docs/hardware.md`.
-Migration plan in `docs/migration.md`.

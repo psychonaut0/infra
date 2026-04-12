@@ -1,0 +1,72 @@
+- id: '1759511185115'
+  alias: Camera switch
+  description: ''
+  triggers:
+  - trigger: state
+    entity_id:
+    - input_boolean.camera_1_switch
+    from:
+    to:
+  conditions: []
+  actions:
+  - if:
+    - condition: state
+      entity_id: input_boolean.camera_switch
+      state:
+      - 'off'
+    then:
+    - action: camera.turn_off
+      target:
+        device_id:
+        - 28bd01de7e59f65a10516df98a39290b
+        - 1245575f58a4e1b034fc0d94bcd2350a
+        - 346a580bc221728052777345d50c1206
+      data: {}
+    else:
+    - action: camera.turn_on
+      target:
+        device_id:
+        - 28bd01de7e59f65a10516df98a39290b
+        - 1245575f58a4e1b034fc0d94bcd2350a
+        - 346a580bc221728052777345d50c1206
+      data: {}
+  mode: single
+- id: '1759829415964'
+  alias: Check camera switch status
+  description: ''
+  triggers:
+  - trigger: time_pattern
+    seconds: /30
+  conditions: []
+  actions:
+  - if:
+    - condition: state
+      entity_id: input_boolean.camera_switch
+      state:
+      - 'off'
+    - condition: and
+      conditions:
+      - condition: or
+        conditions:
+        - condition: not
+          conditions:
+          - condition: state
+            entity_id: camera.camera_1
+            state: idle
+        - condition: not
+          conditions:
+          - condition: state
+            entity_id: camera.camera_3
+            state: idle
+        - condition: not
+          conditions:
+          - condition: state
+            entity_id: camera.camera_2
+            state: idle
+    then:
+    - action: camera.turn_off
+      metadata: {}
+      data: {}
+      target:
+        label_id: camera
+  mode: single
