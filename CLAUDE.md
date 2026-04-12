@@ -18,7 +18,7 @@
 - **RAM:** 32GB
 - **Role:** Primary Proxmox hypervisor node. Clustered with proxmoxnode. Authorized keys are shared across the cluster.
 - **VMs:** blvckserver (VMID 100)
-- **CTs:** ct-tunnel (VMID 103), ct-nvr (VMID 104), ct-media (VMID 105), ct-mgmt (VMID 108)
+- **CTs:** ct-tunnel (VMID 103), ct-nvr (VMID 104), ct-media (VMID 105), ct-files (VMID 107), ct-mgmt (VMID 108)
 - **Storage:** See `docs/hardware.md` for full disk and storage layout.
 
 ### proxmoxnode
@@ -29,9 +29,18 @@
 - **CPU:** Intel N100 (4C/4T)
 - **RAM:** 16GB
 - **Role:** Secondary Proxmox cluster node. Shares authorized_keys with proxmoxmain via pmxcfs.
-- **VMs:** Home Assistant OS (VMID 101, 8GB RAM, 50GB disk)
+- **VMs:** Home Assistant OS (VMID 101)
 - **CTs:** ct-dns (VMID 102)
 - **Storage:** 476GB SSD, ~300GB LVM thin available.
+
+### Home Assistant OS (VM — VMID 101 on proxmoxnode)
+- **IP:** 192.168.3.10
+- **OS:** Home Assistant OS (HAOS)
+- **Resources:** 4 vCPU, 8192MB RAM, 50GB disk
+- **Machine:** q35 with OVMF/UEFI
+- **Role:** Home automation. Runs Home Assistant.
+- **Ports:** 8123 (HTTP UI)
+- **Config notes:** Auto-start on boot (`onboot: 1`). Installed via Proxmox community script.
 
 ### ct-dns (LXC — VMID 102 on proxmoxnode)
 - **IP:** 192.168.3.5
@@ -75,6 +84,17 @@
 - **Ports:** 8096 (Jellyfin HTTP), 8920 (Jellyfin HTTPS), 8989 (Sonarr), 7878 (Radarr), 8112 (Deluge), 9696 (Prowlarr), 8191 (FlareSolverr)
 - **Config notes:** Privileged CT for device access. iGPU passthrough via `lxc.cgroup2.devices.allow: c 226:* rwm` and `/dev/dri` bind mount. Media data on mergerfs pool (`/mnt/cloud/volumes/mediaserver`) bind-mounted into CT at `/mnt/mediaserver`. AppArmor unconfined + proc/sys rw mount for Docker compatibility.
 
+### ct-files (LXC — VMID 107 on proxmoxmain)
+- **IP:** 192.168.3.11
+- **User:** root
+- **OS:** Debian 13 (Trixie), privileged LXC
+- **SSH:** Port 22, key-based auth (no password)
+- **Resources:** 1 vCPU, 1024MB RAM, 512MB swap, 4GB disk
+- **Role:** File server. Runs Samba for SMB shares and FileBrowser for web-based file management.
+- **Stack:** `/opt/stacks/ct-files/docker-compose.yml` (local copy: `stacks/ct-files/`)
+- **Ports:** 139/445 (Samba SMB), 8080 (FileBrowser HTTP)
+- **Config notes:** Privileged CT for clean UID mapping on shared storage. Full mergerfs pool (`/mnt/cloud`) bind-mounted into CT. AppArmor unconfined for Docker compatibility. Samba config/data/users from `/mnt/cloud/volumes/samba/`.
+
 ### ct-mgmt (LXC — VMID 108 on proxmoxmain)
 - **IP:** 192.168.3.12
 - **User:** root
@@ -116,6 +136,7 @@ blvckmain (main PC)
   ├── ssh ct-tunnel      → 192.168.3.6:22    (root, key auth)
   ├── ssh ct-nvr         → 192.168.3.7:22    (root, key auth)
   ├── ssh ct-media       → 192.168.3.8:22    (root, key auth)
+  ├── ssh ct-files       → 192.168.3.11:22   (root, key auth)
   └── ssh ct-mgmt        → 192.168.3.12:22   (root, key auth)
 ```
 
@@ -133,6 +154,8 @@ First connection requires 2FA. Subsequent connections within 12h reuse the socke
 Portainer CE runs on ct-mgmt (https://portainer.lan or https://192.168.3.12:9443) and manages container environments across CTs via portainer-agent (port 9001).
 Frigate NVR runs on ct-nvr (https://nvr.lan or https://192.168.3.7:8971) with iGPU-accelerated video decoding.
 Jellyfin media server runs on ct-media (https://jellyfin.lan or http://192.168.3.8:8096) with iGPU hardware transcoding, alongside Sonarr, Radarr, Deluge, Prowlarr, and FlareSolverr.
+Samba + FileBrowser run on ct-files (https://files.lan or http://192.168.3.11:8080) for SMB file shares and web-based file management.
+Home Assistant runs on proxmoxnode (https://homeassistant.lan or http://192.168.3.10:8123) for home automation.
 Proxmox VE runs on proxmoxmain (https://proxmox.lan or https://192.168.3.2:8006) and proxmoxnode (https://proxmox-node.lan or https://192.168.3.3:8006).
 Legacy services still run on blvckserver — being decomposed into dedicated CTs.
 Full inventory in `docs/services.md`. Hardware and storage details in `docs/hardware.md`.
