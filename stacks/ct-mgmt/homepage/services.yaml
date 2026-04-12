@@ -1,0 +1,81 @@
+- Infrastructure:
+    - Proxmox:
+        icon: proxmox
+        href: https://proxmox.lan
+        description: Hypervisor — proxmoxmain
+        widget:
+          type: proxmox
+          url: https://192.168.3.2:8006
+          username: "{{HOMEPAGE_VAR_PROXMOX_USER}}"
+          password: "{{HOMEPAGE_VAR_PROXMOX_PASS}}"
+    - Pi-hole:
+        icon: pi-hole
+        href: https://dns.lan
+        description: DNS — ct-dns
+        widget:
+          type: pihole
+          url: http://192.168.3.5
+          key: "{{HOMEPAGE_VAR_PIHOLE_KEY}}"
+    - Portainer:
+        icon: portainer
+        href: https://portainer.lan
+        description: Containers — ct-mgmt
+    - Cloudflare Tunnel:
+        icon: cloudflare
+        href: https://one.dash.cloudflare.com
+        description: Public access — ct-tunnel
+
+- Media:
+    - Jellyfin:
+        icon: jellyfin
+        href: https://jellyfin.lan
+        description: Media server — ct-media
+        widget:
+          type: jellyfin
+          url: http://192.168.3.8:8096
+          key: "{{HOMEPAGE_VAR_JELLYFIN_KEY}}"
+    - Sonarr:
+        icon: sonarr
+        href: http://192.168.3.8:8989
+        description: TV series — ct-media
+        widget:
+          type: sonarr
+          url: http://192.168.3.8:8989
+          key: "{{HOMEPAGE_VAR_SONARR_KEY}}"
+    - Radarr:
+        icon: radarr
+        href: http://192.168.3.8:7878
+        description: Movies — ct-media
+        widget:
+          type: radarr
+          url: http://192.168.3.8:7878
+          key: "{{HOMEPAGE_VAR_RADARR_KEY}}"
+
+- Applications:
+    - Immich:
+        icon: immich
+        href: https://immich.lan
+        description: Photos — ct-photos
+        widget:
+          type: immich
+          url: http://192.168.3.9:2283
+          key: "{{HOMEPAGE_VAR_IMMICH_KEY}}"
+    - Frigate:
+        icon: frigate
+        href: https://nvr.lan
+        description: NVR — ct-nvr
+        widget:
+          type: frigate
+          url: https://192.168.3.7:8971
+    - File Browser:
+        icon: filebrowser
+        href: https://files.lan
+        description: Files — ct-files
+    - Home Assistant:
+        icon: home-assistant
+        href: https://homeassistant.lan
+        description: Automation — proxmoxnode
+        widget:
+          type: homeassistant
+          url: http://192.168.3.10:8123
+          key: "{{HOMEPAGE_VAR_HASS_KEY}}"

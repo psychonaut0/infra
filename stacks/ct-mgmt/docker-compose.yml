@@ -12,6 +12,17 @@ services:
       - /var/run/docker.sock:/var/run/docker.sock
       - portainer-data:/data
 
+  homepage:
+    image: ghcr.io/gethomepage/homepage:latest
+    container_name: homepage
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./homepage:/app/config
+    environment:
+      HOMEPAGE_ALLOWED_HOSTS: home.lan
+
   caddy:
     image: caddy:latest
     container_name: caddy

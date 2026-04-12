@@ -57,3 +57,8 @@ files.lan {
 	tls internal
 	reverse_proxy 192.168.3.11:8080
 }
+
+home.lan {
+	tls internal
+	reverse_proxy homepage:3000
+}
