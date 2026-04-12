@@ -18,7 +18,7 @@
 - **RAM:** 32GB
 - **Role:** Primary Proxmox hypervisor node. Clustered with proxmoxnode. Authorized keys are shared across the cluster.
 - **VMs:** blvckserver (VMID 100)
-- **CTs:** ct-tunnel (VMID 103), ct-mgmt (VMID 108)
+- **CTs:** ct-tunnel (VMID 103), ct-nvr (VMID 104), ct-mgmt (VMID 108)
 - **Storage:** See `docs/hardware.md` for full disk and storage layout.
 
 ### proxmoxnode
@@ -53,6 +53,17 @@
 - **Stack:** `/opt/stacks/ct-tunnel/docker-compose.yml` (local copy: `stacks/ct-tunnel/`)
 - **Config notes:** AppArmor set to unconfined for Docker compatibility. Uses `network_mode: host` for cloudflared. Tunnel token stored in `/opt/stacks/ct-tunnel/.env`.
 
+### ct-nvr (LXC — VMID 104 on proxmoxmain)
+- **IP:** 192.168.3.7
+- **User:** root
+- **OS:** Debian 13 (Trixie), privileged LXC
+- **SSH:** Port 22, key-based auth (no password)
+- **Resources:** 2 vCPU, 4096MB RAM, 1024MB swap, 24GB disk
+- **Role:** NVR (Network Video Recorder). Runs Frigate with iGPU passthrough for hardware video decoding and AI object detection.
+- **Stack:** `/opt/stacks/ct-nvr/docker-compose.yml` (local copy: `stacks/ct-nvr/`)
+- **Ports:** 8971 (Frigate HTTPS UI), 8554 (RTSP), 8555 (WebRTC)
+- **Config notes:** Privileged CT for device access. iGPU passthrough via `lxc.cgroup2.devices.allow: c 226:* rwm` and `/dev/dri` bind mount. NVR data on LVM thin volume (`nvr-data:vm-100-disk-0`) mounted on host via kpartx at `/mnt/nvr-data` and bind-mounted into CT. AppArmor unconfined + proc/sys rw mount for Docker compatibility. Systemd service `mnt-nvr-data.service` on proxmoxmain handles persistent mount across reboots.
+
 ### ct-mgmt (LXC — VMID 108 on proxmoxmain)
 - **IP:** 192.168.3.12
 - **User:** root
@@ -69,7 +80,7 @@
 - **User:** psy
 - **OS:** Arch Linux (VM under proxmoxmain)
 - **SSH:** Port 123, key-based auth + 2FA (authenticator)
-- **Resources:** 12 vCPU, 24GB RAM, iGPU passthrough (Intel UHD 630)
+- **Resources:** 12 vCPU, 24GB RAM (iGPU passthrough removed — now used by ct-nvr/ct-media)
 - **Note:** Migrated from bare-metal Arch to Proxmox VM. Monolithic server — all services run as Docker containers in this single VM. Being decomposed into proper Proxmox VMs/CTs. See `docs/services.md` for inventory and `docs/migration.md` for plan.
 - **SSH multiplexing:** ControlMaster configured on both Termux and blvckmain to persist connections for 12h and avoid repeated 2FA prompts.
 
@@ -92,6 +103,7 @@ blvckmain (main PC)
   ├── ssh blvckserver    → 192.168.3.4:123   (psy, key+2FA, multiplexed)
   ├── ssh ct-dns         → 192.168.3.5:22    (root, key auth)
   ├── ssh ct-tunnel      → 192.168.3.6:22    (root, key auth)
+  ├── ssh ct-nvr         → 192.168.3.7:22    (root, key auth)
   └── ssh ct-mgmt        → 192.168.3.12:22   (root, key auth)
 ```
 
@@ -107,6 +119,7 @@ First connection requires 2FA. Subsequent connections within 12h reuse the socke
 ## Services
 
 Portainer CE runs on ct-mgmt (https://192.168.3.12:9443) and manages container environments across CTs via portainer-agent (port 9001).
+Frigate NVR runs on ct-nvr (https://nvr.lan or https://192.168.3.7:8971) with iGPU-accelerated video decoding.
 Legacy services still run on blvckserver — being decomposed into dedicated CTs.
 Full inventory in `docs/services.md`. Hardware and storage details in `docs/hardware.md`.
 Migration plan in `docs/migration.md`.

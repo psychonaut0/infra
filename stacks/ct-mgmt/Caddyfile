@@ -10,3 +10,12 @@ dns.lan {
 	tls internal
 	reverse_proxy 192.168.3.5:80
 }
+
+nvr.lan {
+	tls internal
+	reverse_proxy https://192.168.3.7:8971 {
+		transport http {
+			tls_insecure_skip_verify
+		}
+	}
+}
