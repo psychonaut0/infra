@@ -1,7 +1,7 @@
 - Infrastructure:
     - Proxmox:
         icon: proxmox
-        href: https://proxmox.lan
+        href: http://proxmox.lan
         description: Hypervisor — proxmoxmain
         widget:
           type: proxmox
@@ -10,7 +10,7 @@
           password: "{{HOMEPAGE_VAR_PROXMOX_PASS}}"
     - Pi-hole:
         icon: pi-hole
-        href: https://dns.lan
+        href: http://dns.lan
         description: DNS — ct-dns
         widget:
           type: pihole
@@ -18,7 +18,7 @@
           key: "{{HOMEPAGE_VAR_PIHOLE_KEY}}"
     - Portainer:
         icon: portainer
-        href: https://portainer.lan
+        href: http://portainer.lan
         description: Containers — ct-mgmt
     - Cloudflare Tunnel:
         icon: cloudflare
@@ -28,7 +28,7 @@
 - Media:
     - Jellyfin:
         icon: jellyfin
-        href: https://jellyfin.lan
+        href: http://jellyfin.lan
         description: Media server — ct-media
         widget:
           type: jellyfin
@@ -54,7 +54,7 @@
 - Applications:
     - Immich:
         icon: immich
-        href: https://immich.lan
+        href: http://immich.lan
         description: Photos — ct-photos
         widget:
           type: immich
@@ -62,18 +62,18 @@
           key: "{{HOMEPAGE_VAR_IMMICH_KEY}}"
     - Frigate:
         icon: frigate
-        href: https://nvr.lan
+        href: http://nvr.lan
         description: NVR — ct-nvr
         widget:
           type: frigate
           url: https://192.168.3.7:8971
     - File Browser:
         icon: filebrowser
-        href: https://files.lan
+        href: http://files.lan
         description: Files — ct-files
     - Home Assistant:
         icon: home-assistant
-        href: https://homeassistant.lan
+        href: http://homeassistant.lan
         description: Automation — proxmoxnode
         widget:
           type: homeassistant
