@@ -17,7 +17,8 @@ http://nvr.lan {
 	}
 }
 
-http://proxmox.lan {
+proxmox.lan {
+	tls internal
 	reverse_proxy https://192.168.3.2:8006 {
 		transport http {
 			tls_insecure_skip_verify
@@ -25,7 +26,8 @@ http://proxmox.lan {
 	}
 }
 
-http://proxmox-node.lan {
+proxmox-node.lan {
+	tls internal
 	reverse_proxy https://192.168.3.3:8006 {
 		transport http {
 			tls_insecure_skip_verify

@@ -1,7 +1,7 @@
 - Infrastructure:
     - Proxmox:
         icon: proxmox
-        href: http://proxmox.lan
+        href: https://proxmox.lan
         description: Hypervisor — proxmoxmain
         widget:
           type: proxmox
