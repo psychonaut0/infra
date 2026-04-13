@@ -1,18 +1,15 @@
 # Reverse proxy for local services
-# Access via https://service.lan (requires pihole DNS entries)
+# All on HTTP port 80 — access via http://service.lan
 
-portainer.lan {
-	tls internal
+http://portainer.lan {
 	reverse_proxy portainer:9000
 }
 
-dns.lan {
-	tls internal
+http://dns.lan {
 	reverse_proxy 192.168.3.5:80
 }
 
-nvr.lan {
-	tls internal
+http://nvr.lan {
 	reverse_proxy https://192.168.3.7:8971 {
 		transport http {
 			tls_insecure_skip_verify
@@ -20,8 +17,7 @@ nvr.lan {
 	}
 }
 
-proxmox.lan {
-	tls internal
+http://proxmox.lan {
 	reverse_proxy https://192.168.3.2:8006 {
 		transport http {
 			tls_insecure_skip_verify
@@ -29,8 +25,7 @@ proxmox.lan {
 	}
 }
 
-proxmox-node.lan {
-	tls internal
+http://proxmox-node.lan {
 	reverse_proxy https://192.168.3.3:8006 {
 		transport http {
 			tls_insecure_skip_verify
@@ -38,27 +33,22 @@ proxmox-node.lan {
 	}
 }
 
-jellyfin.lan {
-	tls internal
+http://jellyfin.lan {
 	reverse_proxy 192.168.3.8:8096
 }
 
-immich.lan {
-	tls internal
+http://immich.lan {
 	reverse_proxy 192.168.3.9:2283
 }
 
-homeassistant.lan {
-	tls internal
+http://homeassistant.lan {
 	reverse_proxy http://192.168.3.10:8123
 }
 
-files.lan {
-	tls internal
+http://files.lan {
 	reverse_proxy 192.168.3.11:8080
 }
 
-home.lan {
-	tls internal
+http://home.lan {
 	reverse_proxy homepage:3000
 }
