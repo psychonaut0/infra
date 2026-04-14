@@ -12,14 +12,16 @@ services:
       - /var/run/docker.sock:/var/run/docker.sock
       - portainer-data:/data
 
-  homer:
-    image: b4bz/homer:latest
-    container_name: homer
+  homepage:
+    image: ghcr.io/gethomepage/homepage:latest
+    container_name: homepage
     restart: unless-stopped
     ports:
-      - "3000:8080"
+      - "3000:3000"
     volumes:
-      - ./homer:/www/assets
+      - ./homepage:/app/config
+    environment:
+      - HOMEPAGE_ALLOWED_HOSTS=home.lan
 
   caddy:
     image: caddy:latest
