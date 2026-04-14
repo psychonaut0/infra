@@ -6,16 +6,21 @@ headerStyle: clean
 layout:
   Quick Access:
     style: row
-    columns: 3
+    columns: 2
+  " ":
+    style: row
+    columns: 1
+    header: false
   Often:
     style: row
-    columns: 3
+    columns: 1
+  "  ":
+    style: row
+    columns: 2
+    header: false
   Infrastructure:
     style: row
     columns: 3
   Media Tools:
     style: row
     columns: 5
-  Files:
-    style: row
-    columns: 1
