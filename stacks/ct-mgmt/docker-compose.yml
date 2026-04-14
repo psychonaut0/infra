@@ -23,7 +23,7 @@ services:
     env_file:
       - ./homepage/.env
     environment:
-      HOMEPAGE_ALLOWED_HOSTS: home.lan
+      - HOMEPAGE_ALLOWED_HOSTS=home.lan
 
   caddy:
     image: caddy:latest
