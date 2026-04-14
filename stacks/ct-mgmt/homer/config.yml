@@ -1,0 +1,157 @@
+title: Home Lab
+subtitle: ""
+logo: false
+header: false
+footer: false
+
+defaults:
+  layout: columns
+  colorTheme: dark
+
+theme: default
+colors:
+  dark:
+    highlight-primary: "#3367d6"
+    highlight-secondary: "#4285f4"
+    highlight-hover: "#5a95f5"
+    background: "#131313"
+    card-background: "#1e1e1e"
+    text: "#eaeaea"
+    text-header: "#ffffff"
+    text-title: "#fafafa"
+    text-subtitle: "#f5f5f5"
+    card-shadow: rgba(0, 0, 0, 0.4)
+    link: "#3273dc"
+    link-hover: "#ffdd57"
+
+links: []
+
+services:
+  - name: Quick Access
+    items:
+      - name: Home Assistant
+        subtitle: Automation
+        url: http://homeassistant.lan
+        logo: https://cdn.jsdelivr.net/gh/walkxcode/dashboard-icons/png/home-assistant.png
+        type: Ping
+        tag: online
+      - name: Jellyfin
+        subtitle: Media server
+        url: http://jellyfin.lan
+        logo: https://cdn.jsdelivr.net/gh/walkxcode/dashboard-icons/png/jellyfin.png
+        type: Ping
+        tag: online
+      - name: Immich
+        subtitle: Photos
+        url: http://immich.lan
+        logo: https://cdn.jsdelivr.net/gh/walkxcode/dashboard-icons/png/immich.png
+        type: Ping
+        tag: online
+
+  - name: Often
+    items:
+      - name: Portainer
+        subtitle: Container management
+        url: http://portainer.lan
+        logo: https://cdn.jsdelivr.net/gh/walkxcode/dashboard-icons/png/portainer.png
+        type: Ping
+        tag: online
+      - name: Proxmox
+        subtitle: Hypervisor
+        url: https://proxmox.lan
+        logo: https://cdn.jsdelivr.net/gh/walkxcode/dashboard-icons/png/proxmox.png
+        type: Ping
+        tag: online
+      - name: Frigate
+        subtitle: NVR
+        url: http://nvr.lan
+        logo: https://cdn.jsdelivr.net/gh/walkxcode/dashboard-icons/png/frigate.png
+        type: Ping
+        tag: online
+
+  - name: Infrastructure
+    items:
+      - name: Pi-hole
+        subtitle: DNS & ad blocking
+        url: http://dns.lan
+        logo: https://cdn.jsdelivr.net/gh/walkxcode/dashboard-icons/png/pi-hole.png
+        type: Ping
+        tag: online
+      - name: Proxmox Node
+        subtitle: Secondary node
+        url: https://proxmox-node.lan
+        logo: https://cdn.jsdelivr.net/gh/walkxcode/dashboard-icons/png/proxmox.png
+        type: Ping
+        tag: online
+      - name: FileBrowser
+        subtitle: File management
+        url: http://files.lan
+        logo: https://cdn.jsdelivr.net/gh/walkxcode/dashboard-icons/png/filebrowser.png
+        type: Ping
+        tag: online
+
+  - name: Media Tools
+    items:
+      - name: Sonarr
+        subtitle: TV series
+        url: http://192.168.3.8:8989
+        logo: https://cdn.jsdelivr.net/gh/walkxcode/dashboard-icons/png/sonarr.png
+        type: Ping
+        tag: online
+      - name: Radarr
+        subtitle: Movies
+        url: http://192.168.3.8:7878
+        logo: https://cdn.jsdelivr.net/gh/walkxcode/dashboard-icons/png/radarr.png
+        type: Ping
+        tag: online
+      - name: Deluge
+        subtitle: Downloads
+        url: http://192.168.3.8:8112
+        logo: https://cdn.jsdelivr.net/gh/walkxcode/dashboard-icons/png/deluge.png
+        type: Ping
+        tag: online
+      - name: Prowlarr
+        subtitle: Indexers
+        url: http://192.168.3.8:9696
+        logo: https://cdn.jsdelivr.net/gh/walkxcode/dashboard-icons/png/prowlarr.png
+        type: Ping
+        tag: online
+      - name: FlareSolverr
+        subtitle: Cloudflare bypass
+        url: http://192.168.3.8:8191
+        logo: https://cdn.jsdelivr.net/gh/walkxcode/dashboard-icons/png/flaresolverr.png
+        type: Ping
+        tag: online
+
+  - name: Bookmarks
+    items:
+      - name: GitHub
+        subtitle: Dev
+        url: https://github.com/psychonaut0
+        logo: https://cdn.jsdelivr.net/gh/walkxcode/dashboard-icons/png/github.png
+        target: _blank
+      - name: Bitbucket
+        subtitle: Dev
+        url: https://bitbucket.org
+        logo: https://cdn.jsdelivr.net/gh/walkxcode/dashboard-icons/png/bitbucket.png
+        target: _blank
+      - name: Cloudflare
+        subtitle: Infra
+        url: https://one.dash.cloudflare.com
+        logo: https://cdn.jsdelivr.net/gh/walkxcode/dashboard-icons/png/cloudflare.png
+        target: _blank
+      - name: UniFi
+        subtitle: Infra
+        url: https://192.168.1.1
+        logo: https://cdn.jsdelivr.net/gh/walkxcode/dashboard-icons/png/ubiquiti.png
+        target: _blank
+      - name: Tailscale
+        subtitle: Infra
+        url: https://login.tailscale.com
+        logo: https://cdn.jsdelivr.net/gh/walkxcode/dashboard-icons/png/tailscale.png
+        target: _blank
+      - name: Njalla
+        subtitle: Infra
+        url: https://njal.la
+        logo: https://cdn.jsdelivr.net/gh/walkxcode/dashboard-icons/png/globe.png
+        target: _blank

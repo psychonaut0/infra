@@ -12,6 +12,15 @@ services:
       - /var/run/docker.sock:/var/run/docker.sock
       - portainer-data:/data
 
+  homer:
+    image: b4bz/homer:latest
+    container_name: homer
+    restart: unless-stopped
+    ports:
+      - "3000:8080"
+    volumes:
+      - ./homer:/www/assets
+
   caddy:
     image: caddy:latest
     container_name: caddy
