@@ -2,127 +2,100 @@
 
 ## Overview
 
-Configure the Homepage dashboard (running on ct-mgmt at `http://home.lan`) as the primary launcher for all home lab services. Keep it fast to use from desktop (primary) and mobile. Show light health-check and live-stat widgets for the services where that info matters, but keep most cards as simple launch tiles.
+Custom React static dashboard served by Caddy on ct-mgmt at `http://home.lan`. Built locally, static output deployed to ct-mgmt. Neumorphic dark UI with health check pings.
 
-## Audience & Use Case
+## Tech Stack
 
-- **Single user** (no family mode, no simplified view)
-- **Primary device:** desktop (4-column rows). Mobile works via Homepage's responsive default.
-- **Primary purpose:** quick launcher. Secondary: light health checks and at-a-glance live data on frequently-used services.
+- React (Vite build → static HTML/JS/CSS)
+- Neumorphism CSS (custom, no framework)
+- Health checks via `fetch()` to each service URL
+- Served by Caddy (already running on ct-mgmt) — no extra container
 
 ## Layout
 
-Single-page scrollable dashboard, dark theme (slate), title "Home Lab", with:
+```
+| QUICK ACCESS                     | OFTEN                           |
+| [Home Assistant - full width]    | [Portainer - full width]        |
+| [Jellyfin]      [Immich]        | [Proxmox]      [Frigate]        |
+|----------------------------------------------------------------------|
+| INFRASTRUCTURE                                                       |
+| [Pi-hole]    [Proxmox Node]    [FileBrowser]                        |
+|----------------------------------------------------------------------|
+| MEDIA TOOLS                                                          |
+| [Sonarr] [Radarr] [Deluge] [Prowlarr] [FlareSolverr]               |
+|----------------------------------------------------------------------|
+| BOOKMARKS                                                            |
+| Dev: GitHub, Bitbucket  |  Infra: Cloudflare, UniFi, Tailscale, Njalla |
+```
 
-- Search bar at top → Google
-- Time/date widget at top
-- Service sections (ordered by frequency of use)
-- Bookmarks section (2 groups side by side)
-- System resources widget at bottom (ct-mgmt CPU/RAM/disk)
+## Neumorphism Style
 
-### Service Sections
+- Background: `#2a2a3c` (dark purple-gray)
+- Cards: same background color, raised with dual box-shadows (dark below-right, light above-left)
+- Hover: shadows compress slightly
+- Active/click: inset shadows (pressed effect)
+- Search bar: inset neumorphic
+- Status dots: small inset circle, green/red
+- Section headers: uppercase, small, dimmed text
+- Font: system sans-serif, light weight
 
-Sections are ordered by access frequency. Each section renders as a row with cards.
+## Services
 
-1. **Quick Access** — daily services
-   - Jellyfin
-   - Immich
-   - Home Assistant
+### Quick Access
+| Service | URL | Ping |
+|---------|-----|------|
+| Home Assistant | http://homeassistant.lan | http://192.168.3.10:8123 |
+| Jellyfin | http://jellyfin.lan | http://192.168.3.8:8096 |
+| Immich | http://immich.lan | http://192.168.3.9:2283 |
 
-2. **Often** — weekly/frequently-used
-   - Portainer
-   - Proxmox
-   - Frigate
+### Often
+| Service | URL | Ping |
+|---------|-----|------|
+| Portainer | http://portainer.lan | http://192.168.3.12:9000 |
+| Proxmox | https://proxmox.lan | https://192.168.3.2:8006 |
+| Frigate | http://nvr.lan | http://192.168.3.7:5000 |
 
-3. **Infrastructure** — admin/network
-   - Pi-hole
-   - Proxmox-node
-   - Cloudflare Tunnel (link to Cloudflare Zero Trust)
+### Infrastructure
+| Service | URL | Ping |
+|---------|-----|------|
+| Pi-hole | http://dns.lan | http://192.168.3.5 |
+| Proxmox Node | https://proxmox-node.lan | https://192.168.3.3:8006 |
+| FileBrowser | http://files.lan | http://192.168.3.11:8080 |
 
-4. **Media Tools** — less-used but useful to have
-   - Sonarr
-   - Radarr
-   - Deluge
-   - Prowlarr
-   - FlareSolverr
-
-5. **Files**
-   - FileBrowser
+### Media Tools
+| Service | URL | Ping |
+|---------|-----|------|
+| Sonarr | http://192.168.3.8:8989 | same |
+| Radarr | http://192.168.3.8:7878 | same |
+| Deluge | http://192.168.3.8:8112 | same |
+| Prowlarr | http://192.168.3.8:9696 | same |
+| FlareSolverr | http://192.168.3.8:8191 | same |
 
 ### Bookmarks
+| Group | Links |
+|-------|-------|
+| Dev | GitHub (github.com/psychonaut0), Bitbucket (bitbucket.org) |
+| Infra | Cloudflare (one.dash.cloudflare.com), UniFi (192.168.1.1), Tailscale (login.tailscale.com), Njalla (njal.la) |
 
-Two groups side by side:
+## Health Check Behavior
 
-**Dev**
-- GitHub → `https://github.com/psychonaut0`
-- Bitbucket → `https://bitbucket.org`
+- On page load: fetch each ping URL with `mode: 'no-cors'`
+- Success (any response) → green dot
+- Failure (timeout/network error) → red dot
+- Re-check every 60 seconds
+- No API keys needed — just reachability
 
-**Infra**
-- Cloudflare → `https://one.dash.cloudflare.com`
-- UniFi → `https://192.168.1.1`
-- Tailscale → `https://login.tailscale.com`
-- Njalla → `https://njal.la`
+## Deployment
 
-## Widgets (Live Data)
+- Build locally: `npm run build` → `dist/` folder
+- Deploy: `scp dist/* root@192.168.3.12:/opt/stacks/ct-mgmt/dashboard/`
+- Caddy serves from a volume mount or inline file_server
+- Source lives in `stacks/ct-mgmt/dashboard-src/` in the infra repo
 
-Enable full widgets only on these 6 services. Everything else remains as a plain launch tile with a description.
+## What to remove
 
-| Service | Widget Data | Auth Method |
-|---------|-------------|-------------|
-| Proxmox (main + node) | CPU, RAM, disk, VM/CT count | API token (user@pam with custom token) |
-| Jellyfin | Now-playing count, library sizes | API key |
-| Immich | Photo + video counts | API key |
-| Home Assistant | Entity counts + 2-3 key sensors | Long-lived access token |
-| Pi-hole | Queries blocked today, adlists | API token |
-| Frigate | Camera status, recent events | None (public endpoint) |
-
-API tokens stored in `/opt/stacks/ct-mgmt/homepage/.env` on the CT (not in git). The repo keeps `.env.example` as documentation. Services reference tokens via `{{HOMEPAGE_VAR_*}}` substitution.
-
-### Widgets explicitly skipped
-
-- Sonarr, Radarr, Deluge, Prowlarr — rarely used interactively; queue/count info doesn't drive action
-- Cloudflare Tunnel, Portainer — launch tiles only
-- Per-CT Docker socket integration — Proxmox widget already covers CT/VM counts
-
-## System Monitoring
-
-Proxmox widgets cover infrastructure monitoring (both nodes' CPU/RAM/disk, VM/CT counts). No separate monitoring layer (no glances, no Docker socket proxies). A single `resources` widget at the bottom shows ct-mgmt's own CPU/RAM/disk so the dashboard host itself is visible.
-
-## Settings
-
-- **Title:** Home Lab
-- **Theme:** dark
-- **Color:** slate
-- **Header style:** clean
-- **Layout:** row-based per section
-  - Quick Access: 3 columns
-  - Often: 3 columns
-  - Infrastructure: 3 columns
-  - Media Tools: 5 columns
-  - Files: 1 column
-
-## Access Control
-
-Homepage itself requires no login. Since `home.lan` resolves only on the LAN and requires Tailscale from outside, this is acceptable. Future consideration: put Homepage behind Authelia if access model changes.
-
-## File Structure
-
-No new files; rewrite existing Homepage config files.
-
-```
-stacks/ct-mgmt/homepage/
-  settings.yaml     # Title, theme, layout settings
-  services.yaml     # All service sections with widgets
-  bookmarks.yaml    # Dev + Infra bookmark groups
-  widgets.yaml      # Search, resources, time/date
-  .env.example      # Template documenting required vars
-```
-
-The actual `.env` with real tokens lives only on ct-mgmt at `/opt/stacks/ct-mgmt/homepage/.env` (compose loads it into the container).
-
-## Out of Scope
-
-- Multi-user modes or role-based service hiding
-- Authentication in front of Homepage
-- Monitoring rebuild (Grafana/Prometheus) — separate future project
-- Custom themes or CSS overrides
+- Homepage container (ghcr.io/gethomepage/homepage)
+- Homer container (b4bz/homer)
+- `stacks/ct-mgmt/homepage/` config directory
+- `stacks/ct-mgmt/homer/` config directory
+- `stacks/ct-mgmt/dashy/` config directory
