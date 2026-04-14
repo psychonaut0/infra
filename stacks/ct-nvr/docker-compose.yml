@@ -10,6 +10,7 @@ services:
       - "8554:8554"
       - "8555:8555/tcp"
       - "8555:8555/udp"
+      - "5000:5000"
     environment:
       FRIGATE_RTSP_PASSWORD: "password"
       TZ: Europe/Rome
