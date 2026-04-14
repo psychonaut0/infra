@@ -3,93 +3,82 @@
         icon: jellyfin
         href: http://jellyfin.lan
         description: Media server
-        widget:
-          type: jellyfin
-          url: http://192.168.3.8:8096
-          key: "{{HOMEPAGE_VAR_JELLYFIN_KEY}}"
+        ping: http://192.168.3.8:8096
     - Immich:
         icon: immich
         href: http://immich.lan
         description: Photos
-        widget:
-          type: immich
-          url: http://192.168.3.9:2283
-          key: "{{HOMEPAGE_VAR_IMMICH_KEY}}"
-          version: 2
+        ping: http://192.168.3.9:2283
     - Home Assistant:
         icon: home-assistant
         href: http://homeassistant.lan
         description: Automation
-        widget:
-          type: homeassistant
-          url: http://192.168.3.10:8123
-          key: "{{HOMEPAGE_VAR_HASS_KEY}}"
+        ping: http://192.168.3.10:8123
 
 - Often:
     - Portainer:
         icon: portainer
         href: http://portainer.lan
         description: Container management
+        ping: http://192.168.3.12:9000
     - Proxmox:
         icon: proxmox
         href: https://proxmox.lan
         description: Hypervisor
-        widget:
-          type: proxmox
-          url: https://192.168.3.2:8006
-          username: "{{HOMEPAGE_VAR_PROXMOX_USER}}"
-          password: "{{HOMEPAGE_VAR_PROXMOX_PASS}}"
+        ping: https://192.168.3.2:8006
     - Frigate:
         icon: frigate
         href: http://nvr.lan
         description: NVR
-        widget:
-          type: frigate
-          url: http://192.168.3.7:5000
+        ping: http://192.168.3.7:5000
 
 - Infrastructure:
     - Pi-hole:
         icon: pi-hole
         href: http://dns.lan
         description: DNS & ad blocking
-        widget:
-          type: pihole
-          url: http://192.168.3.5
-          version: 6
-          key: "{{HOMEPAGE_VAR_PIHOLE_KEY}}"
+        ping: http://192.168.3.5
     - Proxmox Node:
         icon: proxmox
         href: https://proxmox-node.lan
         description: Secondary node
+        ping: https://192.168.3.3:8006
     - Cloudflare Tunnel:
         icon: cloudflare
         href: https://one.dash.cloudflare.com
         description: Public access
+        ping: http://192.168.3.6:9001
 
 - Media Tools:
     - Sonarr:
         icon: sonarr
         href: http://192.168.3.8:8989
         description: TV series
+        ping: http://192.168.3.8:8989
     - Radarr:
         icon: radarr
         href: http://192.168.3.8:7878
         description: Movies
+        ping: http://192.168.3.8:7878
     - Deluge:
         icon: deluge
         href: http://192.168.3.8:8112
         description: Downloads
+        ping: http://192.168.3.8:8112
     - Prowlarr:
         icon: prowlarr
         href: http://192.168.3.8:9696
         description: Indexers
+        ping: http://192.168.3.8:9696
     - FlareSolverr:
         icon: flaresolverr
         href: http://192.168.3.8:8191
         description: Cloudflare bypass
+        ping: http://192.168.3.8:8191
 
 - Files:
     - FileBrowser:
         icon: filebrowser
         href: http://files.lan
         description: File management
+        ping: http://192.168.3.11:8080
