@@ -1,1 +1,21 @@
-[]
+- Dev:
+    - GitHub:
+        - icon: github
+          href: https://github.com/psychonaut0
+    - Bitbucket:
+        - icon: bitbucket
+          href: https://bitbucket.org
+
+- Infra:
+    - Cloudflare:
+        - icon: cloudflare
+          href: https://one.dash.cloudflare.com
+    - UniFi:
+        - icon: ubiquiti
+          href: https://192.168.1.1
+    - Tailscale:
+        - icon: tailscale
+          href: https://login.tailscale.com
+    - Njalla:
+        - icon: globe
+          href: https://njal.la

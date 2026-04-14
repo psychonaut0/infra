@@ -20,6 +20,8 @@ services:
       - "3000:3000"
     volumes:
       - ./homepage:/app/config
+    env_file:
+      - ./homepage/.env
     environment:
       HOMEPAGE_ALLOWED_HOSTS: home.lan
 
