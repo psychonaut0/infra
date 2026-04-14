@@ -6,8 +6,8 @@ Custom React static dashboard served by Caddy on ct-mgmt at `http://home.lan`. B
 
 ## Tech Stack
 
-- React (Vite build → static HTML/JS/CSS)
-- Neumorphism CSS (custom, no framework)
+- React + Tailwind CSS (Vite build → static HTML/JS/CSS)
+- Neumorphism via Tailwind custom shadows + extended theme
 - Health checks via `fetch()` to each service URL
 - Served by Caddy (already running on ct-mgmt) — no extra container
 
