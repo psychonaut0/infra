@@ -57,6 +57,11 @@ http://immich.lan {
 	reverse_proxy 192.168.3.9:2283
 }
 
+homeassistant.lan {
+	tls internal
+	reverse_proxy http://192.168.3.10:8123
+}
+
 http://homeassistant.lan {
 	reverse_proxy http://192.168.3.10:8123
 }
@@ -66,5 +71,5 @@ http://files.lan {
 }
 
 http://home.lan {
-	reverse_proxy homer:8080
+	reverse_proxy homepage:3000
 }
