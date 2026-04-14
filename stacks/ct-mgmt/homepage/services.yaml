@@ -43,11 +43,6 @@
         href: https://proxmox-node.lan
         description: Secondary node
         ping: https://192.168.3.3:8006
-    - Cloudflare Tunnel:
-        icon: cloudflare
-        href: https://one.dash.cloudflare.com
-        description: Public access
-        ping: http://192.168.3.6:9001
 
 - Media Tools:
     - Sonarr:
