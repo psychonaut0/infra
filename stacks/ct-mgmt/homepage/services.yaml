@@ -9,6 +9,8 @@
         href: http://immich.lan
         description: Photos
         ping: http://192.168.3.9:2283
+
+- " ":
     - Home Assistant:
         icon: home-assistant
         href: http://homeassistant.lan
@@ -21,6 +23,8 @@
         href: http://portainer.lan
         description: Container management
         ping: http://192.168.3.12:9000
+
+- "  ":
     - Proxmox:
         icon: proxmox
         href: https://proxmox.lan
@@ -43,6 +47,11 @@
         href: https://proxmox-node.lan
         description: Secondary node
         ping: https://192.168.3.3:8006
+    - FileBrowser:
+        icon: filebrowser
+        href: http://files.lan
+        description: File management
+        ping: http://192.168.3.11:8080
 
 - Media Tools:
     - Sonarr:
@@ -70,10 +79,3 @@
         href: http://192.168.3.8:8191
         description: Cloudflare bypass
         ping: http://192.168.3.8:8191
-
-- Files:
-    - FileBrowser:
-        icon: filebrowser
-        href: http://files.lan
-        description: File management
-        ping: http://192.168.3.11:8080
