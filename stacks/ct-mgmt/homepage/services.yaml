@@ -15,6 +15,7 @@
           type: immich
           url: http://192.168.3.9:2283
           key: "{{HOMEPAGE_VAR_IMMICH_KEY}}"
+          version: 2
     - Home Assistant:
         icon: home-assistant
         href: http://homeassistant.lan
@@ -44,7 +45,7 @@
         description: NVR
         widget:
           type: frigate
-          url: https://192.168.3.7:8971
+          url: http://192.168.3.7:5000
 
 - Infrastructure:
     - Pi-hole:
@@ -54,6 +55,7 @@
         widget:
           type: pihole
           url: http://192.168.3.5
+          version: 6
           key: "{{HOMEPAGE_VAR_PIHOLE_KEY}}"
     - Proxmox Node:
         icon: proxmox
