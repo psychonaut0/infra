@@ -1,5 +1,13 @@
 # Homepage Dashboard — Design Spec
 
+> **Implementation status (2026-04-15):** Shipped. Source at `stacks/ct-mgmt/dashboard-src/`.
+> Deltas from this spec:
+> - **Preact** instead of React (~90% smaller bundle: 22 KB vs 200 KB)
+> - **Bun server** replaces Caddy static file serving — handles SSR + `/api/status` API endpoint
+> - Added **server-side health checks** (fixes self-signed TLS issue for Proxmox) and **Proxmox resource monitoring** (node CPU/RAM, SSD + mergerfs storage widgets)
+> - Icons bundled locally as SVG, no CDN dependency
+> - Caddy still proxies `home.lan` → `dashboard:3000` (no static serving)
+
 ## Overview
 
 Custom React static dashboard served by Caddy on ct-mgmt at `http://home.lan`. Built locally, static output deployed to ct-mgmt. Neumorphic dark UI with health check pings.
