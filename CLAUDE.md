@@ -100,9 +100,10 @@
 - **OS:** Debian 13 (Trixie), unprivileged LXC
 - **SSH:** Port 22, key-based auth (no password)
 - **Resources:** 1 vCPU, 512MB RAM, 256MB swap, 4GB disk
-- **Role:** Management and monitoring. Runs Portainer CE for container orchestration across all CTs.
+- **Role:** Management and monitoring. Runs Portainer CE, the custom Home Lab dashboard, and Caddy reverse proxy for all `.lan` services.
 - **Stack:** `/opt/stacks/ct-mgmt/docker-compose.yml` (local copy: `stacks/ct-mgmt/`)
-- **Ports:** 9443 (Portainer HTTPS UI), 8000 (Edge Agent communication)
+- **Ports:** 80/443 (Caddy), 3000 (dashboard), 9443 (Portainer HTTPS UI), 8000 (Edge Agent communication)
+- **Dashboard:** Custom Preact + Bun SSR app with live health checks and Proxmox resource monitoring (source: `stacks/ct-mgmt/dashboard-src/`). Requires PVE API token in `dashboard-src/.env` (gitignored).
 - **Config notes:** AppArmor set to unconfined for Docker compatibility. Portainer manages remote environments via their portainer-agent (port 9001).
 
 ### ct-photos (LXC — VMID 106 on proxmoxmain)
@@ -141,6 +142,7 @@ blvckmain (main PC)
 
 ## Services
 
+Home Lab dashboard runs on ct-mgmt (http://home.lan) — custom Preact + Bun SSR app with service health checks and live Proxmox resource stats (node CPU/RAM, SSD + mergerfs storage).
 Portainer CE runs on ct-mgmt (https://portainer.lan or https://192.168.3.12:9443) and manages container environments across CTs via portainer-agent (port 9001).
 Frigate NVR runs on ct-nvr (https://nvr.lan or https://192.168.3.7:8971) with iGPU-accelerated video decoding.
 Jellyfin media server runs on ct-media (https://jellyfin.lan or http://192.168.3.8:8096) with iGPU hardware transcoding, alongside Sonarr, Radarr, Deluge, Prowlarr, and FlareSolverr.
