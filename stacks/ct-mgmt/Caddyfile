@@ -71,5 +71,5 @@ http://files.lan {
 }
 
 http://home.lan {
-	reverse_proxy homepage:3000
+	reverse_proxy dashboard:3000
 }
