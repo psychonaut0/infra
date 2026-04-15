@@ -5,7 +5,7 @@ mqtt:
   topic_prefix: frigate
   client_id: frigate
   user: homeassistant
-  password: <SCRUBBED_MQTT_PW>
+  password: "{FRIGATE_MQTT_PASSWORD}"
 
 detectors:
   ov:
@@ -62,16 +62,16 @@ go2rtc:
       - 192.168.3.7:8555
   rtsp:
     username: viewer
-    password: <SCRUBBED_RESTREAM_PW>
+    password: "{FRIGATE_RESTREAM_PASSWORD}"
   streams:
     camera_1:
-      - rtsp://frigate:<SCRUBBED_RTSP_PW>@192.168.2.10:554
+      - rtsp://frigate:{FRIGATE_RTSP_PASSWORD}@192.168.2.10:554
       - "ffmpeg:camera_1#audio=opus"
     camera_2:
-      - rtsp://frigate:<SCRUBBED_RTSP_PW>@192.168.2.11:554
+      - rtsp://frigate:{FRIGATE_RTSP_PASSWORD}@192.168.2.11:554
       - "ffmpeg:camera_2#audio=opus"
     camera_3:
-      - rtsp://frigate:<SCRUBBED_RTSP_PW>@192.168.2.12:554
+      - rtsp://frigate:{FRIGATE_RTSP_PASSWORD}@192.168.2.12:554
       - "ffmpeg:camera_3#audio=opus"
 
 cameras:

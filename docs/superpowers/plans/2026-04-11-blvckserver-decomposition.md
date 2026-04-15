@@ -1160,7 +1160,7 @@ scp stacks/ct-photos/docker-compose.yml stacks/ct-photos/.env.example root@192.1
 ssh root@192.168.3.2 'pct push 106 /tmp/docker-compose.yml /opt/stacks/ct-photos/docker-compose.yml'
 
 # Create .env with actual password on the CT
-ssh root@192.168.3.2 "pct exec 106 -- bash -c 'echo \"DB_PASSWORD=<SCRUBBED_DB_PW>\" > /opt/stacks/ct-photos/.env'"
+ssh root@192.168.3.2 "pct exec 106 -- bash -c 'echo \"DB_PASSWORD=<redacted>\" > /opt/stacks/ct-photos/.env'"
 
 ssh root@192.168.3.2 'pct exec 106 -- bash -c "cd /opt/stacks/ct-photos && docker compose up -d"'
 ```

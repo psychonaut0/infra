@@ -11,8 +11,9 @@ services:
       - "8555:8555/tcp"
       - "8555:8555/udp"
       - "5000:5000"
+    env_file:
+      - .env
     environment:
-      FRIGATE_RTSP_PASSWORD: "password"
       TZ: Europe/Rome
     volumes:
       - /mnt/nvr-data/config:/config
