@@ -1,0 +1,129 @@
+mqtt:
+  enabled: true
+  host: 192.168.3.10
+  port: 1883
+  topic_prefix: frigate
+  client_id: frigate
+  user: homeassistant
+  password: "{FRIGATE_MQTT_PASSWORD}"
+
+detectors:
+  ov:
+    type: openvino
+    device: GPU
+
+model:
+  width: 300
+  height: 300
+  input_tensor: nhwc
+  input_pixel_format: bgr
+  path: /openvino-model/ssdlite_mobilenet_v2.xml
+  labelmap_path: /openvino-model/coco_91cl_bkgr.txt
+
+ffmpeg:
+  hwaccel_args: preset-vaapi
+
+objects:
+  track:
+    - person
+
+detect:
+  fps: 5
+
+live:
+  height: 1520
+  quality: 10
+
+record:
+  enabled: true
+  alerts:
+    retain:
+      days: 200
+      mode: active_objects
+  detections:
+    retain:
+      days: 200
+      mode: active_objects
+
+snapshots:
+  enabled: true
+  clean_copy: true
+  timestamp: true
+  bounding_box: true
+  crop: false
+  retain:
+    default: 200
+    objects:
+      person: 360
+
+go2rtc:
+  webrtc:
+    candidates:
+      - 192.168.3.7:8555
+  rtsp:
+    username: viewer
+    password: "{FRIGATE_RESTREAM_PASSWORD}"
+  streams:
+    camera_1:
+      - rtsp://frigate:{FRIGATE_RTSP_PASSWORD}@192.168.2.10:554
+      - "ffmpeg:camera_1#audio=opus"
+    camera_2:
+      - rtsp://frigate:{FRIGATE_RTSP_PASSWORD}@192.168.2.11:554
+      - "ffmpeg:camera_2#audio=opus"
+    camera_3:
+      - rtsp://frigate:{FRIGATE_RTSP_PASSWORD}@192.168.2.12:554
+      - "ffmpeg:camera_3#audio=opus"
+
+cameras:
+  camera_1:
+    enabled: true
+    ffmpeg:
+      inputs:
+        - path: rtsp://127.0.0.1:8554/camera_1
+          input_args: preset-rtsp-restream
+          roles:
+            - record
+        - path: rtsp://127.0.0.1:8554/camera_1
+          input_args: preset-rtsp-restream
+          roles:
+            - detect
+    detect:
+      enabled: true
+      width: 640
+      height: 360
+
+  camera_2:
+    enabled: true
+    ffmpeg:
+      inputs:
+        - path: rtsp://127.0.0.1:8554/camera_2
+          input_args: preset-rtsp-restream
+          roles:
+            - record
+        - path: rtsp://127.0.0.1:8554/camera_2
+          input_args: preset-rtsp-restream
+          roles:
+            - detect
+    detect:
+      enabled: true
+      width: 640
+      height: 360
+
+  camera_3:
+    enabled: true
+    ffmpeg:
+      inputs:
+        - path: rtsp://127.0.0.1:8554/camera_3
+          input_args: preset-rtsp-restream
+          roles:
+            - record
+        - path: rtsp://127.0.0.1:8554/camera_3
+          input_args: preset-rtsp-restream
+          roles:
+            - detect
+    detect:
+      enabled: true
+      width: 640
+      height: 360
+
+version: 0.17-0
