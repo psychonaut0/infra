@@ -108,7 +108,7 @@ endpoints:
 
   - name: Pi-hole
     group: important
-    url: "http://192.168.3.5"
+    url: "http://192.168.3.5/admin/"
     interval: 60s
     conditions:
       - "[STATUS] < 400"
