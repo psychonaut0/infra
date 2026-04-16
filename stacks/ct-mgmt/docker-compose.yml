@@ -33,6 +33,17 @@ services:
       - caddy-data:/data
       - caddy-config:/config
 
+  gatus:
+    image: twinproduction/gatus:v5.35.0
+    container_name: gatus
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    env_file:
+      - ./gatus/.env
+    volumes:
+      - ./gatus/config.yaml:/config/config.yaml:ro
+
 volumes:
   portainer-data:
   caddy-data:

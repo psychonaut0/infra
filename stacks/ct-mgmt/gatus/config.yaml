@@ -1,0 +1,172 @@
+# Gatus monitoring config
+# Telegram credentials loaded from .env via ${VAR} substitution
+
+alerting:
+  telegram:
+    token: "${TELEGRAM_TOKEN}"
+    id: "${TELEGRAM_CHAT_ID}"
+    default-alert:
+      failure-threshold: 3
+      success-threshold: 2
+      send-on-resolved: true
+
+# --- Tier 1: Critical (30s, alert after 2 failures) ---
+
+endpoints:
+  - name: Home Assistant
+    group: critical
+    url: "http://192.168.3.10:8123"
+    interval: 30s
+    conditions:
+      - "[STATUS] < 400"
+    alerts:
+      - type: telegram
+        failure-threshold: 2
+        success-threshold: 2
+        send-on-resolved: true
+
+  - name: Frigate
+    group: critical
+    url: "http://192.168.3.7:5000"
+    interval: 30s
+    conditions:
+      - "[STATUS] < 400"
+    alerts:
+      - type: telegram
+        failure-threshold: 2
+        success-threshold: 2
+        send-on-resolved: true
+
+  - name: Immich
+    group: critical
+    url: "http://192.168.3.9:2283"
+    interval: 30s
+    conditions:
+      - "[STATUS] < 400"
+    alerts:
+      - type: telegram
+        failure-threshold: 2
+        success-threshold: 2
+        send-on-resolved: true
+
+  - name: Jellyfin
+    group: critical
+    url: "http://192.168.3.8:8096"
+    interval: 30s
+    conditions:
+      - "[STATUS] < 400"
+    alerts:
+      - type: telegram
+        failure-threshold: 2
+        success-threshold: 2
+        send-on-resolved: true
+
+  - name: Caddy
+    group: critical
+    url: "http://caddy:80"
+    interval: 30s
+    conditions:
+      - "[STATUS] < 400"
+    alerts:
+      - type: telegram
+        failure-threshold: 2
+        success-threshold: 2
+        send-on-resolved: true
+
+  # --- Tier 2: Important (60s, alert after 3 failures) ---
+
+  - name: Portainer
+    group: important
+    url: "http://portainer:9000"
+    interval: 60s
+    conditions:
+      - "[STATUS] < 400"
+    alerts:
+      - type: telegram
+
+  - name: Proxmox Main
+    group: important
+    url: "https://192.168.3.2:8006"
+    interval: 60s
+    client:
+      insecure: true
+    conditions:
+      - "[STATUS] < 400"
+    alerts:
+      - type: telegram
+
+  - name: Proxmox Node
+    group: important
+    url: "https://192.168.3.3:8006"
+    interval: 60s
+    client:
+      insecure: true
+    conditions:
+      - "[STATUS] < 400"
+    alerts:
+      - type: telegram
+
+  - name: Pi-hole
+    group: important
+    url: "http://192.168.3.5"
+    interval: 60s
+    conditions:
+      - "[STATUS] < 400"
+    alerts:
+      - type: telegram
+
+  - name: FileBrowser
+    group: important
+    url: "http://192.168.3.11:8080"
+    interval: 60s
+    conditions:
+      - "[STATUS] < 400"
+    alerts:
+      - type: telegram
+
+  # --- Tier 3: Background (120s, alert after 3 failures) ---
+
+  - name: Sonarr
+    group: background
+    url: "http://192.168.3.8:8989"
+    interval: 120s
+    conditions:
+      - "[STATUS] < 400"
+    alerts:
+      - type: telegram
+
+  - name: Radarr
+    group: background
+    url: "http://192.168.3.8:7878"
+    interval: 120s
+    conditions:
+      - "[STATUS] < 400"
+    alerts:
+      - type: telegram
+
+  - name: Deluge
+    group: background
+    url: "http://192.168.3.8:8112"
+    interval: 120s
+    conditions:
+      - "[STATUS] < 400"
+    alerts:
+      - type: telegram
+
+  - name: Prowlarr
+    group: background
+    url: "http://192.168.3.8:9696"
+    interval: 120s
+    conditions:
+      - "[STATUS] < 400"
+    alerts:
+      - type: telegram
+
+  - name: FlareSolverr
+    group: background
+    url: "http://192.168.3.8:8191"
+    interval: 120s
+    conditions:
+      - "[STATUS] < 400"
+    alerts:
+      - type: telegram
