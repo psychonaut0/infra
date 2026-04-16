@@ -69,6 +69,8 @@ endpoints:
     group: critical
     url: "http://caddy:80"
     interval: 30s
+    headers:
+      Host: home.lan
     conditions:
       - "[CONNECTED] == true"
       - "[STATUS] < 400"
