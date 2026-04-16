@@ -73,3 +73,7 @@ http://files.lan {
 http://home.lan {
 	reverse_proxy dashboard:3000
 }
+
+http://status.lan {
+	reverse_proxy gatus:8080
+}
