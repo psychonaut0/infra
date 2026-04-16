@@ -18,6 +18,7 @@ endpoints:
     url: "http://192.168.3.10:8123"
     interval: 30s
     conditions:
+      - "[CONNECTED] == true"
       - "[STATUS] < 400"
     alerts:
       - type: telegram
@@ -30,6 +31,7 @@ endpoints:
     url: "http://192.168.3.7:5000"
     interval: 30s
     conditions:
+      - "[CONNECTED] == true"
       - "[STATUS] < 400"
     alerts:
       - type: telegram
@@ -42,6 +44,7 @@ endpoints:
     url: "http://192.168.3.9:2283"
     interval: 30s
     conditions:
+      - "[CONNECTED] == true"
       - "[STATUS] < 400"
     alerts:
       - type: telegram
@@ -54,6 +57,7 @@ endpoints:
     url: "http://192.168.3.8:8096"
     interval: 30s
     conditions:
+      - "[CONNECTED] == true"
       - "[STATUS] < 400"
     alerts:
       - type: telegram
@@ -66,6 +70,7 @@ endpoints:
     url: "http://caddy:80"
     interval: 30s
     conditions:
+      - "[CONNECTED] == true"
       - "[STATUS] < 400"
     alerts:
       - type: telegram
@@ -80,6 +85,7 @@ endpoints:
     url: "http://portainer:9000"
     interval: 60s
     conditions:
+      - "[CONNECTED] == true"
       - "[STATUS] < 400"
     alerts:
       - type: telegram
@@ -91,6 +97,7 @@ endpoints:
     client:
       insecure: true
     conditions:
+      - "[CONNECTED] == true"
       - "[STATUS] < 400"
     alerts:
       - type: telegram
@@ -102,6 +109,7 @@ endpoints:
     client:
       insecure: true
     conditions:
+      - "[CONNECTED] == true"
       - "[STATUS] < 400"
     alerts:
       - type: telegram
@@ -111,6 +119,7 @@ endpoints:
     url: "http://192.168.3.5/admin/"
     interval: 60s
     conditions:
+      - "[CONNECTED] == true"
       - "[STATUS] < 400"
     alerts:
       - type: telegram
@@ -120,6 +129,7 @@ endpoints:
     url: "http://192.168.3.11:8080"
     interval: 60s
     conditions:
+      - "[CONNECTED] == true"
       - "[STATUS] < 400"
     alerts:
       - type: telegram
@@ -131,6 +141,7 @@ endpoints:
     url: "http://192.168.3.8:8989"
     interval: 120s
     conditions:
+      - "[CONNECTED] == true"
       - "[STATUS] < 400"
     alerts:
       - type: telegram
@@ -140,6 +151,7 @@ endpoints:
     url: "http://192.168.3.8:7878"
     interval: 120s
     conditions:
+      - "[CONNECTED] == true"
       - "[STATUS] < 400"
     alerts:
       - type: telegram
@@ -149,6 +161,7 @@ endpoints:
     url: "http://192.168.3.8:8112"
     interval: 120s
     conditions:
+      - "[CONNECTED] == true"
       - "[STATUS] < 400"
     alerts:
       - type: telegram
@@ -158,6 +171,7 @@ endpoints:
     url: "http://192.168.3.8:9696"
     interval: 120s
     conditions:
+      - "[CONNECTED] == true"
       - "[STATUS] < 400"
     alerts:
       - type: telegram
@@ -167,6 +181,7 @@ endpoints:
     url: "http://192.168.3.8:8191"
     interval: 120s
     conditions:
+      - "[CONNECTED] == true"
       - "[STATUS] < 400"
     alerts:
       - type: telegram
