@@ -152,4 +152,4 @@ Samba + FileBrowser run on ct-files (https://files.lan or http://192.168.3.11:80
 Home Assistant runs on proxmoxnode (https://homeassistant.lan or http://192.168.3.10:8123) for home automation.
 Proxmox VE runs on proxmoxmain (https://proxmox.lan or https://192.168.3.2:8006) and proxmoxnode (https://proxmox-node.lan or https://192.168.3.3:8006).
 Immich photo management runs on ct-photos (https://immich.lan or http://192.168.3.9:2283) with iGPU ML inference.
-Full inventory in `docs/services.md`. Hardware and storage details in `docs/hardware.md`.
+Hardware and storage details in `docs/hardware.md`.
