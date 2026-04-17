@@ -1,0 +1,9 @@
+[Unit]
+Description=Pre-backup host export (02:45 daily, 15min before ct-backup run)
+
+[Timer]
+OnCalendar=*-*-* 02:45:00
+Persistent=true
+
+[Install]
+WantedBy=timers.target

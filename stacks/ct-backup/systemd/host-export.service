@@ -1,0 +1,6 @@
+[Unit]
+Description=Export host config for ct-backup to consume
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/host-export.sh
