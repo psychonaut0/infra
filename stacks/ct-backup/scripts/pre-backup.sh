@@ -23,7 +23,14 @@ declare -A CT_IPS=(
   [ct-photos]=192.168.3.9
   [ct-files]=192.168.3.11
   [ct-mgmt]=192.168.3.12
+  [ct-ha]=192.168.3.14
+  [ct-tools]=192.168.3.15
 )
+# CTs whose full /opt/stacks state must be captured (not just .env). Both CTs
+# keep their service data (HA config, Mosquitto passwd/data, ESPHome per-device
+# keys) inside their /opt/stacks subdir — bind-mounted into the Docker
+# containers — so the full tree is what matters.
+FULL_STACK_CTS=(ct-ha ct-tools)
 PROXMOXMAIN_IP=192.168.3.2
 PROXMOXNODE_IP=192.168.3.3
 
@@ -34,7 +41,7 @@ log() { echo "[$(date -Iseconds)] $*" | tee -a "$LOG" >&2; }
 
 # Fresh staging
 rm -rf "$STAGING"
-install -d -m 700 "$STAGING"/{env,volumes,pve-main,pve-node,host-cfg-main,host-cfg-node}
+install -d -m 700 "$STAGING"/{env,volumes,stacks,pve-main,pve-node,host-cfg-main,host-cfg-node}
 
 # --- 1. Rsync .env files from each CT's /opt/stacks ---
 # The rrsync restriction limits us to /opt/stacks. We pull only .env files
@@ -48,6 +55,19 @@ for CT in "${!CT_IPS[@]}"; do
     --include='*/' --include='.env' --include='**/.env' --exclude='*' \
     "root@$IP:/opt/stacks/" "$STAGING/env/$CT/" \
     2>>"$LOG" || log "WARN: .env sync failed for $CT"
+done
+
+# --- 1b. Full /opt/stacks tree for CTs that hold state outside Docker volumes ---
+# ct-ha and ct-tools bind-mount their service state (HA config, Mosquitto,
+# ESPHome per-device keys) directly from /opt/stacks subdirs into containers,
+# so a full rsync is the only way to capture it.
+for CT in "${FULL_STACK_CTS[@]}"; do
+  IP="${CT_IPS[$CT]}"
+  log "Pulling full /opt/stacks/$CT from $CT ($IP)"
+  install -d "$STAGING/stacks/$CT"
+  rsync -a -e "$RSYNC_E" \
+    "root@$IP:/opt/stacks/$CT/" "$STAGING/stacks/$CT/" \
+    2>>"$LOG" || log "WARN: full stacks sync failed for $CT"
 done
 
 # --- 2. Export Docker named volumes from CTs where the dispatcher allows it ---
