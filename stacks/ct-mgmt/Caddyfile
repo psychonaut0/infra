@@ -81,3 +81,7 @@ http://home.lan {
 http://status.lan {
 	reverse_proxy gatus:8080
 }
+
+http://backup.lan {
+	reverse_proxy 192.168.3.13:80
+}
