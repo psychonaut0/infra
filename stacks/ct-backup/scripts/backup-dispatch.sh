@@ -60,7 +60,7 @@ case "$CMD" in
     ;;
   pg-dump-immich)
     [[ "$ALLOW_PG_DUMP_IMMICH" == "1" ]] || { echo "pg-dump-immich not allowed" >&2; exit 1; }
-    exec docker exec immich-postgres pg_dump -U postgres immich
+    exec docker exec immich_postgres pg_dump -U postgres immich
     ;;
   *)
     echo "Command not permitted: $CMD" >&2
