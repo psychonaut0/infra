@@ -1,0 +1,9 @@
+[Unit]
+Description=Monthly restic integrity check
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+EnvironmentFile=/etc/restic/b2.env
+ExecStart=/usr/bin/restic check --read-data-subset 5%%
