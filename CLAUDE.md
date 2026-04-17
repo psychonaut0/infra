@@ -16,7 +16,7 @@
 - **SSH:** Port 22, key-based auth (no password)
 - **CPU:** Intel i5-10400 @ 2.90GHz (6C/12T)
 - **RAM:** 32GB
-- **Role:** Primary Proxmox hypervisor node. Clustered with proxmoxnode. Authorized keys are shared across the cluster.
+- **Role:** Primary Proxmox hypervisor node. Clustered with proxmoxnode. Authorized keys are shared across the cluster. Hosts all bulk storage — mergerfs pool `/mnt/cloud` (exposed as the `cloud` PVE dir pool) and `nvr-data` LVM thin — bind-mounted into local CTs.
 - **CTs:** ct-tunnel (VMID 103), ct-nvr (VMID 104), ct-media (VMID 105), ct-photos (VMID 106), ct-files (VMID 107), ct-mgmt (VMID 108)
 - **Storage:** See `docs/hardware.md` for full disk and storage layout.
 
@@ -30,7 +30,7 @@
 - **Role:** Secondary Proxmox cluster node. Shares authorized_keys with proxmoxmain via pmxcfs.
 - **VMs:** Home Assistant OS (VMID 101)
 - **CTs:** ct-dns (VMID 102)
-- **Storage:** 476GB SSD, ~300GB LVM thin available.
+- **Storage:** See `docs/hardware.md` for full disk and storage layout.
 
 ### Home Assistant OS (VM — VMID 101 on proxmoxnode)
 - **IP:** 192.168.3.10
