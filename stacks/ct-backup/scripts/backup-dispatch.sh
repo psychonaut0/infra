@@ -23,14 +23,22 @@ if [[ -r "$CONF" ]]; then
 fi
 
 # --- rsync in server mode ---
-# rsync always invokes: rsync --server [flags] . <path>
+# rsync invokes: "rsync --server [flags] . <path>". rrsync expects paths to
+# be *relative* to its restricted root, so we translate client-sent absolute
+# paths into relative ones, then rewrite SSH_ORIGINAL_COMMAND so rrsync sees
+# the translated form.
 if [[ "$CMD" == "rsync --server"* ]]; then
   TARGET_PATH="${CMD##* }"
-  TARGET_PATH="${TARGET_PATH%/}"   # strip trailing slash for matching
-  # Accept the request if the path is exactly one of the allowed roots OR a
-  # subdirectory of one. Invoke rrsync with the matching root as its scope.
+  MATCH_PATH="${TARGET_PATH%/}"   # strip trailing slash for matching
   for P in $ALLOW_RSYNC_PATHS; do
-    if [[ "$TARGET_PATH" == "$P" || "$TARGET_PATH" == "$P"/* ]]; then
+    if [[ "$MATCH_PATH" == "$P" || "$MATCH_PATH" == "$P"/* ]]; then
+      # Compute path relative to the matched root
+      REL="${TARGET_PATH#$P}"
+      REL="${REL#/}"
+      [[ -z "$REL" ]] && REL="."
+      # Rebuild the command with the translated path as the last arg
+      BASE_CMD="${CMD% *}"
+      export SSH_ORIGINAL_COMMAND="$BASE_CMD $REL"
       exec rrsync -ro "$P"
     fi
   done
