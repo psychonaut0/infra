@@ -15,7 +15,7 @@ alerting:
 endpoints:
   - name: Home Assistant
     group: critical
-    url: "http://192.168.3.10:8123"
+    url: "http://192.168.3.14:8123"
     interval: 30s
     conditions:
       - "[CONNECTED] == true"
@@ -133,6 +133,36 @@ endpoints:
     conditions:
       - "[CONNECTED] == true"
       - "[STATUS] < 400"
+    alerts:
+      - type: telegram
+
+  - name: ESPHome
+    group: important
+    url: "http://192.168.3.15:6052"
+    interval: 60s
+    conditions:
+      - "[CONNECTED] == true"
+      - "[STATUS] < 400"
+    alerts:
+      - type: telegram
+
+  - name: Mosquitto
+    group: important
+    url: "tcp://192.168.3.14:1883"
+    interval: 60s
+    conditions:
+      - "[CONNECTED] == true"
+    alerts:
+      - type: telegram
+
+  - name: Backup freshness
+    group: important
+    url: "http://192.168.3.13/status.json"
+    interval: 15m
+    conditions:
+      - "[CONNECTED] == true"
+      - "[STATUS] == 200"
+      - "[BODY].timestamp != \"\""
     alerts:
       - type: telegram
 
