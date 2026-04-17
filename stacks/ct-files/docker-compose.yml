@@ -12,6 +12,11 @@ services:
       - /mnt/cloud/volumes/samba/users:/var/lib/samba
     environment:
       TZ: Europe/Rome
+    env_file:
+      - .env
+    command: >-
+      -u "psy;${PSY_PASSWORD};1000;psy;1000"
+      -u "family;${FAMILY_PASSWORD};1001;family;1001"
 
   filebrowser:
     image: filebrowser/filebrowser:latest
