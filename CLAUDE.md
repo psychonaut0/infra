@@ -17,7 +17,7 @@
 - **CPU:** Intel i5-10400 @ 2.90GHz (6C/12T)
 - **RAM:** 32GB
 - **Role:** Primary Proxmox hypervisor node. Clustered with proxmoxnode. Authorized keys are shared across the cluster. Hosts all bulk storage — mergerfs pool `/mnt/cloud` (exposed as the `cloud` PVE dir pool) and `nvr-data` LVM thin — bind-mounted into local CTs.
-- **CTs:** ct-tunnel (VMID 103), ct-nvr (VMID 104), ct-media (VMID 105), ct-photos (VMID 106), ct-files (VMID 107), ct-mgmt (VMID 108), ct-tools (VMID 110)
+- **CTs:** ct-tunnel (VMID 103), ct-nvr (VMID 104), ct-media (VMID 105), ct-photos (VMID 106), ct-files (VMID 107), ct-mgmt (VMID 108), ct-backup (VMID 109), ct-tools (VMID 110)
 - **Storage:** See `docs/hardware.md` for full disk and storage layout.
 
 ### proxmoxnode
@@ -136,6 +136,18 @@
 - **Ports:** 2283 (Immich HTTP UI)
 - **Config notes:** Privileged CT for device access. iGPU passthrough for ML. Immich data on mergerfs pool (`/mnt/cloud/volumes/mediaserver/immich`) bind-mounted into CT at `/mnt/immich`. DB password in `/opt/stacks/ct-photos/.env`.
 
+### ct-backup (LXC — VMID 109 on proxmoxmain)
+- **IP:** 192.168.3.13
+- **User:** root
+- **OS:** Debian 13 (Trixie), privileged LXC
+- **SSH:** Port 22, key-based auth (no password)
+- **Resources:** 1 vCPU, 512MB RAM, 256MB swap, 4GB disk
+- **Role:** Off-site backup runner. Runs restic nightly against Backblaze B2, pulling .env files + Docker named volumes + Immich Postgres dump + /etc/pve + host config from all other CTs and both Proxmox nodes, plus bind-mounted bulk data (Immich, samba/psy, *arr configs, Jellyfin config, Frigate config) and the full /opt/stacks tree for ct-ha and ct-tools.
+- **Stack:** `/opt/stacks/ct-backup/` (local copy: `stacks/ct-backup/`) — no Docker; scripts + systemd units installed natively.
+- **Ports:** 80 (Caddy status endpoint at `backup.lan`)
+- **Schedule:** nightly 03:00, weekly prune Sun 04:00, monthly partial check 1st of month 05:00. Triggered by systemd timers; status.json served for Gatus freshness check.
+- **Config notes:** Privileged LXC (to read host files with arbitrary ownership without idmap gymnastics). Read-only bind mounts for bulk data sources. SSH key in `/root/.ssh/id_ed25519` with forced-command restrictions on every target via `backup-dispatch.sh`. Secrets in `/etc/restic/` (repo password, B2 creds, Telegram creds). Caddy systemd override at `/etc/systemd/system/caddy.service.d/lxc-override.conf` disables `PrivateTmp`/`ProtectSystem` for LXC compatibility.
+
 ### Termux (Nothing Phone A024)
 - **User:** u0_a416
 - **OS:** Android 16 (API 36), Termux
@@ -158,7 +170,8 @@ blvckmain (main PC)
   ├── ssh ct-files       → 192.168.3.11:22   (root, key auth)
   ├── ssh ct-mgmt        → 192.168.3.12:22   (root, key auth)
   ├── ssh ct-ha          → 192.168.3.14:22   (root, key auth)
-  └── ssh ct-tools       → 192.168.3.15:22   (root, key auth)
+  ├── ssh ct-tools       → 192.168.3.15:22   (root, key auth)
+  └── ssh ct-backup      → 192.168.3.13:22   (root, key auth)
 ```
 
 ## Services
