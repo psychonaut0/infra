@@ -275,7 +275,7 @@ Documented here for clarity on residual risk:
 - **Frigate camera recordings** — 200 days of footage, expendable
 - **`samba/data/family/`** (except `psy/`) — excluded by user preference
 - **HAOS VM state** — excluded until Container migration completes
-- **Anything custom inside a CT's OS outside Docker** — e.g., manually-installed packages, custom systemd units, ad-hoc `/etc/` tweaks. Expected to be minimal given the uniform CT pattern (Debian 13 + Docker + portainer-agent); audit before first backup run to confirm.
+- **Anything custom inside a CT's OS outside Docker** — e.g., manually-installed packages, custom systemd units, ad-hoc `/etc/` tweaks. Expected to be minimal given the uniform CT pattern (Debian 13 + Docker + portainer-agent); audit before first backup run to confirm. **Audit performed 2026-04-17 — no non-Docker state of concern found on any CT. Only cosmetic differences: `rsync` manually installed on ct-mgmt; standard Debian-created dirs in /root/.**
 - **Docker images themselves** — re-pulled from registries on restore. No offline image cache.
 
 ## Components to Build
