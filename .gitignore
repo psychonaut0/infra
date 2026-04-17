@@ -1,1 +1,8 @@
 **/.env
+
+# runtime state — lives on the CTs, never in git
+stacks/ct-ha/config/
+stacks/ct-ha/mosquitto/data/
+stacks/ct-ha/mosquitto/log/
+stacks/ct-ha/mosquitto/config/passwd
+stacks/ct-tools/esphome/config/

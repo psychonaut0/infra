@@ -17,7 +17,7 @@
 - **CPU:** Intel i5-10400 @ 2.90GHz (6C/12T)
 - **RAM:** 32GB
 - **Role:** Primary Proxmox hypervisor node. Clustered with proxmoxnode. Authorized keys are shared across the cluster. Hosts all bulk storage — mergerfs pool `/mnt/cloud` (exposed as the `cloud` PVE dir pool) and `nvr-data` LVM thin — bind-mounted into local CTs.
-- **CTs:** ct-tunnel (VMID 103), ct-nvr (VMID 104), ct-media (VMID 105), ct-photos (VMID 106), ct-files (VMID 107), ct-mgmt (VMID 108)
+- **CTs:** ct-tunnel (VMID 103), ct-nvr (VMID 104), ct-media (VMID 105), ct-photos (VMID 106), ct-files (VMID 107), ct-mgmt (VMID 108), ct-tools (VMID 110)
 - **Storage:** See `docs/hardware.md` for full disk and storage layout.
 
 ### proxmoxnode
@@ -28,18 +28,14 @@
 - **CPU:** Intel N100 (4C/4T)
 - **RAM:** 16GB
 - **Role:** Secondary Proxmox cluster node. Shares authorized_keys with proxmoxmain via pmxcfs.
-- **VMs:** Home Assistant OS (VMID 101)
-- **CTs:** ct-dns (VMID 102)
+- **VMs:** Home Assistant OS (VMID 101) — **retired 2026-04-17**, pending destroy after ≥1 week of ct-ha stability
+- **CTs:** ct-dns (VMID 102), ct-ha (VMID 111)
 - **Storage:** See `docs/hardware.md` for full disk and storage layout.
 
-### Home Assistant OS (VM — VMID 101 on proxmoxnode)
+### Home Assistant OS (VM — VMID 101 on proxmoxnode) — RETIRED
 - **IP:** 192.168.3.10
-- **OS:** Home Assistant OS (HAOS)
-- **Resources:** 4 vCPU, 8192MB RAM, 50GB disk
-- **Machine:** q35 with OVMF/UEFI
-- **Role:** Home automation. Runs Home Assistant.
-- **Ports:** 8123 (HTTP UI)
-- **Config notes:** Auto-start on boot (`onboot: 1`). Installed via Proxmox community script.
+- **Status:** Powered off 2026-04-17 after migration to ct-ha (HA Container). Kept as rollback for ≥1 week, then `qm destroy 101 --purge`.
+- **Backup:** `pre-migration` tar on ct-files at `/mnt/cloud/volumes/samba/data/psy/ha-backups/pre-migration.tar`.
 
 ### ct-dns (LXC — VMID 102 on proxmoxnode)
 - **IP:** 192.168.3.5
@@ -107,6 +103,28 @@
 - **Gatus:** Uptime monitoring with 3-tier checks (critical/important/background) and Telegram alerting. Config: `stacks/ct-mgmt/gatus/config.yaml`. Telegram credentials in `gatus/.env` (gitignored).
 - **Config notes:** AppArmor set to unconfined for Docker compatibility. Portainer manages remote environments via their portainer-agent (port 9001).
 
+### ct-ha (LXC — VMID 111 on proxmoxnode)
+- **IP:** 192.168.3.14
+- **User:** root
+- **OS:** Debian 13 (Trixie), unprivileged LXC
+- **SSH:** Port 22, key-based auth (no password)
+- **Resources:** 2 vCPU, 4096MB RAM, 1024MB swap, 16GB disk
+- **Role:** Home automation. Runs Home Assistant Container + Mosquitto MQTT broker.
+- **Stack:** `/opt/stacks/ct-ha/docker-compose.yml` (local copy: `stacks/ct-ha/`)
+- **Ports:** 8123 (HA HTTP UI), 1883 (Mosquitto MQTT)
+- **Config notes:** AppArmor unconfined + proc/sys rw mount for Docker compatibility. HA uses `network_mode: host` for mDNS/zeroconf. Mosquitto passwd file at `stacks/ct-ha/mosquitto/config/passwd` (gitignored). MQTT broker reachable from HA at `127.0.0.1:1883` and from LAN at `192.168.3.14:1883`.
+
+### ct-tools (LXC — VMID 110 on proxmoxmain)
+- **IP:** 192.168.3.15
+- **User:** root
+- **OS:** Debian 13 (Trixie), unprivileged LXC
+- **SSH:** Port 22, key-based auth (no password)
+- **Resources:** 2 vCPU, 2048MB RAM, 512MB swap, 8GB disk
+- **Role:** Utility services. Runs ESPHome dashboard for IoT device firmware management.
+- **Stack:** `/opt/stacks/ct-tools/docker-compose.yml` (local copy: `stacks/ct-tools/`)
+- **Ports:** 6052 (ESPHome HTTP UI)
+- **Config notes:** AppArmor unconfined + proc/sys rw mount for Docker compatibility. ESPHome uses `network_mode: host` for mDNS device discovery.
+
 ### ct-photos (LXC — VMID 106 on proxmoxmain)
 - **IP:** 192.168.3.9
 - **User:** root
@@ -138,7 +156,9 @@ blvckmain (main PC)
   ├── ssh ct-media       → 192.168.3.8:22    (root, key auth)
   ├── ssh ct-photos      → 192.168.3.9:22    (root, key auth)
   ├── ssh ct-files       → 192.168.3.11:22   (root, key auth)
-  └── ssh ct-mgmt        → 192.168.3.12:22   (root, key auth)
+  ├── ssh ct-mgmt        → 192.168.3.12:22   (root, key auth)
+  ├── ssh ct-ha          → 192.168.3.14:22   (root, key auth)
+  └── ssh ct-tools       → 192.168.3.15:22   (root, key auth)
 ```
 
 ## Services
@@ -149,7 +169,8 @@ Gatus uptime monitoring runs on ct-mgmt (http://status.lan or http://192.168.3.1
 Frigate NVR runs on ct-nvr (https://nvr.lan or https://192.168.3.7:8971) with iGPU-accelerated video decoding.
 Jellyfin media server runs on ct-media (https://jellyfin.lan or http://192.168.3.8:8096) with iGPU hardware transcoding, alongside Sonarr, Radarr, Deluge, Prowlarr, and FlareSolverr.
 Samba + FileBrowser run on ct-files (https://files.lan or http://192.168.3.11:8080) for SMB file shares and web-based file management.
-Home Assistant runs on proxmoxnode (https://homeassistant.lan or http://192.168.3.10:8123) for home automation.
+Home Assistant Container runs on ct-ha (https://homeassistant.lan or http://192.168.3.14:8123) for home automation, alongside Mosquitto MQTT broker on the same host.
+ESPHome dashboard runs on ct-tools (http://esphome.lan or http://192.168.3.15:6052) for IoT device firmware builds and OTA updates.
 Proxmox VE runs on proxmoxmain (https://proxmox.lan or https://192.168.3.2:8006) and proxmoxnode (https://proxmox-node.lan or https://192.168.3.3:8006).
 Immich photo management runs on ct-photos (https://immich.lan or http://192.168.3.9:2283) with iGPU ML inference.
 Hardware and storage details in `docs/hardware.md`.

@@ -11,3 +11,7 @@
 192.168.3.12 jellyfin.lan
 192.168.3.12 immich.lan
 192.168.3.12 homeassistant.lan
+192.168.3.12 files.lan
+192.168.3.12 home.lan
+192.168.3.12 status.lan
+192.168.3.12 esphome.lan
