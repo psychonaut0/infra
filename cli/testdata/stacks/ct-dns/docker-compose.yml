@@ -1,0 +1,5 @@
+services:
+  pihole:
+    image: pihole/pihole:latest
+  portainer-agent:
+    image: portainer/agent:latest
