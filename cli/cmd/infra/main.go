@@ -14,7 +14,7 @@ var (
 )
 
 func main() {
-	if err := cmd.Execute(Version, Commit); err != nil {
+	if err := cmd.Execute(cmd.BuildInfo{Version: Version, Commit: Commit}); err != nil {
 		os.Exit(1)
 	}
 }
