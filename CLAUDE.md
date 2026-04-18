@@ -189,3 +189,7 @@ ESPHome dashboard runs on ct-tools (http://esphome.lan or http://192.168.3.15:60
 Proxmox VE runs on proxmoxmain (https://proxmox.lan or https://192.168.3.2:8006) and proxmoxnode (https://proxmox-node.lan or https://192.168.3.3:8006).
 Immich photo management runs on ct-photos (https://immich.lan or http://192.168.3.9:2283) with iGPU ML inference.
 Hardware and storage details in `docs/hardware.md`.
+
+## CLI
+
+`infra` is a Go CLI at `~/.local/bin/infra` that wraps common SSH + docker compose operations across the fleet. Source at `cli/`. Commands: `ls`, `status`, `logs <service>`, `restart <service>`, `deploy <service|ct>`, `ct status`, `update` (self-update), `version`. Auto-discovers services from `stacks/ct-*/docker-compose.yml` at each run. Build/install with `cd cli && make install`; self-update with `infra update`. Design: `docs/superpowers/specs/2026-04-18-infra-cli-design.md`.
