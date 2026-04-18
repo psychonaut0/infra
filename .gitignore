@@ -9,3 +9,6 @@ stacks/ct-tools/esphome/config/
 
 # Git worktrees
 .worktrees/
+
+# Go CLI build artifacts
+cli/bin/
