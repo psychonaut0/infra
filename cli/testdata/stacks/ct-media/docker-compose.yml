@@ -1,0 +1,7 @@
+services:
+  jellyfin:
+    image: linuxserver/jellyfin:latest
+  sonarr:
+    image: linuxserver/sonarr:latest
+  portainer-agent:
+    image: portainer/agent:latest
