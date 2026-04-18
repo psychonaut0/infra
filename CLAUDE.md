@@ -33,8 +33,8 @@
 - **Storage:** See `docs/hardware.md` for full disk and storage layout.
 
 ### Home Assistant OS (VM — VMID 101 on proxmoxnode) — RETIRED
-- **IP:** 192.168.3.10
 - **Status:** Powered off 2026-04-17 after migration to ct-ha (HA Container). Kept as rollback for ≥1 week, then `qm destroy 101 --purge`.
+- **Note:** Its IP `192.168.3.10` and MAC `02:FF:32:B5:62:EA` were transferred to ct-ha because the router has a per-client rule granting HAOS access to the IoT subnet (192.168.2.0/24). Do not reuse that IP/MAC for other hosts.
 - **Backup:** `pre-migration` tar on ct-files at `/mnt/cloud/volumes/samba/data/psy/ha-backups/pre-migration.tar`.
 
 ### ct-dns (LXC — VMID 102 on proxmoxnode)
@@ -104,7 +104,8 @@
 - **Config notes:** AppArmor set to unconfined for Docker compatibility. Portainer manages remote environments via their portainer-agent (port 9001).
 
 ### ct-ha (LXC — VMID 111 on proxmoxnode)
-- **IP:** 192.168.3.14
+- **IP:** 192.168.3.10 (inherited from retired HAOS VM — see note below)
+- **MAC:** `02:FF:32:B5:62:EA` (inherited from retired HAOS VM)
 - **User:** root
 - **OS:** Debian 13 (Trixie), unprivileged LXC
 - **SSH:** Port 22, key-based auth (no password)
@@ -112,7 +113,8 @@
 - **Role:** Home automation. Runs Home Assistant Container + Mosquitto MQTT broker.
 - **Stack:** `/opt/stacks/ct-ha/docker-compose.yml` (local copy: `stacks/ct-ha/`)
 - **Ports:** 8123 (HA HTTP UI), 1883 (Mosquitto MQTT)
-- **Config notes:** AppArmor unconfined + proc/sys rw mount for Docker compatibility. HA uses `network_mode: host` for mDNS/zeroconf. Mosquitto passwd file at `stacks/ct-ha/mosquitto/config/passwd` (gitignored). MQTT broker reachable from HA at `127.0.0.1:1883` and from LAN at `192.168.3.14:1883`.
+- **Config notes:** AppArmor unconfined + proc/sys rw mount for Docker compatibility. HA uses `network_mode: host` for mDNS/zeroconf. Mosquitto passwd file at `stacks/ct-ha/mosquitto/config/passwd` (gitignored). MQTT broker reachable from HA at `127.0.0.1:1883` and from LAN at `192.168.3.10:1883`.
+- **Network note:** The router has a per-client rule granting HAOS access to the IoT subnet (192.168.2.0/24). To inherit that access without router-side changes, ct-ha was given HAOS's original MAC + IP. Any replacement for ct-ha in the future should also inherit those identifiers (or update the router rule).
 
 ### ct-tools (LXC — VMID 110 on proxmoxmain)
 - **IP:** 192.168.3.15
@@ -169,7 +171,7 @@ blvckmain (main PC)
   ├── ssh ct-photos      → 192.168.3.9:22    (root, key auth)
   ├── ssh ct-files       → 192.168.3.11:22   (root, key auth)
   ├── ssh ct-mgmt        → 192.168.3.12:22   (root, key auth)
-  ├── ssh ct-ha          → 192.168.3.14:22   (root, key auth)
+  ├── ssh ct-ha          → 192.168.3.10:22   (root, key auth)
   ├── ssh ct-tools       → 192.168.3.15:22   (root, key auth)
   └── ssh ct-backup      → 192.168.3.13:22   (root, key auth)
 ```
