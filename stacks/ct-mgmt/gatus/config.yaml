@@ -15,7 +15,7 @@ alerting:
 endpoints:
   - name: Home Assistant
     group: critical
-    url: "http://192.168.3.14:8123"
+    url: "http://192.168.3.10:8123"
     interval: 30s
     conditions:
       - "[CONNECTED] == true"
@@ -148,7 +148,7 @@ endpoints:
 
   - name: Mosquitto
     group: important
-    url: "tcp://192.168.3.14:1883"
+    url: "tcp://192.168.3.10:1883"
     interval: 60s
     conditions:
       - "[CONNECTED] == true"
