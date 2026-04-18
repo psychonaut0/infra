@@ -27,6 +27,7 @@ func Execute(info BuildInfo) error {
 	}
 	root.AddCommand(newVersionCmd())
 	root.AddCommand(newLsCmd())
+	root.AddCommand(newStatusCmd())
 	return root.Execute()
 }
 
