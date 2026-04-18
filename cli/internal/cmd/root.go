@@ -26,6 +26,7 @@ func Execute(info BuildInfo) error {
 		SilenceUsage: true,
 	}
 	root.AddCommand(newVersionCmd())
+	root.AddCommand(newLsCmd())
 	return root.Execute()
 }
 
