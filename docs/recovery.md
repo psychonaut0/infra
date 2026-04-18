@@ -108,18 +108,28 @@ Repeat Phase 4 on proxmoxnode using `host-cfg-node/` instead of `host-cfg-main/`
 
 ## Phase 5 — Restore Proxmox cluster config
 
-`/etc/pve` is a FUSE filesystem backed by pmxcfs. Restore the per-guest files:
+`/etc/pve` is a FUSE filesystem backed by pmxcfs. CT/VM definitions live at `/etc/pve/nodes/<hostname>/{lxc,qemu-server}/*.conf` — the top-level `/etc/pve/lxc/` you see on a running host is a symlink. Restore the per-node files directly:
 
 ```bash
-# CT definitions
-cp /recovery/var/backup-staging/pve-main/lxc/*.conf /etc/pve/lxc/
+# Inside a restored Proxmox cluster, PVE expects the node-scoped paths to
+# exist. The backup captures these under nodes/<node>/{lxc,qemu-server}/.
 
-# Storage.cfg, datacenter.cfg — validate against `docs/hardware.md` and merge
-# manually if the restored file has pool definitions that don't exist yet.
-diff /recovery/var/backup-staging/pve-main/storage.cfg /etc/pve/storage.cfg
+# proxmoxmain (this node):
+cp /recovery/var/backup-staging/pve-main/nodes/proxmoxmain/lxc/*.conf \
+  /etc/pve/nodes/$(hostname)/lxc/
+
+# If you are rebuilding the other node, repeat on proxmoxnode:
+cp /recovery/var/backup-staging/pve-node/nodes/proxmoxnode/lxc/*.conf \
+  /etc/pve/nodes/proxmoxnode/lxc/
+cp /recovery/var/backup-staging/pve-node/nodes/proxmoxnode/qemu-server/*.conf \
+  /etc/pve/nodes/proxmoxnode/qemu-server/ 2>/dev/null || true
 ```
 
-Do not blindly copy `/etc/pve/storage.cfg` — storage pools must physically exist. Recreate pools missing from the fresh install (typically you only need `local`, `local-lvm`, `nvr-data`, and the `cloud` dir pool pointing at `/mnt/cloud`).
+Storage pools must exist physically before `/etc/pve/storage.cfg` can reference them. Recreate pools missing from the fresh install (typically `local`, `local-lvm`, `nvr-data`, and the `cloud` dir pool pointing at `/mnt/cloud`). Compare the restored file against the live one before merging:
+
+```bash
+diff /recovery/var/backup-staging/pve-main/storage.cfg /etc/pve/storage.cfg
+```
 
 ## Phase 6 — Restore bulk bind-mount data
 
