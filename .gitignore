@@ -6,3 +6,6 @@ stacks/ct-ha/mosquitto/data/
 stacks/ct-ha/mosquitto/log/
 stacks/ct-ha/mosquitto/config/passwd
 stacks/ct-tools/esphome/config/
+
+# Git worktrees
+.worktrees/
