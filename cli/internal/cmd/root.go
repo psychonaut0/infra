@@ -29,6 +29,7 @@ func Execute(info BuildInfo) error {
 	root.AddCommand(newLsCmd())
 	root.AddCommand(newStatusCmd())
 	root.AddCommand(newLogsCmd())
+	root.AddCommand(newRestartCmd())
 	return root.Execute()
 }
 
