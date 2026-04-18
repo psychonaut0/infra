@@ -31,6 +31,7 @@ func Execute(info BuildInfo) error {
 	root.AddCommand(newLogsCmd())
 	root.AddCommand(newRestartCmd())
 	root.AddCommand(newDeployCmd())
+	root.AddCommand(newCtCmd())
 	return root.Execute()
 }
 
