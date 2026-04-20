@@ -68,7 +68,8 @@ services:
     container_name: playit-agent
     restart: unless-stopped
     environment:
-      PLAYIT_SECRET: "${PLAYIT_SECRET}"
+      # Image reads SECRET_KEY; keep PLAYIT_SECRET in .env for naming clarity.
+      SECRET_KEY: "${PLAYIT_SECRET}"
     volumes:
       - playit-data:/etc/playit
     networks:
