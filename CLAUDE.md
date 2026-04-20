@@ -17,7 +17,7 @@
 - **CPU:** Intel i5-10400 @ 2.90GHz (6C/12T)
 - **RAM:** 32GB
 - **Role:** Primary Proxmox hypervisor node. Clustered with proxmoxnode. Authorized keys are shared across the cluster. Hosts all bulk storage — mergerfs pool `/mnt/cloud` (exposed as the `cloud` PVE dir pool) and `nvr-data` LVM thin — bind-mounted into local CTs.
-- **CTs:** ct-tunnel (VMID 103), ct-nvr (VMID 104), ct-media (VMID 105), ct-photos (VMID 106), ct-files (VMID 107), ct-mgmt (VMID 108), ct-backup (VMID 109), ct-tools (VMID 110)
+- **CTs:** ct-tunnel (VMID 103), ct-nvr (VMID 104), ct-media (VMID 105), ct-photos (VMID 106), ct-files (VMID 107), ct-mgmt (VMID 108), ct-backup (VMID 109), ct-tools (VMID 110), ct-games (VMID 112)
 - **Storage:** See `docs/hardware.md` for full disk and storage layout.
 
 ### proxmoxnode
@@ -89,6 +89,17 @@
 - **Stack:** `/opt/stacks/ct-files/docker-compose.yml` (local copy: `stacks/ct-files/`)
 - **Ports:** 139/445 (Samba SMB), 8080 (FileBrowser HTTP)
 - **Config notes:** Privileged CT for clean UID mapping on shared storage. Full mergerfs pool (`/mnt/cloud`) bind-mounted into CT. AppArmor unconfined for Docker compatibility. Samba config/data/users from `/mnt/cloud/volumes/samba/`.
+
+### ct-games (LXC — VMID 112 on proxmoxmain)
+- **IP:** 192.168.3.14
+- **User:** root
+- **OS:** Debian 13 (Trixie), unprivileged LXC
+- **SSH:** Port 22, key-based auth (no password)
+- **Resources:** 6 vCPU, 16384MB RAM, 4096MB swap, 40GB disk
+- **Role:** Game server host. Runs two Minecraft servers (vanilla/Paper + heavy modded) plus a single Playit.gg agent for CGNAT-friendly public reach and two itzg/mc-backup sidecars that write daily `.tgz` snapshots to mergerfs.
+- **Stack:** `/opt/stacks/ct-games/docker-compose.yml` (local copy: `stacks/ct-games/`)
+- **Ports:** 25565 (mc-vanilla game), 25566 (mc-modded game), 25575 (mc-vanilla RCON, LAN-only), 25576 (mc-modded RCON, LAN-only)
+- **Config notes:** AppArmor unconfined + proc/sys rw for Docker-in-LXC. Shared `gamesnet` Docker bridge for agent→MC routing. Live world data on CT's NVMe at `/opt/stacks/ct-games/data/`. Archive bind mount: `/mnt/cloud/volumes/games/archives` → `/mnt/archives` (daily `.tgz` per server, 14-day retention via `PRUNE_BACKUPS_DAYS`). One Playit agent with two tunnels attached server-side (no inbound, CGNAT-friendly). Playit image reads env var `SECRET_KEY` — mapped from `PLAYIT_SECRET` in `.env`.
 
 ### ct-mgmt (LXC — VMID 108 on proxmoxmain)
 - **IP:** 192.168.3.12
@@ -171,6 +182,7 @@ blvckmain (main PC)
   ├── ssh ct-photos      → 192.168.3.9:22    (root, key auth)
   ├── ssh ct-files       → 192.168.3.11:22   (root, key auth)
   ├── ssh ct-mgmt        → 192.168.3.12:22   (root, key auth)
+  ├── ssh ct-games       → 192.168.3.14:22   (root, key auth)
   ├── ssh ct-ha          → 192.168.3.10:22   (root, key auth)
   ├── ssh ct-tools       → 192.168.3.15:22   (root, key auth)
   └── ssh ct-backup      → 192.168.3.13:22   (root, key auth)
@@ -188,6 +200,7 @@ Home Assistant Container runs on ct-ha (https://homeassistant.lan or http://192.
 ESPHome dashboard runs on ct-tools (http://esphome.lan or http://192.168.3.15:6052) for IoT device firmware builds and OTA updates.
 Proxmox VE runs on proxmoxmain (https://proxmox.lan or https://192.168.3.2:8006) and proxmoxnode (https://proxmox-node.lan or https://192.168.3.3:8006).
 Immich photo management runs on ct-photos (https://immich.lan or http://192.168.3.9:2283) with iGPU ML inference.
+Minecraft servers run on ct-games (192.168.3.14:25565 for vanilla/Paper, :25566 for modded) with a single Playit.gg agent providing CGNAT-friendly public access. LAN RCON on :25575 (vanilla) / :25576 (modded). Daily `.tgz` archives on mergerfs at `/mnt/cloud/volumes/games/archives/<server>/`.
 Hardware and storage details in `docs/hardware.md`.
 
 ## CLI
