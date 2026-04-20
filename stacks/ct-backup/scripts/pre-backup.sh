@@ -23,6 +23,7 @@ declare -A CT_IPS=(
   [ct-photos]=192.168.3.9
   [ct-files]=192.168.3.11
   [ct-mgmt]=192.168.3.12
+  [ct-games]=192.168.3.14
   [ct-ha]=192.168.3.10
   [ct-tools]=192.168.3.15
 )
@@ -30,7 +31,7 @@ declare -A CT_IPS=(
 # keep their service data (HA config, Mosquitto passwd/data, ESPHome per-device
 # keys) inside their /opt/stacks subdir — bind-mounted into the Docker
 # containers — so the full tree is what matters.
-FULL_STACK_CTS=(ct-ha ct-tools)
+FULL_STACK_CTS=(ct-ha ct-tools ct-games)
 PROXMOXMAIN_IP=192.168.3.2
 PROXMOXNODE_IP=192.168.3.3
 
