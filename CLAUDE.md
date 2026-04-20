@@ -196,7 +196,7 @@ Gatus uptime monitoring runs on ct-mgmt (http://status.lan or http://192.168.3.1
 Frigate NVR runs on ct-nvr (https://nvr.lan or https://192.168.3.7:8971) with iGPU-accelerated video decoding.
 Jellyfin media server runs on ct-media (https://jellyfin.lan or http://192.168.3.8:8096) with iGPU hardware transcoding, alongside Sonarr, Radarr, Deluge, Prowlarr, and FlareSolverr.
 Samba + FileBrowser run on ct-files (https://files.lan or http://192.168.3.11:8080) for SMB file shares and web-based file management.
-Home Assistant Container runs on ct-ha (https://homeassistant.lan or http://192.168.3.14:8123) for home automation, alongside Mosquitto MQTT broker on the same host.
+Home Assistant Container runs on ct-ha (https://homeassistant.lan or http://192.168.3.10:8123) for home automation, alongside Mosquitto MQTT broker on the same host.
 ESPHome dashboard runs on ct-tools (http://esphome.lan or http://192.168.3.15:6052) for IoT device firmware builds and OTA updates.
 Proxmox VE runs on proxmoxmain (https://proxmox.lan or https://192.168.3.2:8006) and proxmoxnode (https://proxmox-node.lan or https://192.168.3.3:8006).
 Immich photo management runs on ct-photos (https://immich.lan or http://192.168.3.9:2283) with iGPU ML inference.
