@@ -17,8 +17,9 @@ services:
       ENABLE_RCON: "true"
       RCON_PASSWORD: "${RCON_PASSWORD_VANILLA}"
       RCON_PORT: "25575"
-      # Spark (57242) for profiling; BlueMap (83557) for web map.
-      SPIGET_RESOURCES: "57242,83557"
+      # BlueMap (83557) for 3D web map at http://map.lan.
+      # Spark is already bundled into Purpur — no SPIGET install needed.
+      SPIGET_RESOURCES: "83557"
       TZ: "Europe/Rome"
     ports:
       - "25565:25565/tcp"
