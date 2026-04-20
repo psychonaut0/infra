@@ -49,8 +49,7 @@ proxmoxmain (192.168.3.2)
       docker-compose stack (all on shared `gamesnet` bridge network):
       ├── mc-vanilla       itzg/minecraft-server   NVMe: /opt/stacks/ct-games/data/vanilla/
       ├── mc-modded        itzg/minecraft-server   NVMe: /opt/stacks/ct-games/data/modded/
-      ├── playit-vanilla   playit-cloud/playit-agent → mc-vanilla:25565 (via gamesnet)
-      ├── playit-modded    playit-cloud/playit-agent → mc-modded:25566 (via gamesnet)
+      ├── playit-agent     playit-cloud/playit-agent → mc-vanilla:25565, mc-modded:25565 (one agent, two tunnels attached server-side)
       ├── backup-vanilla   itzg/mc-backup           → /mnt/archives/vanilla/
       └── backup-modded    itzg/mc-backup           → /mnt/archives/modded/
 ```
@@ -60,7 +59,7 @@ proxmoxmain (192.168.3.2)
 ```
 Friend over internet
     → <hostname>.joinmc.link  (Playit relay)
-    → playit-vanilla (agent container inside ct-games)
+    → playit-agent (single agent container on ct-games, multi-tunnel)
     → mc-vanilla:25565 over gamesnet
     → Paper / Vanilla server
 
@@ -115,7 +114,7 @@ stacks/ct-games/
 
 ### Compose services
 
-**`gamesnet`** — single user-defined bridge network. All six services attached.
+**`gamesnet`** — single user-defined bridge network. All five services attached.
 
 **`mc-vanilla`** (`itzg/minecraft-server:latest`)
 
@@ -152,13 +151,15 @@ Ports: `25566:25565/tcp`, `25576:25575/tcp` (RCON).
 
 Volume: `./data/modded:/data`.
 
-**`playit-vanilla`, `playit-modded`** (`ghcr.io/playit-cloud/playit-agent:latest`)
+**`playit-agent`** (`ghcr.io/playit-cloud/playit-agent:latest`)
 
-Env: `PLAYIT_SECRET=${PLAYIT_SECRET_VANILLA}` (or `_MODDED`).
+Single agent, both tunnels attached to it server-side via the Playit.gg dashboard (`mc-vanilla` and `mc-modded` tunnels share this one agent).
 
-Networks: `gamesnet` (not `network_mode: host`). Agent reaches its MC server by service name (`mc-vanilla:25565`).
+Env: `PLAYIT_SECRET=${PLAYIT_SECRET}`.
 
-Volumes: named volumes `playit-vanilla-data`, `playit-modded-data` for agent state.
+Networks: `gamesnet` (not `network_mode: host`). Agent reaches each MC server by service name (`mc-vanilla:25565`, `mc-modded:25565`).
+
+Volume: named volume `playit-data` for agent state.
 
 **`backup-vanilla`, `backup-modded`** (`itzg/mc-backup:latest`)
 
@@ -185,8 +186,7 @@ Gitignored; `.env.example` is committed with placeholder values.
 |-----|---------|
 | `RCON_PASSWORD_VANILLA` | Random 32-char. Used by `mc-vanilla` + `backup-vanilla` + LAN RCON clients. |
 | `RCON_PASSWORD_MODDED` | Same, for modded. |
-| `PLAYIT_SECRET_VANILLA` | Claim token from Playit.gg dashboard. |
-| `PLAYIT_SECRET_MODDED` | Same, second tunnel. |
+| `PLAYIT_SECRET` | Agent secret from Playit.gg dashboard. Single agent, both MC tunnels attached to it. |
 | `CF_API_KEY` | Optional, only if modded pack is CurseForge-sourced. |
 
 ## Networking & Exposure
@@ -207,12 +207,11 @@ Gitignored; `.env.example` is committed with placeholder values.
 Done via the Playit dashboard, not via compose:
 
 1. Sign in / register at playit.gg.
-2. Create tunnel: protocol "Minecraft Java", free tier hostname.
-3. Note the claim secret → paste into `.env` as `PLAYIT_SECRET_VANILLA`.
-4. In the Playit tunnel config: route to `mc-vanilla:25565` (agent resolves it via gamesnet).
-5. Repeat for modded → `PLAYIT_SECRET_MODDED`, routing `mc-modded:25566`.
+2. **Agents** → **Create Agent** named `ct-games`. Copy its Secret Key → paste into `.env` as `PLAYIT_SECRET` (one-shot; not shown again).
+3. Create tunnel 1: protocol "Minecraft Java", free-tier hostname, agent `ct-games`, local target `mc-vanilla:25565`.
+4. Create tunnel 2: same, local target `mc-modded:25565`. (Both MC containers listen on 25565 internally; different service names make `gamesnet` routing unambiguous.)
 
-The resulting hostnames (something like `yourserver.joinmc.link`) are shared with friends. Anyone can join by pasting the hostname into vanilla Minecraft.
+The two resulting public hostnames (something like `yourserver.joinmc.link`) are shared with friends. Anyone can join by pasting a hostname into vanilla Minecraft.
 
 ### LAN RCON
 
@@ -391,7 +390,7 @@ These don't block spec approval but must be resolved before the stack is brought
 The stack is done when all of the following are true:
 
 1. `pct list` on proxmoxmain shows VMID 112 `ct-games` running.
-2. `docker compose ps` on ct-games shows six services healthy: `mc-vanilla`, `mc-modded`, `playit-vanilla`, `playit-modded`, `backup-vanilla`, `backup-modded`.
+2. `docker compose ps` on ct-games shows five services healthy: `mc-vanilla`, `mc-modded`, `playit-agent`, `backup-vanilla`, `backup-modded`.
 3. Pasting the Playit hostname into a vanilla Minecraft client from outside the LAN successfully joins the vanilla server. Same for modded.
 4. From blvckmain, `nc 192.168.3.14 25565` connects; `mcrcon -H 192.168.3.14 -P 25575 -p "$PWD" list` returns a player list.
 5. After 24h + `INITIAL_DELAY`, `ls /mnt/cloud/volumes/games/archives/vanilla/` on proxmoxmain shows at least one `world-*.tgz`. Same for modded.
@@ -408,7 +407,7 @@ The stack is done when all of the following are true:
 4. Bootstrap Docker inside ct-games (standard Docker-in-LXC setup; identical to ct-media / ct-photos).
 5. Scaffold `stacks/ct-games/docker-compose.yml` + `.env.example` in the repo.
 6. Populate `.env` on ct-games with generated RCON passwords + captured Playit secrets + optional CF API key.
-7. `infra deploy ct-games`. Verify all six services reach healthy state.
+7. `infra deploy ct-games`. Verify all five services reach healthy state.
 8. Verify LAN connectivity, external (Playit) connectivity, RCON from blvckmain.
 9. Add Gatus checks to ct-mgmt config; redeploy ct-mgmt.
 10. Add Pi-hole hostname entries (optional).

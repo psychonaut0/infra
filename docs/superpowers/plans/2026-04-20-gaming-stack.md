@@ -4,7 +4,7 @@
 
 **Goal:** Deploy `ct-games` on proxmoxmain — a single LXC running two Minecraft servers (vanilla/Paper + heavy modded), Playit.gg agents for CGNAT-friendly public reach, `itzg/mc-backup` sidecars for on-box cold snapshots to mergerfs, and Gatus monitoring. All config-as-code, compose-only, extensible to future games.
 
-**Architecture:** One unprivileged Debian 13 LXC (VMID 112, 192.168.3.14) with a Docker Compose stack of six services on a shared `gamesnet` bridge network. Live world data lives on the CT's NVMe boot disk; `itzg/mc-backup` writes daily `.tgz` snapshots to a bind-mounted mergerfs path (`/mnt/cloud/volumes/games/archives`); existing ct-backup → restic → B2 handles off-site. LAN-direct game + RCON ports for local play and admin. No new CTs elsewhere — proxmoxnode is hands-off per standing preference.
+**Architecture:** One unprivileged Debian 13 LXC (VMID 112, 192.168.3.14) with a Docker Compose stack of five services on a shared `gamesnet` bridge network: two MC servers (`mc-vanilla`, `mc-modded`), one shared `playit-agent` with two tunnels attached server-side in the Playit dashboard, and two `itzg/mc-backup` sidecars (`backup-vanilla`, `backup-modded`). Live world data lives on the CT's NVMe boot disk; `itzg/mc-backup` writes daily `.tgz` snapshots to a bind-mounted mergerfs path (`/mnt/cloud/volumes/games/archives`); existing ct-backup → restic → B2 handles off-site. LAN-direct game + RCON ports for local play and admin. No new CTs elsewhere — proxmoxnode is hands-off per standing preference.
 
 **Tech Stack:** Proxmox LXC, Docker Engine CE, Docker Compose v2, `itzg/minecraft-server`, `itzg/mc-backup`, `ghcr.io/playit-cloud/playit-agent`, Gatus TCP checks, existing Caddy / Portainer / ct-backup / `infra` CLI.
 
@@ -87,9 +87,9 @@ Paste all check outputs into a throwaway scratch file or the conversation log. D
 
 ---
 
-## Task 2: Provision Playit.gg tunnels (out-of-band)
+## Task 2: Provision one Playit.gg agent + two tunnels (out-of-band)
 
-**Goal:** Capture the two tunnel secrets before the stack is deployed, so `.env` has real values when compose starts.
+**Goal:** Create one Playit agent attached to both MC tunnels. Capture the agent's single Secret Key + the two public tunnel hostnames before the stack is deployed.
 
 **Files:** None (external web dashboard)
 
@@ -97,19 +97,21 @@ Paste all check outputs into a throwaway scratch file or the conversation log. D
 
 Create an account if needed. Free tier is sufficient.
 
-- [ ] **Step 2: Create tunnel for vanilla**
+- [ ] **Step 2: Create the agent**
 
-Dashboard → **Create Tunnel** → protocol **Minecraft Java** → name `mc-vanilla` → accept the free-tier hostname (format: `something.joinmc.link`).
+Dashboard → **Agents** → **Create Agent** → name it `ct-games`. On creation, Playit displays a **Secret Key** (a hex string). Copy it to a scratch note — it's the only time it's shown.
 
-After creation: note the hostname (share with friends later), and from the tunnel's **Agent** tab, note the **Secret Key** — this is what the agent container uses to register.
+- [ ] **Step 3: Create tunnel 1 attached to the `ct-games` agent**
 
-- [ ] **Step 3: Create tunnel for modded**
+Dashboard → **Create Tunnel** → protocol **Minecraft Java** → name `mc-vanilla` → agent: `ct-games` → local target host/port: `mc-vanilla:25565`. Accept the free-tier hostname (format: `something.joinmc.link`) and copy it.
 
-Repeat: name `mc-modded`. Note its hostname and Secret Key.
+- [ ] **Step 4: Create tunnel 2 attached to the same agent**
 
-- [ ] **Step 4: Store secrets temporarily**
+Same flow, name `mc-modded`, agent: `ct-games`, local target `mc-modded:25565` (both MC containers listen on 25565 internally — different service names, same internal port, no conflict). Copy the hostname.
 
-Save the two secret keys and two hostnames in a scratch file. They'll be pasted into `.env` on ct-games in Task 10 — nothing to commit.
+- [ ] **Step 5: Store secret + hostnames temporarily**
+
+You now have 3 values to hold in a scratch note for Task 10: 1 Secret Key, 2 public hostnames. Nothing committed.
 
 ---
 
@@ -448,30 +450,18 @@ services:
       start_period: 5m
       retries: 3
 
-  playit-vanilla:
+  playit-agent:
     image: ghcr.io/playit-cloud/playit-agent:latest
-    container_name: playit-vanilla
+    container_name: playit-agent
     restart: unless-stopped
     environment:
-      PLAYIT_SECRET: "${PLAYIT_SECRET_VANILLA}"
+      PLAYIT_SECRET: "${PLAYIT_SECRET}"
     volumes:
-      - playit-vanilla-data:/etc/playit
+      - playit-data:/etc/playit
     networks:
       - gamesnet
     depends_on:
       - mc-vanilla
-
-  playit-modded:
-    image: ghcr.io/playit-cloud/playit-agent:latest
-    container_name: playit-modded
-    restart: unless-stopped
-    environment:
-      PLAYIT_SECRET: "${PLAYIT_SECRET_MODDED}"
-    volumes:
-      - playit-modded-data:/etc/playit
-    networks:
-      - gamesnet
-    depends_on:
       - mc-modded
 
   backup-vanilla:
@@ -525,8 +515,7 @@ networks:
     driver: bridge
 
 volumes:
-  playit-vanilla-data:
-  playit-modded-data:
+  playit-data:
 ```
 
 - [ ] **Step 3: Create `.env.example`**
@@ -542,9 +531,9 @@ Write `stacks/ct-games/.env.example` with exactly this content:
 RCON_PASSWORD_VANILLA=CHANGE_ME_VANILLA_RCON
 RCON_PASSWORD_MODDED=CHANGE_ME_MODDED_RCON
 
-# Playit.gg secret keys from https://playit.gg/account/agents
-PLAYIT_SECRET_VANILLA=CHANGE_ME_PLAYIT_VANILLA
-PLAYIT_SECRET_MODDED=CHANGE_ME_PLAYIT_MODDED
+# Playit.gg agent secret key from https://playit.gg/account/agents
+# One agent with two tunnels attached (mc-vanilla, mc-modded).
+PLAYIT_SECRET=CHANGE_ME_PLAYIT_AGENT_SECRET
 
 # Optional: CurseForge API key, only if mc-modded pulls a CF modpack.
 # Create at https://console.curseforge.com/?#/api-keys
@@ -596,7 +585,7 @@ openssl rand -base64 24
 ```
 Copy output → save as `RCON_PASSWORD_MODDED`.
 
-Keep them in the scratch note alongside the two Playit secrets from Task 2.
+Keep them in the scratch note alongside the single Playit agent secret from Task 2.
 
 ---
 
@@ -614,7 +603,7 @@ From blvckmain (the CLI auto-discovers ct-games because the compose file now exi
 cd /home/psy/Documents/personal/infra
 infra ls | grep ct-games
 ```
-Expected: shows mc-vanilla, mc-modded, playit-vanilla, playit-modded, backup-vanilla, backup-modded mapped to ct-games.
+Expected: shows mc-vanilla, mc-modded, playit-agent, backup-vanilla, backup-modded mapped to ct-games.
 
 - [ ] **Step 2: Push the `.env.example` via rsync, then write `.env` directly on ct-games**
 
@@ -630,8 +619,7 @@ SSH in and write it with the four secrets (vanilla RCON, modded RCON, vanilla Pl
 ssh root@ct-games 'cat > /opt/stacks/ct-games/.env <<EOF
 RCON_PASSWORD_VANILLA=<paste from Task 9 Step 1>
 RCON_PASSWORD_MODDED=<paste from Task 9 Step 2>
-PLAYIT_SECRET_VANILLA=<paste from Task 2 Step 2>
-PLAYIT_SECRET_MODDED=<paste from Task 2 Step 3>
+PLAYIT_SECRET=<paste agent secret from Task 2 Step 2>
 EOF
 chmod 600 /opt/stacks/ct-games/.env'
 ```
@@ -658,12 +646,12 @@ ssh root@ct-games 'cd /opt/stacks/ct-games && docker compose logs -f mc-modded' 
 ```
 Expected: same — may take 5–10 min on first boot while Forge downloads.
 
-- [ ] **Step 7: Confirm all six services are up**
+- [ ] **Step 7: Confirm all five services are up**
 
 ```bash
 ssh root@ct-games 'cd /opt/stacks/ct-games && docker compose ps'
 ```
-Expected: all six containers listed with state `running` or `healthy`. `playit-*` + `backup-*` sidecars should be running (backups just wait for their 30-min INITIAL_DELAY).
+Expected: all five containers listed with state `running` or `healthy`. `playit-agent` + `backup-*` sidecars should be running (backups just wait for their 30-min INITIAL_DELAY).
 
 ---
 
@@ -723,19 +711,16 @@ Typical issues: EULA wasn't accepted (shouldn't happen — the env sets it), ver
 
 **Files:** None (verification)
 
-- [ ] **Step 1: Confirm both Playit agents are registered**
+- [ ] **Step 1: Confirm the Playit agent is registered**
 
 ```bash
-ssh root@ct-games 'docker logs playit-vanilla --tail 30'
-ssh root@ct-games 'docker logs playit-modded --tail 30'
+ssh root@ct-games 'docker logs playit-agent --tail 30'
 ```
-Expected: log lines like `tunnel established` / `connected to playit` and no repeating error loops. If you see "waiting for secret" or "invalid claim", the PLAYIT_SECRET in `.env` is wrong — re-check, `docker compose up -d` to re-apply.
+Expected: log lines like `tunnel established` / `connected to playit` and no repeating error loops. If you see "waiting for secret" or "invalid claim", the `PLAYIT_SECRET` in `.env` is wrong — re-check, `docker compose up -d playit-agent` to re-apply.
 
-- [ ] **Step 2: Confirm the Playit dashboard shows the tunnels as online**
+- [ ] **Step 2: Confirm the Playit dashboard shows agent + tunnels as online**
 
-In https://playit.gg/account/agents, both `mc-vanilla` and `mc-modded` tunnels should show a green "Online" indicator. If red, check the target routing: the Playit dashboard must have each tunnel's "local target" set to reach the right MC container.
-
-Since Playit agents are on `gamesnet` with the MC containers, the local target should be the service name + container port: `mc-vanilla:25565` and `mc-modded:25565`. Adjust in the Playit dashboard if it's set to `localhost` or an IP.
+At https://playit.gg/account/agents, the `ct-games` agent should show as **Online**, and both tunnels `mc-vanilla` and `mc-modded` attached to it should show green. If a tunnel is red, check its local target — both should resolve to container names on the `gamesnet` Docker network: `mc-vanilla:25565` and `mc-modded:25565`. Adjust in the dashboard if wrong.
 
 - [ ] **Step 3: Join from off-LAN**
 
@@ -1152,12 +1137,12 @@ ssh proxmoxmain 'pct list | grep 112'
 ```
 Expected: line shows `112 running ct-games`.
 
-- [ ] **Step 2: All six services healthy**
+- [ ] **Step 2: All five services healthy**
 
 ```bash
 ssh root@ct-games 'cd /opt/stacks/ct-games && docker compose ps --format "table {{.Name}}\t{{.State}}\t{{.Status}}"'
 ```
-Expected: six rows, all `running`, MC containers `healthy`.
+Expected: five rows, all `running`, MC containers `healthy`.
 
 - [ ] **Step 3: Playit external join works for both servers**
 
@@ -1180,11 +1165,11 @@ Already verified in Tasks 13–14.
 
 ```bash
 cd /home/psy/Documents/personal/infra
-infra ls | grep -E "mc-vanilla|mc-modded|playit|backup-vanilla|backup-modded"
+infra ls | grep -E "mc-vanilla|mc-modded|playit-agent|backup-vanilla|backup-modded"
 infra status | grep ct-games
 infra ct status | grep 112
 ```
-Expected: all six services listed; `ct-games` row in status; VMID 112 in `ct status`.
+Expected: all five services listed; `ct-games` row in status; VMID 112 in `ct status`.
 
 - [ ] **Step 7: On-box archive verified (Task 16) + ct-backup captures /opt/stacks/ct-games (Task 15)**
 
