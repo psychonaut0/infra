@@ -5,21 +5,25 @@ services:
     restart: unless-stopped
     environment:
       EULA: "TRUE"
-      TYPE: "PAPER"
+      TYPE: "PUFFERFISH"
       VERSION: "LATEST"
       MEMORY: "4G"
+      USE_AIKAR_FLAGS: "true"
       MAX_PLAYERS: "20"
       DIFFICULTY: "normal"
-      MOTD: "Vanilla Paper | 192.168.3.14:25565"
+      MOTD: "Vanilla | 192.168.3.14:25565"
       OPS: ""
       WHITELIST: ""
       ENABLE_RCON: "true"
       RCON_PASSWORD: "${RCON_PASSWORD_VANILLA}"
       RCON_PORT: "25575"
+      # Spark (57242) for profiling; BlueMap (83557) for web map.
+      SPIGET_RESOURCES: "57242,83557"
       TZ: "Europe/Rome"
     ports:
       - "25565:25565/tcp"
       - "25575:25575/tcp"
+      - "8100:8100/tcp"
     volumes:
       - ./data/vanilla:/data
     networks:
@@ -28,7 +32,7 @@ services:
       test: ["CMD", "mc-health"]
       interval: 30s
       timeout: 10s
-      start_period: 3m
+      start_period: 5m
       retries: 3
 
   mc-modded:
