@@ -23,7 +23,7 @@ declare -A CT_IPS=(
   [ct-photos]=192.168.3.9
   [ct-files]=192.168.3.11
   [ct-mgmt]=192.168.3.12
-  [ct-ha]=192.168.3.14
+  [ct-ha]=192.168.3.10
   [ct-tools]=192.168.3.15
 )
 # CTs whose full /opt/stacks state must be captured (not just .env). Both CTs
