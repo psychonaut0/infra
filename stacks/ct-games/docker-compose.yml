@@ -90,7 +90,7 @@ services:
       INITIAL_DELAY: "30m"
       PRUNE_BACKUPS_DAYS: "14"
       PAUSE_IF_NO_PLAYERS: "true"
-      BACKUP_NAME: "world-%Y%m%d-%H%M%S.tgz"
+      BACKUP_NAME: "world"
       DEST_DIR: "/backups"
       TZ: "Europe/Rome"
     volumes:
@@ -113,7 +113,7 @@ services:
       INITIAL_DELAY: "30m"
       PRUNE_BACKUPS_DAYS: "14"
       PAUSE_IF_NO_PLAYERS: "true"
-      BACKUP_NAME: "world-%Y%m%d-%H%M%S.tgz"
+      BACKUP_NAME: "world"
       DEST_DIR: "/backups"
       TZ: "Europe/Rome"
     volumes:
