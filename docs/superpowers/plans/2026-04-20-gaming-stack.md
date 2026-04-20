@@ -859,75 +859,114 @@ Expected: both open.
 
 ---
 
-## Task 15: Ensure ct-backup covers `/opt/stacks/ct-games/`
+## Task 15: Add ct-games to ct-backup source list
 
-**Goal:** Make sure the nightly restic → B2 job captures the live NVMe world data for ct-games.
+**Goal:** Make sure the nightly restic → B2 job captures ct-games — both `.env` secrets and the live NVMe world data under `/opt/stacks/ct-games/data/`.
+
+**Context from Task 1 Step 6:** ct-backup's source list is a bash associative array `CT_IPS` in `stacks/ct-backup/scripts/pre-backup.sh` (deployed to `/usr/local/bin/pre-backup.sh` on ct-backup). The pre-existing stale `[ct-ha]=192.168.3.14` entry was already corrected to `.10` in a standalone commit before this task (see `git log --oneline | grep "ct-ha"`). ct-games must be added to both `CT_IPS` (for `.env` capture) and `FULL_STACK_CTS` (so live world data under `/opt/stacks/ct-games/data/` ships to B2, not just `.env`).
 
 **Files:**
-- Possibly modify: ct-backup's source-list config (path discovered in Task 1 Step 6)
+- Modify: `stacks/ct-backup/scripts/pre-backup.sh`
 
-- [ ] **Step 1: Inspect ct-backup's source configuration**
-
-Using the path identified in Task 1 Step 6 (most likely `/opt/stacks/ct-backup/backup-dispatch.sh` or a sources.d file it sources):
-```bash
-ssh root@ct-backup 'grep -rn "stacks\|ct-games\|/opt" /opt/stacks/ct-backup/ /etc/backup-dispatch/ 2>/dev/null | head -40'
-```
-
-- [ ] **Step 2: Determine whether ct-games is already covered**
-
-Look for any of these patterns:
-- A loop over `ct-*` hosts (ct-games picked up automatically once the host is reachable) → **covered, no action**.
-- A literal list of CT hostnames → **NOT covered, go to Step 3**.
-- A per-CT file list specifying `/opt/stacks/<ctname>/` → **NOT covered, go to Step 3**.
-
-- [ ] **Step 3 (conditional): Add ct-games to the source list**
-
-Using the local copy in this repo first:
-```bash
-cd /home/psy/Documents/personal/infra
-grep -rn "ct-media\|ct-photos" stacks/ct-backup/ | head
-```
-
-Edit the appropriate file (e.g., `stacks/ct-backup/backup-dispatch.sh` or `stacks/ct-backup/sources/<file>`) — wherever ct-media or ct-photos is listed, add an analogous ct-games entry covering `/opt/stacks/ct-games/` and any per-CT SSH forced-command mapping that exists.
-
-- [ ] **Step 4: Deploy to ct-backup**
+- [ ] **Step 1: Confirm current state**
 
 ```bash
-cd /home/psy/Documents/personal/infra
-infra deploy ct-backup
+grep -nE "CT_IPS|FULL_STACK_CTS|ct-ha|ct-games" /home/psy/Documents/personal/infra/stacks/ct-backup/scripts/pre-backup.sh
 ```
-Expected: rsync completes. Since ct-backup uses native systemd (not Docker for the backup itself), a restart of the script isn't required — the next timer tick uses the new config.
+Expected: shows `[ct-ha]=192.168.3.10` (corrected), no `[ct-games]` entry yet, `FULL_STACK_CTS=(ct-ha ct-tools)`.
 
-- [ ] **Step 5: Dry-run the backup**
+- [ ] **Step 2: Add ct-games to `CT_IPS`**
 
-Trigger the nightly job manually:
-```bash
-ssh root@ct-backup 'systemctl start restic-backup.service'
-```
-
-Watch the logs:
-```bash
-ssh root@ct-backup 'journalctl -u restic-backup.service -f -n 50' # Ctrl-C when the run finishes
-```
-Expected: logs show ct-games among the hosts contacted, and restic reports new files / a successful snapshot.
-
-- [ ] **Step 6: Confirm ct-games content is in the snapshot**
+Edit `stacks/ct-backup/scripts/pre-backup.sh`. Locate the `CT_IPS` array and add the ct-games entry (keep alphabetical or match existing ordering — after `[ct-files]`, before `[ct-ha]` works):
 
 ```bash
-ssh root@ct-backup 'source /etc/restic/env && restic snapshots --latest 1'
-ssh root@ct-backup 'source /etc/restic/env && restic ls latest | grep ct-games | head'
+[ct-files]=192.168.3.11
+[ct-games]=192.168.3.14
+[ct-ha]=192.168.3.10
 ```
-Expected: `ct-games` paths appear, including at minimum `/opt/stacks/ct-games/docker-compose.yml` and `/opt/stacks/ct-games/.env`.
 
-- [ ] **Step 7: Commit any config edits**
+- [ ] **Step 3: Add ct-games to `FULL_STACK_CTS`**
+
+In the same file, change:
+```bash
+FULL_STACK_CTS=(ct-ha ct-tools)
+```
+to:
+```bash
+FULL_STACK_CTS=(ct-ha ct-tools ct-games)
+```
+
+Rationale: MC world data lives on ct-games at `/opt/stacks/ct-games/data/<server>/` (bind-mounted into the Docker containers). Without `FULL_STACK_CTS` inclusion, only `.env` gets captured and the live worlds are absent from B2.
+
+- [ ] **Step 4: Verify diff**
 
 ```bash
 cd /home/psy/Documents/personal/infra
-git add stacks/ct-backup/
-git commit -m "ct-backup: include ct-games in nightly restic sources"
+git diff stacks/ct-backup/scripts/pre-backup.sh
+```
+Expected: two small additions — one line inside `CT_IPS`, one token added to `FULL_STACK_CTS`.
+
+- [ ] **Step 5: Deploy to ct-backup**
+
+No `infra deploy` support for ct-backup (it's not a compose stack — uses native systemd + scripts). Copy manually:
+```bash
+scp stacks/ct-backup/scripts/pre-backup.sh root@192.168.3.13:/usr/local/bin/pre-backup.sh
+ssh root@192.168.3.13 'chmod 755 /usr/local/bin/pre-backup.sh'
 ```
 
-(Skip if Step 2 determined it was already covered.)
+- [ ] **Step 6: Authorize ct-backup's SSH key on ct-games**
+
+ct-backup uses its own key with rrsync forced-command restriction to pull from other CTs. Grab the public key from ct-backup and install it on ct-games with the same forced-command:
+
+```bash
+BACKUP_PUBKEY=$(ssh root@192.168.3.13 'cat /root/.ssh/id_ed25519.pub')
+# Look at an existing CT (e.g. ct-media) for the exact authorized_keys line format:
+ssh ct-media 'grep "ct-backup-dispatch\|backup-dispatch" /root/.ssh/authorized_keys | head -1'
+```
+Expected: a line like `command="/usr/local/bin/backup-dispatch.sh",restrict ssh-ed25519 ... ct-backup-dispatch`.
+
+Verify the `backup-dispatch.sh` script exists on ct-games (if not, copy from the repo or from ct-media):
+```bash
+ssh root@ct-games 'test -x /usr/local/bin/backup-dispatch.sh && echo ok || echo missing'
+```
+
+If missing, install it:
+```bash
+scp /home/psy/Documents/personal/infra/stacks/ct-backup/scripts/backup-dispatch.sh root@ct-games:/usr/local/bin/backup-dispatch.sh
+ssh root@ct-games 'chmod 755 /usr/local/bin/backup-dispatch.sh'
+```
+
+Then append the authorized_keys line on ct-games:
+```bash
+ssh root@ct-games "echo 'command=\"/usr/local/bin/backup-dispatch.sh\",restrict $BACKUP_PUBKEY ct-backup-dispatch' >> /root/.ssh/authorized_keys"
+```
+
+- [ ] **Step 7: Dry-run the pre-backup on ct-backup**
+
+```bash
+ssh root@192.168.3.13 'systemctl start backup.service'
+ssh root@192.168.3.13 'journalctl -u backup.service -f -n 80'   # Ctrl-C when run finishes
+```
+Expected: log lines showing `Pulling .env files from ct-games (192.168.3.14)` and `Pulling full /opt/stacks/ct-games from ct-games (192.168.3.14)` with non-zero byte counts. Run ends with a successful restic snapshot message.
+
+- [ ] **Step 8: Confirm ct-games content in the snapshot**
+
+```bash
+ssh root@192.168.3.13 'source /etc/restic/b2.env && restic -p /etc/restic/password snapshots --latest 1'
+ssh root@192.168.3.13 'source /etc/restic/b2.env && restic -p /etc/restic/password ls latest | grep ct-games | head'
+```
+Expected: ct-games paths appear, including `.env` and at least one file under `stacks/ct-games/data/vanilla/` or `/modded/`.
+
+(Exact env-file and password-file paths may differ — if the above fails, check `/etc/restic/` for the right names.)
+
+- [ ] **Step 9: Commit**
+
+```bash
+cd /home/psy/Documents/personal/infra
+GIT_AUTHOR_NAME=psy GIT_AUTHOR_EMAIL=psychonaut0@users.noreply.github.com \
+GIT_COMMITTER_NAME=psy GIT_COMMITTER_EMAIL=psychonaut0@users.noreply.github.com \
+git commit stacks/ct-backup/scripts/pre-backup.sh -m "ct-backup: add ct-games to source list (env + full /opt/stacks)"
+```
 
 ---
 
