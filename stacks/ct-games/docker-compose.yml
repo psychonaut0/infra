@@ -5,7 +5,7 @@ services:
     restart: unless-stopped
     environment:
       EULA: "TRUE"
-      TYPE: "PUFFERFISH"
+      TYPE: "PURPUR"
       VERSION: "LATEST"
       MEMORY: "4G"
       USE_AIKAR_FLAGS: "true"
