@@ -1,0 +1,131 @@
+services:
+  mc-vanilla:
+    image: itzg/minecraft-server:latest
+    container_name: mc-vanilla
+    restart: unless-stopped
+    environment:
+      EULA: "TRUE"
+      TYPE: "PAPER"
+      VERSION: "LATEST"
+      MEMORY: "4G"
+      MAX_PLAYERS: "20"
+      DIFFICULTY: "normal"
+      MOTD: "Vanilla Paper | 192.168.3.14:25565"
+      OPS: ""
+      WHITELIST: ""
+      ENABLE_RCON: "true"
+      RCON_PASSWORD: "${RCON_PASSWORD_VANILLA}"
+      RCON_PORT: "25575"
+      TZ: "Europe/Rome"
+    ports:
+      - "25565:25565/tcp"
+      - "25575:25575/tcp"
+    volumes:
+      - ./data/vanilla:/data
+    networks:
+      - gamesnet
+    healthcheck:
+      test: ["CMD", "mc-health"]
+      interval: 30s
+      timeout: 10s
+      start_period: 3m
+      retries: 3
+
+  mc-modded:
+    image: itzg/minecraft-server:latest
+    container_name: mc-modded
+    restart: unless-stopped
+    environment:
+      EULA: "TRUE"
+      TYPE: "FORGE"
+      VERSION: "LATEST"
+      MEMORY: "8G"
+      MAX_PLAYERS: "10"
+      DIFFICULTY: "normal"
+      MOTD: "Modded | 192.168.3.14:25566"
+      OPS: ""
+      WHITELIST: ""
+      ENABLE_RCON: "true"
+      RCON_PASSWORD: "${RCON_PASSWORD_MODDED}"
+      RCON_PORT: "25575"
+      TZ: "Europe/Rome"
+    ports:
+      - "25566:25565/tcp"
+      - "25576:25575/tcp"
+    volumes:
+      - ./data/modded:/data
+    networks:
+      - gamesnet
+    healthcheck:
+      test: ["CMD", "mc-health"]
+      interval: 30s
+      timeout: 10s
+      start_period: 5m
+      retries: 3
+
+  playit-agent:
+    image: ghcr.io/playit-cloud/playit-agent:latest
+    container_name: playit-agent
+    restart: unless-stopped
+    environment:
+      PLAYIT_SECRET: "${PLAYIT_SECRET}"
+    volumes:
+      - playit-data:/etc/playit
+    networks:
+      - gamesnet
+    depends_on:
+      - mc-vanilla
+      - mc-modded
+
+  backup-vanilla:
+    image: itzg/mc-backup:latest
+    container_name: backup-vanilla
+    restart: unless-stopped
+    environment:
+      RCON_HOST: "mc-vanilla"
+      RCON_PORT: "25575"
+      RCON_PASSWORD: "${RCON_PASSWORD_VANILLA}"
+      BACKUP_INTERVAL: "24h"
+      INITIAL_DELAY: "30m"
+      PRUNE_BACKUPS_DAYS: "14"
+      PAUSE_IF_NO_PLAYERS: "true"
+      BACKUP_NAME: "world-%Y%m%d-%H%M%S.tgz"
+      DEST_DIR: "/backups"
+      TZ: "Europe/Rome"
+    volumes:
+      - ./data/vanilla:/data:ro
+      - /mnt/archives/vanilla:/backups
+    networks:
+      - gamesnet
+    depends_on:
+      - mc-vanilla
+
+  backup-modded:
+    image: itzg/mc-backup:latest
+    container_name: backup-modded
+    restart: unless-stopped
+    environment:
+      RCON_HOST: "mc-modded"
+      RCON_PORT: "25575"
+      RCON_PASSWORD: "${RCON_PASSWORD_MODDED}"
+      BACKUP_INTERVAL: "24h"
+      INITIAL_DELAY: "30m"
+      PRUNE_BACKUPS_DAYS: "14"
+      PAUSE_IF_NO_PLAYERS: "true"
+      BACKUP_NAME: "world-%Y%m%d-%H%M%S.tgz"
+      DEST_DIR: "/backups"
+      TZ: "Europe/Rome"
+    volumes:
+      - ./data/modded:/data:ro
+      - /mnt/archives/modded:/backups
+    networks:
+      - gamesnet
+    depends_on:
+      - mc-modded
+
+networks:
+  gamesnet:
+    driver: bridge
+
+volumes:
+  playit-data:
