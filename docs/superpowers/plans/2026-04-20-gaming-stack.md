@@ -87,9 +87,9 @@ Paste all check outputs into a throwaway scratch file or the conversation log. D
 
 ---
 
-## Task 2: Provision one Playit.gg agent + two tunnels (out-of-band)
+## Task 2: Provision one Playit.gg agent (tunnels deferred to Task 12)
 
-**Goal:** Create one Playit agent attached to both MC tunnels. Capture the agent's single Secret Key + the two public tunnel hostnames before the stack is deployed.
+**Goal:** Create the Playit agent and capture its Secret Key. Tunnel creation happens post-deploy (Task 12 Step 1) because Playit's UI requires the agent to be online before tunnels can be attached.
 
 **Files:** None (external web dashboard)
 
@@ -99,19 +99,15 @@ Create an account if needed. Free tier is sufficient.
 
 - [ ] **Step 2: Create the agent**
 
-Dashboard → **Agents** → **Create Agent** → name it `ct-games`. On creation, Playit displays a **Secret Key** (a hex string). Copy it to a scratch note — it's the only time it's shown.
+Dashboard → **Agents** → **Create Agent** → name it `ct-games`. On creation, Playit displays a **Secret Key** (a hex string). Copy it — it's the only time it's shown. This is the single secret that goes into `PLAYIT_SECRET` on ct-games.
 
-- [ ] **Step 3: Create tunnel 1 attached to the `ct-games` agent**
+- [ ] **Step 3: Store secret temporarily**
 
-Dashboard → **Create Tunnel** → protocol **Minecraft Java** → name `mc-vanilla` → agent: `ct-games` → local target host/port: `mc-vanilla:25565`. Accept the free-tier hostname (format: `something.joinmc.link`) and copy it.
+Hold the Secret Key in a scratch note for Task 10. Nothing committed.
 
-- [ ] **Step 4: Create tunnel 2 attached to the same agent**
+- [ ] **Step 4: (Note — not an action)**
 
-Same flow, name `mc-modded`, agent: `ct-games`, local target `mc-modded:25565` (both MC containers listen on 25565 internally — different service names, same internal port, no conflict). Copy the hostname.
-
-- [ ] **Step 5: Store secret + hostnames temporarily**
-
-You now have 3 values to hold in a scratch note for Task 10: 1 Secret Key, 2 public hostnames. Nothing committed.
+Tunnels `mc-vanilla` and `mc-modded` get created in **Task 12 Step 1**, after the agent container is running and registered online. That's Playit's required ordering — the dashboard won't let you attach a tunnel to an offline agent.
 
 ---
 
@@ -705,30 +701,50 @@ Typical issues: EULA wasn't accepted (shouldn't happen — the env sets it), ver
 
 ---
 
-## Task 12: Verify Playit.gg external connectivity
+## Task 12: Create Playit tunnels + verify external connectivity
 
-**Goal:** Confirm the Playit hostnames actually route traffic from the public internet into the servers.
+**Goal:** Now that `playit-agent` is running, create the two tunnels in the Playit dashboard and prove they route traffic from the public internet into both MC servers.
 
-**Files:** None (verification)
+**Files:** None (external web dashboard + verification)
 
-- [ ] **Step 1: Confirm the Playit agent is registered**
+- [ ] **Step 1: Confirm the Playit agent is registered and online**
 
 ```bash
 ssh root@ct-games 'docker logs playit-agent --tail 30'
 ```
 Expected: log lines like `tunnel established` / `connected to playit` and no repeating error loops. If you see "waiting for secret" or "invalid claim", the `PLAYIT_SECRET` in `.env` is wrong — re-check, `docker compose up -d playit-agent` to re-apply.
 
-- [ ] **Step 2: Confirm the Playit dashboard shows agent + tunnels as online**
+Also confirm in the Playit dashboard → **Agents** that the `ct-games` agent shows **Online**. Creating tunnels requires the agent to be online.
 
-At https://playit.gg/account/agents, the `ct-games` agent should show as **Online**, and both tunnels `mc-vanilla` and `mc-modded` attached to it should show green. If a tunnel is red, check its local target — both should resolve to container names on the `gamesnet` Docker network: `mc-vanilla:25565` and `mc-modded:25565`. Adjust in the dashboard if wrong.
+- [ ] **Step 2: Create tunnel `mc-vanilla` attached to the `ct-games` agent**
 
-- [ ] **Step 3: Join from off-LAN**
+Playit dashboard → **Create Tunnel**:
+- Protocol: **Minecraft Java**
+- Agent: `ct-games`
+- Name: `mc-vanilla`
+- Local target: `mc-vanilla:25565`
+- Accept the free-tier hostname (format: `something.joinmc.link`). Copy it.
 
-Use your phone on cellular data (or ask a friend) to connect a Minecraft Java client to `<vanilla-playit-hostname>` (the joinmc.link / similar hostname from Task 2). Verify join succeeds.
+- [ ] **Step 3: Create tunnel `mc-modded` attached to the same agent**
 
-- [ ] **Step 4: Repeat for modded**
+Same flow:
+- Protocol: **Minecraft Java**
+- Agent: `ct-games`
+- Name: `mc-modded`
+- Local target: `mc-modded:25565` (both MC containers listen on 25565 internally — different service names, same port, `gamesnet` disambiguates)
+- Copy the hostname.
 
-Same test against `<modded-playit-hostname>`. Verify join succeeds.
+- [ ] **Step 4: Confirm both tunnels are green in the Playit dashboard**
+
+Each tunnel should show **Online** within ~30 s of creation. If one is red, verify its local target (`mc-vanilla:25565` or `mc-modded:25565`, not `localhost` or an IP).
+
+- [ ] **Step 5: Join vanilla from off-LAN**
+
+Use your phone on cellular data (or ask a friend) to connect a Minecraft Java client to the vanilla hostname (the one from Step 2). Verify join succeeds.
+
+- [ ] **Step 6: Join modded from off-LAN**
+
+Same test against the modded hostname (from Step 3). Verify join succeeds.
 
 ---
 
