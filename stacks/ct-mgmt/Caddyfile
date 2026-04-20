@@ -85,3 +85,7 @@ http://status.lan {
 http://backup.lan {
 	reverse_proxy 192.168.3.13:80
 }
+
+http://map.lan {
+	reverse_proxy 192.168.3.14:8100
+}
