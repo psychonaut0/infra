@@ -1,5 +1,6 @@
 # Pi-hole custom DNS entries (dns.hosts in pihole.toml)
-# All .lan domains point to ct-mgmt (192.168.3.12) where Caddy reverse proxies them
+# Most .lan domains point to ct-mgmt (192.168.3.12) where Caddy reverse proxies them.
+# Game servers on ct-games point directly to 192.168.3.14 — raw TCP, not HTTP.
 # To apply: set dns.hosts via pihole-FTL --config on ct-dns
 
 192.168.3.12 portainer.lan
@@ -16,3 +17,5 @@
 192.168.3.12 status.lan
 192.168.3.12 esphome.lan
 192.168.3.12 backup.lan
+192.168.3.14 mc-vanilla.lan
+192.168.3.14 mc-modded.lan
