@@ -1,5 +1,14 @@
 # Infrastructure
 
+## Upstream / External Access
+
+- **ISP:** Fastweb FWA (wireless). Static public IPv4 **`93.38.52.48`** ("IP Pubblico Statico" — explicitly requested, confirmed **not CGNAT** via external reachability test 2026-04-21).
+- **Topology:** Fastweb Fastgate FG4224L (`192.168.0.1`, WAN = public IP) → UniFi Gateway (WAN `192.168.0.2`, LAN gateway `192.168.1.1`) → LAN `192.168.1.0/24`.
+- **Inbound architecture:** Fastgate is in **DMZ Host → `192.168.0.2`** (UniFi WAN). All inbound port-forward rules live on **UniFi only** — never touch the Fastgate. Fastgate firewall is off (no extra filtering beyond default NAT). If inbound breaks: check (a) UniFi PF rule enabled, (b) Fastgate DMZ still pointed at 192.168.0.2 (Fastgate has been known to drop DMZ across firmware updates), (c) UniFi firewall not overriding the PF.
+- **Personal domain:** `ncsp.dev` (Cloudflare Registrar + Cloudflare DNS). Records pointing at home public IP must be **DNS-only (grey cloud)** — CF free-tier proxy only supports HTTP(S), not arbitrary TCP/UDP.
+- **Public endpoints currently exposed via UniFi port-forward:**
+  - `mc.ncsp.dev:25565/tcp` → `192.168.3.14:25565` (mc-vanilla on ct-games)
+
 ## Network & Devices
 
 ### blvckmain (Main PC)
@@ -96,10 +105,10 @@
 - **OS:** Debian 13 (Trixie), unprivileged LXC
 - **SSH:** Port 22, key-based auth (no password)
 - **Resources:** 6 vCPU, 16384MB RAM, 4096MB swap, 40GB disk
-- **Role:** Game server host. Runs two Minecraft servers (vanilla/Paper + heavy modded) plus a single Playit.gg agent for CGNAT-friendly public reach and two itzg/mc-backup sidecars that write daily `.tgz` snapshots to mergerfs.
+- **Role:** Game server host. Runs two Minecraft servers (vanilla/Paper + heavy modded) plus two itzg/mc-backup sidecars (daily `.tgz` to mergerfs). Public reach for mc-vanilla is via UniFi port-forward → `mc.ncsp.dev:25565` (direct from static public IP — see top-level *Upstream / External Access*). A Playit.gg agent remains in the stack as transitional fallback since 2026-04-21 and will be removed once the direct endpoint is proven stable.
 - **Stack:** `/opt/stacks/ct-games/docker-compose.yml` (local copy: `stacks/ct-games/`)
-- **Ports:** 25565 (mc-vanilla game), 25566 (mc-modded game), 25575 (mc-vanilla RCON, LAN-only), 25576 (mc-modded RCON, LAN-only)
-- **Config notes:** AppArmor unconfined + proc/sys rw for Docker-in-LXC. Shared `gamesnet` Docker bridge for agent→MC routing. Live world data on CT's NVMe at `/opt/stacks/ct-games/data/`. Archive bind mount: `/mnt/cloud/volumes/games/archives` → `/mnt/archives` (daily `.tgz` per server, 14-day retention via `PRUNE_BACKUPS_DAYS`). One Playit agent with two tunnels attached server-side (no inbound, CGNAT-friendly). Playit image reads env var `SECRET_KEY` — mapped from `PLAYIT_SECRET` in `.env`.
+- **Ports:** 25565 (mc-vanilla game, also publicly reachable via UniFi PF), 25566 (mc-modded game), 25575 (mc-vanilla RCON, LAN-only), 25576 (mc-modded RCON, LAN-only)
+- **Config notes:** AppArmor unconfined + proc/sys rw for Docker-in-LXC. Shared `gamesnet` Docker bridge for agent→MC routing. Live world data on CT's NVMe at `/opt/stacks/ct-games/data/`. Archive bind mount: `/mnt/cloud/volumes/games/archives` → `/mnt/archives` (daily `.tgz` per server, 14-day retention via `PRUNE_BACKUPS_DAYS`). Playit agent (transitional): reads `SECRET_KEY` from `PLAYIT_SECRET` in `.env`; two tunnels attached server-side.
 
 ### ct-mgmt (LXC — VMID 108 on proxmoxmain)
 - **IP:** 192.168.3.12
@@ -200,7 +209,7 @@ Home Assistant Container runs on ct-ha (https://homeassistant.lan or http://192.
 ESPHome dashboard runs on ct-tools (http://esphome.lan or http://192.168.3.15:6052) for IoT device firmware builds and OTA updates.
 Proxmox VE runs on proxmoxmain (https://proxmox.lan or https://192.168.3.2:8006) and proxmoxnode (https://proxmox-node.lan or https://192.168.3.3:8006).
 Immich photo management runs on ct-photos (https://immich.lan or http://192.168.3.9:2283) with iGPU ML inference.
-Minecraft servers run on ct-games (192.168.3.14:25565 for vanilla/Paper, :25566 for modded) with a single Playit.gg agent providing CGNAT-friendly public access. LAN RCON on :25575 (vanilla) / :25576 (modded). Daily `.tgz` archives on mergerfs at `/mnt/cloud/volumes/games/archives/<server>/`.
+Minecraft servers run on ct-games (192.168.3.14:25565 for vanilla/Paper, :25566 for modded). Vanilla is publicly reachable at `mc.ncsp.dev:25565` via UniFi port-forward from the static public IP. Playit.gg agent remains as transitional fallback and will be retired. LAN RCON on :25575 (vanilla) / :25576 (modded). Daily `.tgz` archives on mergerfs at `/mnt/cloud/volumes/games/archives/<server>/`.
 Hardware and storage details in `docs/hardware.md`.
 
 ## CLI
