@@ -62,11 +62,25 @@ done
 # ct-ha and ct-tools bind-mount their service state (HA config, Mosquitto,
 # ESPHome per-device keys) directly from /opt/stacks subdirs into containers,
 # so a full rsync is the only way to capture it.
+#
+# Excludes skip regenerable MC-server derivatives (BlueMap tile cache,
+# server logs, crash reports, downloaded libraries/versions). Only MC
+# stack paths match these — HA/ESPHome trees are unaffected.
+FULL_STACK_EXCLUDES=(
+  --exclude='data/*/bluemap/web/maps/*/tiles/'
+  --exclude='data/*/logs/'
+  --exclude='data/*/crash-reports/'
+  --exclude='data/*/cache/'
+  --exclude='data/*/libraries/'
+  --exclude='data/*/versions/'
+  --exclude='data/*/.cache/'
+)
 for CT in "${FULL_STACK_CTS[@]}"; do
   IP="${CT_IPS[$CT]}"
   log "Pulling full /opt/stacks/$CT from $CT ($IP)"
   install -d "$STAGING/stacks/$CT"
   rsync -a -e "$RSYNC_E" \
+    "${FULL_STACK_EXCLUDES[@]}" \
     "root@$IP:/opt/stacks/$CT/" "$STAGING/stacks/$CT/" \
     2>>"$LOG" || log "WARN: full stacks sync failed for $CT"
 done
