@@ -37,14 +37,8 @@
 - **CPU:** Intel N100 (4C/4T)
 - **RAM:** 16GB
 - **Role:** Secondary Proxmox cluster node. Shares authorized_keys with proxmoxmain via pmxcfs.
-- **VMs:** Home Assistant OS (VMID 101) — **retired 2026-04-17**, pending destroy after ≥1 week of ct-ha stability
 - **CTs:** ct-dns (VMID 102), ct-ha (VMID 111)
 - **Storage:** See `docs/hardware.md` for full disk and storage layout.
-
-### Home Assistant OS (VM — VMID 101 on proxmoxnode) — RETIRED
-- **Status:** Powered off 2026-04-17 after migration to ct-ha (HA Container). Kept as rollback for ≥1 week, then `qm destroy 101 --purge`.
-- **Note:** Its IP `192.168.3.10` and MAC `02:FF:32:B5:62:EA` were transferred to ct-ha because the router has a per-client rule granting HAOS access to the IoT subnet (192.168.2.0/24). Do not reuse that IP/MAC for other hosts.
-- **Backup:** `pre-migration` tar on ct-files at `/mnt/cloud/volumes/samba/data/psy/ha-backups/pre-migration.tar`.
 
 ### ct-dns (LXC — VMID 102 on proxmoxnode)
 - **IP:** 192.168.3.5
