@@ -21,90 +21,14 @@ func newUpdateCmd() *cobra.Command {
 	c := &cobra.Command{
 		Use:   "update",
 		Short: "Update the infra binary (git pull + rebuild + install)",
-		RunE: func(_ *cobra.Command, _ []string) error {
-			root, err := repo.Locate()
-			if err != nil {
-				return err
-			}
-
+		RunE: func(cmd *cobra.Command, _ []string) error {
 			ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
 			defer cancel()
-
-			// Fetch latest refs.
-			if err := runGit(ctx, root, "fetch", "--quiet"); err != nil {
-				return fmt.Errorf("git fetch: %w", err)
-			}
-
-			// Compare HEAD to origin/<ref>.
-			branch := ref
-			if branch == "" {
-				branch = currentBranch(ctx, root)
-			}
-			remoteRef := "origin/" + branch
-
-			local := revParse(ctx, root, "HEAD")
-			remote := revParse(ctx, root, remoteRef)
-			if local == "" || remote == "" {
-				return fmt.Errorf("could not resolve git refs")
-			}
-
-			if local == remote {
-				fmt.Printf("Up-to-date: %s is at %s\n", branch, short(local))
-				return nil
-			}
-
-			ahead, behind := countAheadBehind(ctx, root, branch)
-			fmt.Printf("Current: %s\nOrigin:  %s (behind %d, ahead %d)\n",
-				short(local), short(remote), behind, ahead)
-			if check {
-				return nil
-			}
-
-			if !yes {
-				ok, err := ui.Confirm("Pull and rebuild?")
-				if err != nil {
-					return err
-				}
-				if !ok {
-					return nil
-				}
-			}
-
-			if err := runGit(ctx, root, "pull", "--ff-only"); err != nil {
-				return fmt.Errorf("git pull: %w", err)
-			}
-
-			// Build new binary next to the current one, then atomic mv.
-			installTarget, err := installPath()
-			if err != nil {
-				return err
-			}
-			tmp := installTarget + ".new"
-			cliDir := filepath.Join(root, "cli")
-			build := exec.CommandContext(ctx, "go", "build",
-				"-ldflags", buildLDFlags(root),
-				"-o", tmp,
-				"./cmd/infra")
-			build.Dir = cliDir
-			build.Stdout = os.Stdout
-			build.Stderr = os.Stderr
-			if err := build.Run(); err != nil {
-				_ = os.Remove(tmp)
-				return fmt.Errorf("go build: %w", err)
-			}
-
-			// Sanity: the fresh binary runs.
-			verify := exec.CommandContext(ctx, tmp, "version")
-			if out, err := verify.CombinedOutput(); err != nil {
-				_ = os.Remove(tmp)
-				return fmt.Errorf("verify new binary failed: %w\n%s", err, out)
-			}
-
-			if err := os.Rename(tmp, installTarget); err != nil {
-				return fmt.Errorf("install: %w", err)
-			}
-			fmt.Printf("Updated %s\n", installTarget)
-			return nil
+			return runFromSource(ctx, cmd, runFromSourceOpts{
+				Check: check,
+				Yes:   yes,
+				Ref:   ref,
+			})
 		},
 	}
 	c.Flags().BoolVar(&check, "check", false, "Report status only; don't pull or build")
@@ -195,4 +119,89 @@ func gitShortSHA(dir string) string {
 		return "unknown"
 	}
 	return strings.TrimSpace(string(out))
+}
+
+type runFromSourceOpts struct {
+	Check bool
+	Yes   bool
+	Ref   string
+}
+
+// runFromSource implements the historical "git pull && go build" update flow.
+// Retained as a fallback for hosts with a repo checkout when the mirror is
+// unreachable or for development.
+func runFromSource(ctx context.Context, _ *cobra.Command, opts runFromSourceOpts) error {
+	root, err := repo.Locate()
+	if err != nil {
+		return err
+	}
+
+	if err := runGit(ctx, root, "fetch", "--quiet"); err != nil {
+		return fmt.Errorf("git fetch: %w", err)
+	}
+
+	branch := opts.Ref
+	if branch == "" {
+		branch = currentBranch(ctx, root)
+	}
+	remoteRef := "origin/" + branch
+
+	local := revParse(ctx, root, "HEAD")
+	remote := revParse(ctx, root, remoteRef)
+	if local == "" || remote == "" {
+		return fmt.Errorf("could not resolve git refs")
+	}
+	if local == remote {
+		fmt.Printf("Up-to-date: %s is at %s\n", branch, short(local))
+		return nil
+	}
+
+	ahead, behind := countAheadBehind(ctx, root, branch)
+	fmt.Printf("Current: %s\nOrigin:  %s (behind %d, ahead %d)\n",
+		short(local), short(remote), behind, ahead)
+	if opts.Check {
+		return nil
+	}
+
+	if !opts.Yes {
+		ok, err := ui.Confirm("Pull and rebuild?")
+		if err != nil {
+			return err
+		}
+		if !ok {
+			return nil
+		}
+	}
+
+	if err := runGit(ctx, root, "pull", "--ff-only"); err != nil {
+		return fmt.Errorf("git pull: %w", err)
+	}
+
+	installTarget, err := installPath()
+	if err != nil {
+		return err
+	}
+	tmp := installTarget + ".new"
+	cliDir := filepath.Join(root, "cli")
+	build := exec.CommandContext(ctx, "go", "build",
+		"-ldflags", buildLDFlags(root),
+		"-o", tmp,
+		"./cmd/infra")
+	build.Dir = cliDir
+	build.Stdout = os.Stdout
+	build.Stderr = os.Stderr
+	if err := build.Run(); err != nil {
+		_ = os.Remove(tmp)
+		return fmt.Errorf("go build: %w", err)
+	}
+	verify := exec.CommandContext(ctx, tmp, "version")
+	if out, err := verify.CombinedOutput(); err != nil {
+		_ = os.Remove(tmp)
+		return fmt.Errorf("verify new binary failed: %w\n%s", err, out)
+	}
+	if err := os.Rename(tmp, installTarget); err != nil {
+		return fmt.Errorf("install: %w", err)
+	}
+	fmt.Printf("Updated %s\n", installTarget)
+	return nil
 }
