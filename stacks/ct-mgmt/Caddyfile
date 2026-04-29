@@ -89,3 +89,9 @@ http://backup.lan {
 http://map.lan {
 	reverse_proxy 192.168.3.14:8100
 }
+
+http://infra-bin.lan {
+	root * /srv/infra-bin
+	file_server
+	encode gzip
+}
