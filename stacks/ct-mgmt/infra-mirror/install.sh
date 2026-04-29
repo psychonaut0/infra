@@ -18,13 +18,13 @@ require() {
 }
 require curl
 require sha256sum
-require jq
+require python3
 
 tmp=$(mktemp)
 trap 'rm -f "$tmp"' EXIT
 
 curl -fsSL "$MIRROR/linux/$ARCH/infra" -o "$tmp"
-expected=$(curl -fsSL "$MIRROR/manifest.json" | jq -r ".binaries[\"linux/${ARCH}\"].sha256")
+expected=$(curl -fsSL "$MIRROR/manifest.json" | python3 -c "import sys, json; print(json.load(sys.stdin)['binaries']['linux/${ARCH}']['sha256'])")
 actual=$(sha256sum "$tmp" | awk '{print $1}')
 if [ "$expected" != "$actual" ]; then
     echo "checksum mismatch (got $actual, expected $expected)" >&2
