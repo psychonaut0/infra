@@ -8,6 +8,8 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strconv"
+	"strings"
 )
 
 // Binary describes one published artifact (one OS/arch).
@@ -45,6 +47,48 @@ func (m *Manifest) ForArch(goosGoarch string) (Binary, error) {
 		return Binary{}, fmt.Errorf("no binary for %s in manifest", goosGoarch)
 	}
 	return b, nil
+}
+
+// Newer reports whether latest is strictly newer than current.
+// Both arguments are expected in `vMAJOR.MINOR.PATCH` form (additional
+// suffixes like `-2-gabc-dirty` are tolerated and treated as the base tag's
+// pre-release). The literal "dev" and the empty string are treated as older
+// than any tagged version.
+func Newer(latest, current string) bool {
+	if current == "" || current == "dev" {
+		return latest != "" && latest != "dev"
+	}
+	la := parseSemver(latest)
+	cu := parseSemver(current)
+	for i := 0; i < 3; i++ {
+		if la[i] != cu[i] {
+			return la[i] > cu[i]
+		}
+	}
+	// Cores are equal. If current has a pre-release/build suffix and latest
+	// doesn't, latest is the "real" tag and is newer.
+	currentHasSuffix := strings.ContainsAny(current, "-+")
+	latestHasSuffix := strings.ContainsAny(latest, "-+")
+	if currentHasSuffix && !latestHasSuffix {
+		return true
+	}
+	return false
+}
+
+func parseSemver(v string) [3]int {
+	v = strings.TrimPrefix(v, "v")
+	// Strip any suffix after the third dot-separated number.
+	core := v
+	if i := strings.IndexAny(v, "-+"); i >= 0 {
+		core = v[:i]
+	}
+	parts := strings.SplitN(core, ".", 3)
+	out := [3]int{}
+	for i := 0; i < len(parts) && i < 3; i++ {
+		n, _ := strconv.Atoi(parts[i])
+		out[i] = n
+	}
+	return out
 }
 
 // Fetch GETs a manifest from url. Returns an error on non-200 responses,
