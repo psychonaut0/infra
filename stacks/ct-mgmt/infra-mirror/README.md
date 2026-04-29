@@ -2,8 +2,8 @@
 
 Pulls the latest GitHub Release of `psychonaut0/infra` (CLI tags `v*`) and
 re-publishes the binaries to a LAN URL behind ct-mgmt's Caddy. Hosts use
-`https://infra-bin.lan/manifest.json` to detect new versions and
-`https://infra-bin.lan/linux/<arch>/infra` to download.
+`http://infra-bin.lan/manifest.json` to detect new versions and
+`http://infra-bin.lan/linux/<arch>/infra` to download.
 
 ## Architecture
 
@@ -80,13 +80,13 @@ units rarely change; if they do, also run `systemctl daemon-reload`.
 From any LAN host:
 
 ```sh
-curl -s https://infra-bin.lan/manifest.json | jq
+curl -s http://infra-bin.lan/manifest.json | jq
 ```
 
 A fresh CT can bootstrap with:
 
 ```sh
-curl -fsSL https://infra-bin.lan/install.sh | sh
+curl -fsSL http://infra-bin.lan/install.sh | sh
 ```
 
 ## Troubleshooting

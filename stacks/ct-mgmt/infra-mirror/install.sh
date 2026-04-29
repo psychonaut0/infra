@@ -1,10 +1,10 @@
 #!/bin/sh
-# infra CLI bootstrap installer — fetched as `curl -fsSL https://infra-bin.lan/install.sh | sh`.
+# infra CLI bootstrap installer — fetched as `curl -fsSL http://infra-bin.lan/install.sh | sh`.
 # Detects arch, downloads the matching binary from the LAN mirror, verifies
 # its sha256 against manifest.json, and installs to /usr/local/bin/infra.
 set -eu
 
-MIRROR="${INFRA_MIRROR:-https://infra-bin.lan}"
+MIRROR="${INFRA_MIRROR:-http://infra-bin.lan}"
 DEST="${INFRA_INSTALL_DIR:-/usr/local/bin}"
 
 case "$(uname -m)" in

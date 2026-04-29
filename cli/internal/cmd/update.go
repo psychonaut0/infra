@@ -20,7 +20,7 @@ import (
 	"github.com/spf13/cobra"
 )
 
-const defaultMirrorURL = "https://infra-bin.lan/manifest.json"
+const defaultMirrorURL = "http://infra-bin.lan/manifest.json"
 
 func newUpdateCmd() *cobra.Command {
 	var check bool
@@ -51,8 +51,10 @@ func newUpdateCmd() *cobra.Command {
 			}
 			currentVer := cmd.Root().Annotations["version"]
 			url := mirrorURL
-			if env := os.Getenv("INFRA_MIRROR_URL"); env != "" && url == defaultMirrorURL {
-				url = env
+			if !cmd.Flags().Changed("mirror") {
+				if env := os.Getenv("INFRA_MIRROR_URL"); env != "" {
+					url = env
+				}
 			}
 			return runFromMirror(ctx, runFromMirrorOpts{
 				MirrorURL:   url,
@@ -125,6 +127,12 @@ func short(sha string) string {
 }
 
 func installPath() (string, error) {
+	if exe, err := os.Executable(); err == nil {
+		if resolved, err := filepath.EvalSymlinks(exe); err == nil {
+			return resolved, nil
+		}
+		return exe, nil
+	}
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return "", err
