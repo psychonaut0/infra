@@ -1,0 +1,15 @@
+[Unit]
+Description=infra CLI release mirror sync
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/opt/infra-mirror/sync.sh
+StandardOutput=journal
+StandardError=journal
+ProtectSystem=full
+ProtectHome=true
+PrivateTmp=true
+NoNewPrivileges=true
+ReadWritePaths=/var/www/infra-bin /etc/infra-mirror
