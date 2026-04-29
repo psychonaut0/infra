@@ -30,6 +30,9 @@ func Parse(r io.Reader) (*Manifest, error) {
 	if err := dec.Decode(&m); err != nil {
 		return nil, fmt.Errorf("decode manifest: %w", err)
 	}
+	if len(m.Binaries) == 0 {
+		return nil, fmt.Errorf("decode manifest: no binaries defined")
+	}
 	return &m, nil
 }
 
