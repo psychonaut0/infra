@@ -32,11 +32,7 @@ func newStatusCmd() *cobra.Command {
 		Use:   "status",
 		Short: "Fleet-wide Docker service overview",
 		RunE: func(_ *cobra.Command, _ []string) error {
-			root, err := repo.Locate()
-			if err != nil {
-				return err
-			}
-			idx, err := discover.Walk(root)
+			idx, err := discover.Load(repo.Locate)
 			if err != nil {
 				return err
 			}

@@ -21,11 +21,7 @@ func newRestartCmd() *cobra.Command {
 		Short: "Restart a service via docker compose",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(_ *cobra.Command, args []string) error {
-			root, err := repo.Locate()
-			if err != nil {
-				return err
-			}
-			idx, err := discover.Walk(root)
+			idx, err := discover.Load(repo.Locate)
 			if err != nil {
 				return err
 			}
