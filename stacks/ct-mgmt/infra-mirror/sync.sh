@@ -80,11 +80,11 @@ cat > "$work/manifest.json" <<EOF
   "published_at": "${published_at}",
   "binaries": {
     "linux/amd64": {
-      "url": "https://infra-bin.lan/linux/amd64/infra",
+      "url": "http://infra-bin.lan/linux/amd64/infra",
       "sha256": "${sum_amd64}"
     },
     "linux/arm64": {
-      "url": "https://infra-bin.lan/linux/arm64/infra",
+      "url": "http://infra-bin.lan/linux/arm64/infra",
       "sha256": "${sum_arm64}"
     }
   }

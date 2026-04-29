@@ -16,11 +16,11 @@ func TestParse_HappyPath(t *testing.T) {
 		"published_at": "2026-04-29T12:34:56Z",
 		"binaries": {
 			"linux/amd64": {
-				"url": "https://infra-bin.lan/linux/amd64/infra",
+				"url": "http://infra-bin.lan/linux/amd64/infra",
 				"sha256": "5e884898da28047151d0e56f8dc6292773603d0d6aabbdd62a11ef721d1542d8"
 			},
 			"linux/arm64": {
-				"url": "https://infra-bin.lan/linux/arm64/infra",
+				"url": "http://infra-bin.lan/linux/arm64/infra",
 				"sha256": "ef797c8118f02dfb649607dd5d3f8c7623048c9c063d532cc95c5ed7a898a64f"
 			}
 		}

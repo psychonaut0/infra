@@ -78,7 +78,7 @@ func (c *Checker) Footer() {
 // suppression rules from the spec (env opt-out, dev build, non-TTY stderr).
 func New(currentVersion string) *Checker {
 	c := &Checker{
-		MirrorURL:      "https://infra-bin.lan/manifest.json",
+		MirrorURL:      "http://infra-bin.lan/manifest.json",
 		TTL:            24 * time.Hour,
 		CurrentVersion: currentVersion,
 		Out:            os.Stderr,

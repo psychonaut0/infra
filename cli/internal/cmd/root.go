@@ -20,6 +20,10 @@ type BuildInfo struct {
 // Execute builds the command tree and runs it.
 func Execute(info BuildInfo) error {
 	checker := updatecheck.New(info.Version)
+	// PersistentPostRun runs only on RunE success; on error the goroutine may
+	// still be in flight when Execute returns. That's fine — the writeCache
+	// uses tmp+rename so the cache file is never half-written, and the OS
+	// reaps the goroutine when main exits.
 	var wg sync.WaitGroup
 
 	root := &cobra.Command{
@@ -32,7 +36,10 @@ func Execute(info BuildInfo) error {
 		},
 		SilenceUsage: true,
 		PersistentPreRun: func(cmd *cobra.Command, _ []string) {
-			// Skip the network call on update commands and on -h/--help.
+			// Skip the network call when the user is already running update (the
+			// command does its own check) or invoking `infra help <cmd>` (cobra short-
+			// circuits `--help`/`-h` before PreRun fires, so this only catches the
+			// explicit "help" subcommand).
 			if cmd.Name() == "update" || cmd.Name() == "help" {
 				return
 			}
