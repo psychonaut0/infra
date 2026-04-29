@@ -2,8 +2,12 @@
 package cmd
 
 import (
+	"context"
 	"fmt"
+	"sync"
+	"time"
 
+	"github.com/psychonaut0/infra/cli/internal/updatecheck"
 	"github.com/spf13/cobra"
 )
 
@@ -15,6 +19,9 @@ type BuildInfo struct {
 
 // Execute builds the command tree and runs it.
 func Execute(info BuildInfo) error {
+	checker := updatecheck.New(info.Version)
+	var wg sync.WaitGroup
+
 	root := &cobra.Command{
 		Use:   "infra",
 		Short: "Homelab infrastructure CLI",
@@ -24,6 +31,23 @@ func Execute(info BuildInfo) error {
 			"commit":  info.Commit,
 		},
 		SilenceUsage: true,
+		PersistentPreRun: func(cmd *cobra.Command, _ []string) {
+			// Skip the network call on update commands and on -h/--help.
+			if cmd.Name() == "update" || cmd.Name() == "help" {
+				return
+			}
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+				defer cancel()
+				checker.Refresh(ctx)
+			}()
+		},
+		PersistentPostRun: func(_ *cobra.Command, _ []string) {
+			wg.Wait()
+			checker.Footer()
+		},
 	}
 	root.AddCommand(newVersionCmd())
 	root.AddCommand(newLsCmd())
