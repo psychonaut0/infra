@@ -1,0 +1,93 @@
+{
+  "backup-modded": [
+    "ct-games"
+  ],
+  "backup-vanilla": [
+    "ct-games"
+  ],
+  "caddy": [
+    "ct-mgmt"
+  ],
+  "cloudflared": [
+    "ct-tunnel"
+  ],
+  "dashboard": [
+    "ct-mgmt"
+  ],
+  "deluge": [
+    "ct-media"
+  ],
+  "esphome": [
+    "ct-tools"
+  ],
+  "filebrowser": [
+    "ct-files"
+  ],
+  "flaresolverr": [
+    "ct-media"
+  ],
+  "frigate": [
+    "ct-nvr"
+  ],
+  "gatus": [
+    "ct-mgmt"
+  ],
+  "homeassistant": [
+    "ct-ha"
+  ],
+  "immich-machine-learning": [
+    "ct-photos"
+  ],
+  "immich-postgres": [
+    "ct-photos"
+  ],
+  "immich-redis": [
+    "ct-photos"
+  ],
+  "immich-server": [
+    "ct-photos"
+  ],
+  "jellyfin": [
+    "ct-media"
+  ],
+  "mc-modded": [
+    "ct-games"
+  ],
+  "mc-vanilla": [
+    "ct-games"
+  ],
+  "mosquitto": [
+    "ct-ha"
+  ],
+  "pihole": [
+    "ct-dns"
+  ],
+  "playit-agent": [
+    "ct-games"
+  ],
+  "portainer": [
+    "ct-mgmt"
+  ],
+  "portainer-agent": [
+    "ct-dns",
+    "ct-files",
+    "ct-ha",
+    "ct-media",
+    "ct-nvr",
+    "ct-photos",
+    "ct-tools",
+    "ct-tunnel"
+  ],
+  "prowlarr": [
+    "ct-media"
+  ],
+  "radarr": [
+    "ct-media"
+  ],
+  "samba": [
+    "ct-files"
+  ],
+  "sonarr": [
+    "ct-media"
+  ]
+}

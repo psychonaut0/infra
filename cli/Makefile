@@ -5,9 +5,12 @@ PREFIX  ?= $(HOME)/.local/bin
 
 .DEFAULT_GOAL := install
 
-.PHONY: build install test fmt clean
+.PHONY: build install snapshot test fmt clean
 
-build:
+snapshot:
+	go run ./cmd/snapshot-services .. > internal/discover/services.json
+
+build: snapshot
 	mkdir -p bin
 	go build -ldflags "$(LDFLAGS)" -o bin/infra ./cmd/infra
 

@@ -18,11 +18,7 @@ func newLsCmd() *cobra.Command {
 		Use:   "ls",
 		Short: "List all services and the CT each runs on",
 		RunE: func(_ *cobra.Command, _ []string) error {
-			root, err := repo.Locate()
-			if err != nil {
-				return err
-			}
-			idx, err := discover.Walk(root)
+			idx, err := discover.Load(repo.Locate)
 			if err != nil {
 				return err
 			}
