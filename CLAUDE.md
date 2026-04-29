@@ -117,7 +117,7 @@
 - **SSH:** Port 22, key-based auth (no password)
 - **Resources:** 1 vCPU, 512MB RAM, 256MB swap, 4GB disk
 - **Role:** Management and monitoring. Runs Portainer CE, the custom Home Lab dashboard, Gatus uptime monitoring, and Caddy reverse proxy for all `.lan` services.
-- **Stack:** `/opt/stacks/ct-mgmt/docker-compose.yml` (local copy: `stacks/ct-mgmt/`)
+- **Stack:** `/opt/stacks/ct-mgmt/docker-compose.yml` (local copy: `stacks/ct-mgmt/`). Also runs the native systemd `infra-mirror.timer` from `stacks/ct-mgmt/infra-mirror/` for CLI release distribution at `infra-bin.lan`.
 - **Ports:** 80/443 (Caddy), 3000 (dashboard), 8080 (Gatus status page), 9443 (Portainer HTTPS UI), 8000 (Edge Agent communication)
 - **Dashboard:** Custom Preact + Bun SSR app with live health checks and Proxmox resource monitoring (source: `stacks/ct-mgmt/dashboard-src/`). Requires PVE API token in `dashboard-src/.env` (gitignored).
 - **Gatus:** Uptime monitoring with 3-tier checks (critical/important/background) and Telegram alerting. Config: `stacks/ct-mgmt/gatus/config.yaml`. Telegram credentials in `gatus/.env` (gitignored).
@@ -210,6 +210,7 @@ ESPHome dashboard runs on ct-tools (http://esphome.lan or http://192.168.3.15:60
 Proxmox VE runs on proxmoxmain (https://proxmox.lan or https://192.168.3.2:8006) and proxmoxnode (https://proxmox-node.lan or https://192.168.3.3:8006).
 Immich photo management runs on ct-photos (https://immich.lan or http://192.168.3.9:2283) with iGPU ML inference.
 Minecraft servers run on ct-games (192.168.3.14:25565 for vanilla/Paper, :25566 for modded). Vanilla is publicly reachable at `mc.<PERSONAL_DOMAIN>:25565` via UniFi port-forward from the static public IP. Playit.gg agent remains as transitional fallback and will be retired. LAN RCON on :25575 (vanilla) / :25576 (modded). Daily `.tgz` archives on mergerfs at `/mnt/cloud/volumes/games/archives/<server>/`.
+infra CLI release mirror runs natively on ct-mgmt as a systemd timer (every 5 min) and is served via Caddy at http://infra-bin.lan. Pulls GitHub Release artifacts and re-publishes to the LAN. Source + deploy notes: `stacks/ct-mgmt/infra-mirror/`.
 Hardware and storage details in `docs/hardware.md`.
 
 ## CLI
