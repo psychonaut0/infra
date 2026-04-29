@@ -2,13 +2,19 @@ package cmd
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
+	"io"
+	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"time"
 
+	"github.com/psychonaut0/infra/cli/internal/manifest"
 	"github.com/psychonaut0/infra/cli/internal/repo"
 	"github.com/psychonaut0/infra/cli/internal/ui"
 	"github.com/spf13/cobra"
@@ -204,4 +210,107 @@ func runFromSource(ctx context.Context, _ *cobra.Command, opts runFromSourceOpts
 	}
 	fmt.Printf("Updated %s\n", installTarget)
 	return nil
+}
+
+type runFromMirrorOpts struct {
+	MirrorURL   string
+	CurrentVer  string
+	InstallPath string
+	Check       bool
+	Yes         bool
+	Out         io.Writer
+}
+
+// runFromMirror implements the default update flow: pull the manifest from the
+// LAN mirror, verify sha256, atomic-rename over the running binary.
+func runFromMirror(ctx context.Context, opts runFromMirrorOpts) error {
+	if opts.Out == nil {
+		opts.Out = os.Stdout
+	}
+	m, err := manifest.Fetch(ctx, opts.MirrorURL)
+	if err != nil {
+		return fmt.Errorf("mirror at %s unreachable: %w (use --from-source if you have a repo checkout)", opts.MirrorURL, err)
+	}
+	arch := runtime.GOOS + "/" + runtime.GOARCH
+	bin, err := m.ForArch(arch)
+	if err != nil {
+		return err
+	}
+	fmt.Fprintf(opts.Out, "Current: %s\nMirror:  %s\n", opts.CurrentVer, m.Version)
+	if !manifest.Newer(m.Version, opts.CurrentVer) {
+		fmt.Fprintf(opts.Out, "Already on latest (%s).\n", m.Version)
+		return nil
+	}
+	if opts.Check {
+		return nil
+	}
+	if !opts.Yes {
+		ok, err := ui.Confirm(fmt.Sprintf("Update %s → %s?", opts.CurrentVer, m.Version))
+		if err != nil {
+			return err
+		}
+		if !ok {
+			return nil
+		}
+	}
+
+	tmp := opts.InstallPath + ".new"
+	if err := download(ctx, bin.URL, tmp); err != nil {
+		return err
+	}
+	defer os.Remove(tmp) // no-op on success after rename
+
+	got, err := sha256File(tmp)
+	if err != nil {
+		return err
+	}
+	if got != bin.SHA256 {
+		_ = os.Remove(tmp)
+		return fmt.Errorf("downloaded binary failed checksum verification (got %s, want %s); existing binary unchanged", got, bin.SHA256)
+	}
+	if err := os.Chmod(tmp, 0755); err != nil {
+		return fmt.Errorf("chmod: %w", err)
+	}
+	if err := os.Rename(tmp, opts.InstallPath); err != nil {
+		return fmt.Errorf("install: %w", err)
+	}
+	fmt.Fprintf(opts.Out, "Done. infra is now %s.\n", m.Version)
+	return nil
+}
+
+func download(ctx context.Context, url, dest string) error {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return err
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return fmt.Errorf("download %s: %w", url, err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("download %s: HTTP %d", url, resp.StatusCode)
+	}
+	f, err := os.OpenFile(dest, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0644)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	if _, err := io.Copy(f, resp.Body); err != nil {
+		return err
+	}
+	return nil
+}
+
+func sha256File(path string) (string, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return "", err
+	}
+	defer f.Close()
+	h := sha256.New()
+	if _, err := io.Copy(h, f); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(h.Sum(nil)), nil
 }
