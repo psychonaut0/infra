@@ -3,9 +3,11 @@
 package manifest
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
+	"net/http"
 )
 
 // Binary describes one published artifact (one OS/arch).
@@ -43,4 +45,22 @@ func (m *Manifest) ForArch(goosGoarch string) (Binary, error) {
 		return Binary{}, fmt.Errorf("no binary for %s in manifest", goosGoarch)
 	}
 	return b, nil
+}
+
+// Fetch GETs a manifest from url. Returns an error on non-200 responses,
+// transport errors, or context cancellation.
+func Fetch(ctx context.Context, url string) (*Manifest, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return nil, fmt.Errorf("manifest request: %w", err)
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("manifest fetch: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("manifest fetch: HTTP %d", resp.StatusCode)
+	}
+	return Parse(resp.Body)
 }
