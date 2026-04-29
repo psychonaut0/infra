@@ -265,7 +265,6 @@ func runFromMirror(ctx context.Context, opts runFromMirrorOpts) error {
 		return err
 	}
 	if got != bin.SHA256 {
-		_ = os.Remove(tmp)
 		return fmt.Errorf("downloaded binary failed checksum verification (got %s, want %s); existing binary unchanged", got, bin.SHA256)
 	}
 	if err := os.Chmod(tmp, 0755); err != nil {
@@ -295,9 +294,12 @@ func download(ctx context.Context, url, dest string) error {
 	if err != nil {
 		return err
 	}
-	defer f.Close()
 	if _, err := io.Copy(f, resp.Body); err != nil {
+		_ = f.Close()
 		return err
+	}
+	if err := f.Close(); err != nil {
+		return fmt.Errorf("write %s: %w", dest, err)
 	}
 	return nil
 }

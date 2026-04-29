@@ -150,3 +150,45 @@ func TestRunFromMirror_AlreadyOnLatest(t *testing.T) {
 		t.Errorf("expected 'Already on latest' in output, got %q", out.String())
 	}
 }
+
+func TestRunFromMirror_CheckMode(t *testing.T) {
+	binBytes := []byte("never downloaded")
+	mux := http.NewServeMux()
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+	binPath := fmt.Sprintf("/linux/%s/infra", runtime.GOARCH)
+	mux.HandleFunc(binPath, func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write(binBytes)
+		t.Errorf("binary should not be downloaded in --check mode")
+	})
+	mux.HandleFunc("/manifest.json", func(w http.ResponseWriter, _ *http.Request) {
+		fmt.Fprintf(w, `{
+			"version": "v0.5.0",
+			"commit": "x",
+			"published_at": "2026-04-29T00:00:00Z",
+			"binaries": {"linux/%s": {"url": %q, "sha256": "deadbeef"}}
+		}`, runtime.GOARCH, srv.URL+binPath)
+	})
+
+	tmp := t.TempDir()
+	dest := filepath.Join(tmp, "infra")
+	_ = os.WriteFile(dest, []byte("old"), 0755)
+
+	var out bytes.Buffer
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	err := runFromMirror(ctx, runFromMirrorOpts{
+		MirrorURL:   srv.URL + "/manifest.json",
+		CurrentVer:  "v0.4.0",
+		InstallPath: dest,
+		Check:       true,
+		Yes:         false, // intentionally no confirmation; --check should bypass prompt
+		Out:         &out,
+	})
+	if err != nil {
+		t.Fatalf("runFromMirror: %v", err)
+	}
+	if got, _ := os.ReadFile(dest); string(got) != "old" {
+		t.Errorf("dest should be unchanged in --check mode")
+	}
+}
