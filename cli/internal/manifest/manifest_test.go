@@ -1,8 +1,12 @@
 package manifest
 
 import (
+	"context"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestParse_HappyPath(t *testing.T) {
@@ -81,5 +85,37 @@ func TestForArch_Hit(t *testing.T) {
 	}
 	if b.URL != "u" {
 		t.Errorf("URL = %q", b.URL)
+	}
+}
+
+func TestFetch_Success(t *testing.T) {
+	body := `{"version":"v0.4.0","commit":"abc","published_at":"2026-04-29T00:00:00Z","binaries":{"linux/amd64":{"url":"u","sha256":"s"}}}`
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(body))
+	}))
+	defer srv.Close()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	m, err := Fetch(ctx, srv.URL)
+	if err != nil {
+		t.Fatalf("Fetch: %v", err)
+	}
+	if m.Version != "v0.4.0" {
+		t.Errorf("Version = %q", m.Version)
+	}
+}
+
+func TestFetch_Non200(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		http.Error(w, "boom", http.StatusInternalServerError)
+	}))
+	defer srv.Close()
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if _, err := Fetch(ctx, srv.URL); err == nil {
+		t.Fatal("expected error for 500")
 	}
 }
