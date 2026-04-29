@@ -20,26 +20,55 @@ import (
 	"github.com/spf13/cobra"
 )
 
+const defaultMirrorURL = "https://infra-bin.lan/manifest.json"
+
 func newUpdateCmd() *cobra.Command {
 	var check bool
 	var yes bool
 	var ref string
+	var fromSource bool
+	var mirrorURL string
+
 	c := &cobra.Command{
 		Use:   "update",
-		Short: "Update the infra binary (git pull + rebuild + install)",
+		Short: "Update the infra binary",
+		Long:  "Updates the infra binary from the LAN release mirror by default. Use --from-source to build from a local repo checkout instead.",
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
 			defer cancel()
-			return runFromSource(ctx, cmd, runFromSourceOpts{
-				Check: check,
-				Yes:   yes,
-				Ref:   ref,
+
+			if fromSource {
+				return runFromSource(ctx, cmd, runFromSourceOpts{
+					Check: check,
+					Yes:   yes,
+					Ref:   ref,
+				})
+			}
+
+			installTarget, err := installPath()
+			if err != nil {
+				return err
+			}
+			currentVer := cmd.Root().Annotations["version"]
+			url := mirrorURL
+			if env := os.Getenv("INFRA_MIRROR_URL"); env != "" && url == defaultMirrorURL {
+				url = env
+			}
+			return runFromMirror(ctx, runFromMirrorOpts{
+				MirrorURL:   url,
+				CurrentVer:  currentVer,
+				InstallPath: installTarget,
+				Check:       check,
+				Yes:         yes,
+				Out:         os.Stdout,
 			})
 		},
 	}
-	c.Flags().BoolVar(&check, "check", false, "Report status only; don't pull or build")
+	c.Flags().BoolVar(&check, "check", false, "Report status only; don't download or build")
 	c.Flags().BoolVarP(&yes, "yes", "y", false, "Skip confirmation")
-	c.Flags().StringVar(&ref, "ref", "", "Branch or tag to update to (default: current branch)")
+	c.Flags().StringVar(&ref, "ref", "", "(--from-source only) branch or tag to update to")
+	c.Flags().BoolVar(&fromSource, "from-source", false, "Build from a local repo checkout instead of the mirror")
+	c.Flags().StringVar(&mirrorURL, "mirror", defaultMirrorURL, "Manifest URL (overrides INFRA_MIRROR_URL when set explicitly)")
 	return c
 }
 
