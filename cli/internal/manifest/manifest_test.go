@@ -119,3 +119,25 @@ func TestFetch_Non200(t *testing.T) {
 		t.Fatal("expected error for 500")
 	}
 }
+
+func TestNewer(t *testing.T) {
+	cases := []struct {
+		latest, current string
+		want            bool
+	}{
+		{"v0.4.0", "v0.3.0", true},
+		{"v0.4.0", "v0.4.0", false},
+		{"v0.3.0", "v0.4.0", false},
+		{"v0.4.10", "v0.4.2", true},
+		{"v1.0.0", "v0.99.99", true},
+		{"v0.4.0", "dev", true},
+		{"v0.4.0", "v0.4.0-2-gabc1234-dirty", true},
+		{"v0.4.0", "", true},
+	}
+	for _, c := range cases {
+		got := Newer(c.latest, c.current)
+		if got != c.want {
+			t.Errorf("Newer(%q, %q) = %v, want %v", c.latest, c.current, got, c.want)
+		}
+	}
+}
