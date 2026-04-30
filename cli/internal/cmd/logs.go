@@ -53,7 +53,7 @@ func newLogsCmd() *cobra.Command {
 			defer cancel()
 
 			runner := ssh.New()
-			err = runner.Interactive(ctx, loc.CT, remote)
+			err = runner.Interactive(ctx, idx.SSHTarget(loc.CT), remote)
 			// ssh returns non-zero on Ctrl-C — treat as clean exit if context was cancelled.
 			if err != nil && ctx.Err() != nil {
 				return nil

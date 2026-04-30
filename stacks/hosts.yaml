@@ -1,0 +1,42 @@
+# Fleet inventory: hostname -> network/SSH details.
+# Embedded into the infra binary at build time so the CLI can reach every
+# host without depending on the user's ~/.ssh/config.
+
+proxmoxmain:
+  ip: 192.168.3.2
+
+proxmoxnode:
+  ip: 192.168.3.3
+
+ct-dns:
+  ip: 192.168.3.5
+
+ct-tunnel:
+  ip: 192.168.3.6
+
+ct-nvr:
+  ip: 192.168.3.7
+
+ct-media:
+  ip: 192.168.3.8
+
+ct-photos:
+  ip: 192.168.3.9
+
+ct-ha:
+  ip: 192.168.3.10
+
+ct-files:
+  ip: 192.168.3.11
+
+ct-mgmt:
+  ip: 192.168.3.12
+
+ct-backup:
+  ip: 192.168.3.13
+
+ct-games:
+  ip: 192.168.3.14
+
+ct-tools:
+  ip: 192.168.3.15

@@ -65,7 +65,7 @@ func newStatusCmd() *cobra.Command {
 				go func(ct string) {
 					defer wg.Done()
 					// docker ps with pipe-separated, parsable output
-					out, err := runner.Output(ctx, ct, `docker ps -a --format "{{.Names}}|{{.State}}|{{.Status}}"`)
+					out, err := runner.Output(ctx, idx.SSHTarget(ct), `docker ps -a --format "{{.Names}}|{{.State}}|{{.Status}}"`)
 					if err != nil {
 						errs <- fmt.Errorf("ssh %s: %w", ct, err)
 						return

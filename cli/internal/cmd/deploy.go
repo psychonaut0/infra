@@ -79,7 +79,7 @@ func newDeployCmd() *cobra.Command {
 
 			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 			defer cancel()
-			return ssh.New().Interactive(ctx, ct, remote)
+			return ssh.New().Interactive(ctx, idx.SSHTarget(ct), remote)
 		},
 	}
 	c.Flags().BoolVarP(&yes, "yes", "y", false, "Skip confirmation")
