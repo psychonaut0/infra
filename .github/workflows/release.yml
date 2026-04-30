@@ -25,9 +25,9 @@ jobs:
         with:
           go-version-file: cli/go.mod
           cache-dependency-path: cli/go.sum
-      - name: Snapshot fleet (service → CT map)
+      - name: Snapshot fleet (hosts + services)
         working-directory: cli
-        run: go run ./cmd/snapshot-services .. > internal/discover/services.json
+        run: go run ./cmd/snapshot-services .. > internal/discover/fleet.json
       - name: Build
         working-directory: cli
         env:

@@ -12,6 +12,8 @@ import (
 	"time"
 
 	"github.com/jedib0t/go-pretty/v6/table"
+	"github.com/psychonaut0/infra/cli/internal/discover"
+	"github.com/psychonaut0/infra/cli/internal/repo"
 	"github.com/psychonaut0/infra/cli/internal/ssh"
 	"github.com/spf13/cobra"
 )
@@ -51,6 +53,11 @@ func newCtStatusCmd() *cobra.Command {
 			ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 			defer cancel()
 
+			idx, err := discover.Load(repo.Locate)
+			if err != nil {
+				return err
+			}
+
 			runner := ssh.New()
 			var mu sync.Mutex
 			var rows []ctInfo
@@ -60,7 +67,7 @@ func newCtStatusCmd() *cobra.Command {
 				wg.Add(1)
 				go func(node string) {
 					defer wg.Done()
-					info, err := gatherCTs(ctx, runner, node)
+					info, err := gatherCTs(ctx, runner, node, idx.SSHTarget(node))
 					if err != nil {
 						fmt.Fprintf(os.Stderr, "warning: %s: %v\n", node, err)
 						return
@@ -103,9 +110,10 @@ func newCtStatusCmd() *cobra.Command {
 
 // gatherCTs queries a Proxmox host for its CTs via `pct list`, then per-CT
 // hits `pvesh get /nodes/<node>/lxc/<vmid>/status/current --output-format json`
-// for runtime resource stats.
-func gatherCTs(ctx context.Context, runner *ssh.Runner, node string) ([]ctInfo, error) {
-	listOut, err := runner.Output(ctx, node, "pct list")
+// for runtime resource stats. node is the PVE node name (used for display
+// and API paths); target is the SSH form (e.g. "root@192.168.3.2").
+func gatherCTs(ctx context.Context, runner *ssh.Runner, node, target string) ([]ctInfo, error) {
+	listOut, err := runner.Output(ctx, target, "pct list")
 	if err != nil {
 		return nil, fmt.Errorf("pct list: %w", err)
 	}
@@ -141,8 +149,8 @@ func gatherCTs(ctx context.Context, runner *ssh.Runner, node string) ([]ctInfo, 
 		wg.Add(1)
 		go func(info *ctInfo) {
 			defer wg.Done()
-			fetchResources(ctx, runner, node, info)
-			info.IP = extractIP(ctx, runner, node, info.VMID)
+			fetchResources(ctx, runner, node, target, info)
+			info.IP = extractIP(ctx, runner, target, info.VMID)
 		}(&result[i])
 	}
 	wg.Wait()
@@ -152,10 +160,10 @@ func gatherCTs(ctx context.Context, runner *ssh.Runner, node string) ([]ctInfo, 
 // fetchResources calls `pvesh get` for a CT's runtime status and fills in
 // CPU / memory / disk on the info struct. Proxmox's JSON response includes
 // cpu (0.0-1.0), mem / maxmem (bytes), disk / maxdisk (bytes).
-func fetchResources(ctx context.Context, runner *ssh.Runner, node string, info *ctInfo) {
+func fetchResources(ctx context.Context, runner *ssh.Runner, node, target string, info *ctInfo) {
 	cmd := fmt.Sprintf("pvesh get /nodes/%s/lxc/%d/status/current --output-format json 2>/dev/null",
 		node, info.VMID)
-	out, err := runner.Output(ctx, node, cmd)
+	out, err := runner.Output(ctx, target, cmd)
 	if err != nil {
 		return
 	}
@@ -194,10 +202,10 @@ func humanBytes(n int64) string {
 	}
 }
 
-func extractIP(ctx context.Context, runner *ssh.Runner, node string, vmid int) string {
+func extractIP(ctx context.Context, runner *ssh.Runner, target string, vmid int) string {
 	// `pct config <vmid>` has lines like "net0: name=eth0,...,ip=192.168.3.13/24,..."
 	cmd := fmt.Sprintf("pct config %d 2>/dev/null", vmid)
-	out, err := runner.Output(ctx, node, cmd)
+	out, err := runner.Output(ctx, target, cmd)
 	if err != nil {
 		return ""
 	}

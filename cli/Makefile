@@ -8,7 +8,7 @@ PREFIX  ?= $(HOME)/.local/bin
 .PHONY: build install snapshot test fmt clean
 
 snapshot:
-	go run ./cmd/snapshot-services .. > internal/discover/services.json
+	go run ./cmd/snapshot-services .. > internal/discover/fleet.json
 
 build: snapshot
 	mkdir -p bin

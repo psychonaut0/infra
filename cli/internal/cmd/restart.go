@@ -56,7 +56,7 @@ func newRestartCmd() *cobra.Command {
 
 			ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 			defer cancel()
-			return ssh.New().Interactive(ctx, loc.CT, remote)
+			return ssh.New().Interactive(ctx, idx.SSHTarget(loc.CT), remote)
 		},
 	}
 	c.Flags().BoolVarP(&yes, "yes", "y", false, "Skip confirmation")
