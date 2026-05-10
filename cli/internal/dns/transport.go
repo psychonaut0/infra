@@ -53,7 +53,9 @@ func ReadDnsmasq(ctx context.Context, runner *ssh.Runner, target string) ([]byte
 // WriteDnsmasqAndReload pushes new content into the pihole container and
 // triggers a DNS reload.
 func WriteDnsmasqAndReload(ctx context.Context, runner *ssh.Runner, target string, content []byte) error {
-	cmd := "docker exec -i " + CtDnsContainer + " tee " + CtDnsConfPath + " > /dev/null"
+	cmd := "docker exec -i " + CtDnsContainer + " sh -c '" +
+		"tee " + CtDnsConfPath + ".infra-dns.tmp > /dev/null && " +
+		"mv " + CtDnsConfPath + ".infra-dns.tmp " + CtDnsConfPath + "'"
 	if err := runner.Stream(ctx, target, cmd, bytes.NewReader(content), nil, nil); err != nil {
 		return fmt.Errorf("push dnsmasq config: %w", err)
 	}
@@ -90,8 +92,10 @@ func ReadPiholeHostsArray(ctx context.Context, runner *ssh.Runner, target string
 	return lines, nil
 }
 
-// writeRemote pipes content through `ssh ... tee <path>`.
+// writeRemote pipes content to a temp file then atomically renames it over
+// path, so a network drop mid-stream cannot leave the destination half-written.
 func writeRemote(ctx context.Context, runner *ssh.Runner, target, path string, content []byte) error {
-	cmd := "tee " + path + " > /dev/null"
+	tmp := path + ".infra-dns.tmp"
+	cmd := "tee " + tmp + " > /dev/null && mv " + tmp + " " + path
 	return runner.Stream(ctx, target, cmd, bytes.NewReader(content), nil, nil)
 }

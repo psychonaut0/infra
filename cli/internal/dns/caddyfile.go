@@ -7,6 +7,7 @@ import (
 	"bufio"
 	"bytes"
 	"fmt"
+	"net"
 	"regexp"
 	"strings"
 )
@@ -22,6 +23,18 @@ type Block struct {
 }
 
 var openRE = regexp.MustCompile(`^(https?://)?([a-z0-9][a-z0-9.-]*\.lan)\s*\{\s*$`)
+
+// stripComment returns line with anything from the first unquoted '#'
+// removed. Caddyfile lacks string literals at top level beyond
+// reverse_proxy targets, so a naive strip is sufficient — and the
+// alternative (counting braces in comments like `# foo {`) silently
+// breaks parsing.
+func stripComment(line string) string {
+	if i := strings.Index(line, "#"); i >= 0 {
+		return line[:i]
+	}
+	return line
+}
 
 // ParseCaddyfile returns one Block per top-level site block matched by the
 // `[http(s)://]hostname.lan {` opening pattern. Anything else (comments,
@@ -56,8 +69,9 @@ func ParseCaddyfile(content []byte) ([]Block, error) {
 			}
 		}
 		if depth > 0 {
-			depth += strings.Count(line, "{")
-			depth -= strings.Count(line, "}")
+			cleaned := stripComment(line)
+			depth += strings.Count(cleaned, "{")
+			depth -= strings.Count(cleaned, "}")
 			if depth == 0 {
 				if current != nil {
 					classify(current, bodyLines)
@@ -129,8 +143,9 @@ func RemoveBlocks(content []byte, hostname string) ([]byte, int) {
 		}
 		if depth > 0 {
 			if skipping {
-				depth += strings.Count(line, "{")
-				depth -= strings.Count(line, "}")
+				cleaned := stripComment(line)
+				depth += strings.Count(cleaned, "{")
+				depth -= strings.Count(cleaned, "}")
 				if depth == 0 {
 					skipping = false
 					// Eat one trailing blank line if present.
@@ -144,8 +159,9 @@ func RemoveBlocks(content []byte, hostname string) ([]byte, int) {
 				}
 				continue
 			}
-			depth += strings.Count(line, "{")
-			depth -= strings.Count(line, "}")
+			cleaned := stripComment(line)
+			depth += strings.Count(cleaned, "{")
+			depth -= strings.Count(cleaned, "}")
 		}
 		out.WriteString(line)
 		out.WriteByte('\n')
@@ -176,5 +192,26 @@ func classify(b *Block, body []string) {
 		}
 	}
 	b.Upstream = rp
-	b.Managed = !hasOther && rp != ""
+	b.Managed = !hasOther && rp != "" && isIPUpstream(rp)
+}
+
+// isIPUpstream reports whether u looks like a network address with a literal
+// IPv4/IPv6 host (`192.168.3.8:8096`, `https://192.168.3.7:8971`). Container
+// aliases like `dashboard:3000` return false.
+func isIPUpstream(u string) bool {
+	// Strip URL scheme if present.
+	if i := strings.Index(u, "://"); i >= 0 {
+		u = u[i+3:]
+	}
+	// Strip path/query.
+	if i := strings.IndexAny(u, "/?#"); i >= 0 {
+		u = u[:i]
+	}
+	// Split host:port (last colon — IPv6 in brackets unsupported, fine for our world).
+	host := u
+	if i := strings.LastIndex(u, ":"); i >= 0 {
+		host = u[:i]
+	}
+	host = strings.TrimPrefix(strings.TrimSuffix(host, "]"), "[")
+	return net.ParseIP(host) != nil
 }

@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net"
+	"net/url"
 	"os"
 	"path/filepath"
 	"sort"
@@ -282,6 +284,9 @@ func newDnsAddCmd() *cobra.Command {
 				return fmt.Errorf("upstream URL required (or pass --no-caddy --ip <ip>)")
 			}
 			upstream := args[1]
+			if err := validateUpstream(upstream); err != nil {
+				return fmt.Errorf("invalid upstream %q: %w", upstream, err)
+			}
 			scheme := "http"
 			switch {
 			case asBoth:
@@ -503,4 +508,37 @@ func newDnsSyncCmd() *cobra.Command {
 	c.Flags().BoolVar(&apply, "apply", false, "Actually apply changes (default is dry-run)")
 	c.Flags().BoolVar(&bootstrap, "bootstrap", false, "Migrate from pihole.toml dns.hosts to the managed dnsmasq file")
 	return c
+}
+
+// validateUpstream accepts either a full http(s) URL with an IP host, or a
+// bare host:port where host is an IPv4/IPv6 literal.
+func validateUpstream(s string) error {
+	if strings.Contains(s, "://") {
+		u, err := url.Parse(s)
+		if err != nil {
+			return err
+		}
+		if u.Scheme != "http" && u.Scheme != "https" {
+			return fmt.Errorf("scheme must be http or https")
+		}
+		host := u.Hostname()
+		if net.ParseIP(host) == nil {
+			return fmt.Errorf("host %q must be an IP literal", host)
+		}
+		if u.Port() == "" {
+			return fmt.Errorf("missing port")
+		}
+		return nil
+	}
+	host, port, err := net.SplitHostPort(s)
+	if err != nil {
+		return err
+	}
+	if net.ParseIP(host) == nil {
+		return fmt.Errorf("host %q must be an IP literal", host)
+	}
+	if port == "" {
+		return fmt.Errorf("missing port")
+	}
+	return nil
 }

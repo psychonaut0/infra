@@ -157,3 +157,53 @@ func TestRemoveBlocks_PreservesUnrelated(t *testing.T) {
 		}
 	}
 }
+
+func TestParseCaddyfile_BraceInComment(t *testing.T) {
+	in := []byte("http://a.lan {\n\t# this comment has a { brace\n\treverse_proxy 1.2.3.4:5\n}\n\nhttp://b.lan {\n\treverse_proxy 6.7.8.9:0\n}\n")
+	blocks, err := ParseCaddyfile(in)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(blocks) != 2 {
+		t.Fatalf("got %d blocks, want 2", len(blocks))
+	}
+}
+
+func TestRemoveBlocks_BraceInComment(t *testing.T) {
+	in := []byte("http://a.lan {\n\t# stray { brace\n\treverse_proxy 1.2.3.4:5\n}\n\nhttp://b.lan {\n\treverse_proxy 6.7.8.9:0\n}\n")
+	out, n := RemoveBlocks(in, "a.lan")
+	if n != 1 {
+		t.Errorf("removed %d, want 1", n)
+	}
+	if strings.Contains(string(out), "a.lan") {
+		t.Errorf("a.lan still present: %s", out)
+	}
+	if !strings.Contains(string(out), "b.lan") {
+		t.Errorf("b.lan removed: %s", out)
+	}
+}
+
+func TestClassify_ContainerAliasUnmanaged(t *testing.T) {
+	in := []byte("http://home.lan {\n\treverse_proxy dashboard:3000\n}\n")
+	blocks, err := ParseCaddyfile(in)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(blocks) != 1 {
+		t.Fatalf("got %d blocks", len(blocks))
+	}
+	if blocks[0].Managed {
+		t.Errorf("expected container-alias upstream to be unmanaged: %+v", blocks[0])
+	}
+}
+
+func TestClassify_IPUpstreamManaged(t *testing.T) {
+	in := []byte("http://jellyfin.lan {\n\treverse_proxy 192.168.3.8:8096\n}\n")
+	blocks, err := ParseCaddyfile(in)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !blocks[0].Managed {
+		t.Errorf("expected IP upstream to be managed: %+v", blocks[0])
+	}
+}
