@@ -1,7 +1,9 @@
 package dns
 
 import (
+	"bytes"
 	"os"
+	"strings"
 	"testing"
 )
 
@@ -100,5 +102,58 @@ func TestAppendBlock_HTTP_TLSUpstream(t *testing.T) {
 	want := "\nhttp://frigate.lan {\n\treverse_proxy https://192.168.3.7:8971 {\n\t\ttransport http {\n\t\t\ttls_insecure_skip_verify\n\t\t}\n\t}\n}\n"
 	if string(out) != want {
 		t.Errorf("got:\n%q\nwant:\n%q", out, want)
+	}
+}
+
+func TestRemoveBlocks_Single(t *testing.T) {
+	in := []byte("http://a.lan {\n\treverse_proxy 1.1.1.1:1\n}\n\nhttp://b.lan {\n\treverse_proxy 2.2.2.2:2\n}\n")
+	out, n := RemoveBlocks(in, "a.lan")
+	if n != 1 {
+		t.Errorf("removed %d, want 1", n)
+	}
+	if strings.Contains(string(out), "a.lan") {
+		t.Errorf("output still contains a.lan: %s", out)
+	}
+	if !strings.Contains(string(out), "b.lan") {
+		t.Errorf("output dropped b.lan: %s", out)
+	}
+}
+
+func TestRemoveBlocks_HTTPandHTTPSPair(t *testing.T) {
+	in := []byte("nvr.lan {\n\ttls internal\n\treverse_proxy https://x:1\n}\n\nhttp://nvr.lan {\n\treverse_proxy https://x:1\n}\n")
+	out, n := RemoveBlocks(in, "nvr.lan")
+	if n != 2 {
+		t.Errorf("removed %d, want 2", n)
+	}
+	if strings.Contains(string(out), "nvr.lan") {
+		t.Errorf("output still contains nvr.lan")
+	}
+}
+
+func TestRemoveBlocks_NoMatch(t *testing.T) {
+	in := []byte("http://a.lan {\n\treverse_proxy 1.1.1.1:1\n}\n")
+	out, n := RemoveBlocks(in, "missing.lan")
+	if n != 0 {
+		t.Errorf("removed %d, want 0", n)
+	}
+	if !bytes.Equal(out, in) {
+		t.Errorf("file changed when no match: %s", out)
+	}
+}
+
+func TestRemoveBlocks_PreservesUnrelated(t *testing.T) {
+	data, err := os.ReadFile("testdata/Caddyfile.fixture")
+	if err != nil {
+		t.Fatal(err)
+	}
+	out, n := RemoveBlocks(data, "infra-bin.lan")
+	if n != 1 {
+		t.Errorf("removed %d, want 1", n)
+	}
+	// All other hostnames must still be present.
+	for _, host := range []string{"jellyfin.lan", "proxmox.lan", "nvr.lan"} {
+		if !strings.Contains(string(out), host) {
+			t.Errorf("removed unrelated host %s", host)
+		}
 	}
 }
