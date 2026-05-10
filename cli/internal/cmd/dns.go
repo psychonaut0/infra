@@ -460,6 +460,9 @@ func newDnsSyncCmd() *cobra.Command {
 					if len(parts) != 2 {
 						continue
 					}
+					if net.ParseIP(parts[0]) == nil {
+						continue
+					}
 					legacy = append(legacy, pihRec{ip: parts[0], host: parts[1]})
 				}
 				known := map[string]struct{}{}
