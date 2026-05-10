@@ -215,4 +215,21 @@ Hardware and storage details in `docs/hardware.md`.
 
 ## CLI
 
-`infra` is a Go CLI at `~/.local/bin/infra` that wraps common SSH + docker compose operations across the fleet. Source at `cli/`. Commands: `ls`, `status`, `logs <service>`, `restart <service>`, `deploy <service|ct>`, `ct status`, `update` (self-update), `version`. Auto-discovers services from `stacks/ct-*/docker-compose.yml` at each run. Build/install with `cd cli && make install`; self-update with `infra update`. Design: `docs/superpowers/specs/2026-04-18-infra-cli-design.md`.
+`infra` is a Go CLI installed at `~/.local/bin/infra` (workstations) and `/usr/local/bin/infra` (every CT + Proxmox node). Source at `cli/`. Self-updates via the LAN release mirror (`http://infra-bin.lan`) — no repo checkout required on consumers. Bootstrap a fresh host with `curl -fsSL http://infra-bin.lan/install.sh | sh`. Build/install locally with `cd cli && make install`.
+
+**Prefer `infra` over raw SSH for fleet operations.** Common tasks:
+
+| Task | Command |
+|---|---|
+| List service → CT mapping | `infra ls` |
+| See container state across the fleet | `infra status` (add `--ct ct-X` to scope) |
+| Tail a service's logs | `infra logs <service>` |
+| Restart a service | `infra restart <service>` |
+| Pull + redeploy a service / whole CT | `infra deploy <service\|ct>` |
+| Proxmox CT overview (VMID, IP, CPU/RAM/disk) | `infra ct status` |
+| Self-update from the LAN mirror | `infra update [-y]` |
+| Build from a repo checkout instead | `infra update --from-source` |
+
+Fall back to raw SSH only for things `infra` doesn't yet wrap: Proxmox host operations (creating CTs, editing PCT configs), bind-mount tweaks, restic ops on ct-backup, Pi-hole config edits, and the like.
+
+Design specs: `docs/superpowers/specs/2026-04-18-infra-cli-design.md` (v1) and `2026-04-29-infra-cli-cicd-design.md` (CI/CD pipeline + LAN mirror).
