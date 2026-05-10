@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/jedib0t/go-pretty/v6/table"
@@ -23,6 +24,7 @@ func newDnsCmd() *cobra.Command {
 		Short: "Manage Pi-hole DNS records and the matching Caddy reverse-proxy entries",
 	}
 	c.AddCommand(newDnsLsCmd())
+	c.AddCommand(newDnsAddCmd())
 	return c
 }
 
@@ -229,4 +231,88 @@ func buildLsRows(d *dnsCtx, live []dns.Record) []lsRow {
 		rows = append(rows, row)
 	}
 	return rows
+}
+
+func newDnsAddCmd() *cobra.Command {
+	var asHTTP, asHTTPS, asBoth, noCaddy bool
+	var directIP string
+	c := &cobra.Command{
+		Use:   "add <hostname> [<upstream-url>]",
+		Short: "Add a DNS record (and matching Caddy block, unless --no-caddy)",
+		Args:  cobra.RangeArgs(1, 2),
+		RunE: func(_ *cobra.Command, args []string) error {
+			hostname := args[0]
+			if !strings.HasSuffix(hostname, ".lan") {
+				return fmt.Errorf("hostname must end in .lan")
+			}
+			d, err := loadDnsCtx()
+			if err != nil {
+				return err
+			}
+			// Reject duplicates.
+			for _, b := range d.caddyBlocks {
+				if b.Hostname == hostname {
+					return fmt.Errorf("%s already exists in Caddyfile (use `infra dns rm` first)", hostname)
+				}
+			}
+			for _, e := range d.extras {
+				if e.Name == hostname {
+					return fmt.Errorf("%s already exists in dns-extra.yaml", hostname)
+				}
+			}
+			ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+			defer cancel()
+			if noCaddy {
+				if directIP == "" {
+					return fmt.Errorf("--no-caddy requires --ip")
+				}
+				newExtras := append(d.extras, dns.ExtraEntry{Name: hostname, IP: directIP})
+				if err := dns.WriteExtra(filepath.Join(d.root, "stacks", "dns-extra.yaml"), newExtras); err != nil {
+					return err
+				}
+				return reloadDnsmasq(ctx, d, append(d.desired, dns.Record{Hostname: hostname, IP: directIP}))
+			}
+			if len(args) != 2 {
+				return fmt.Errorf("upstream URL required (or pass --no-caddy --ip <ip>)")
+			}
+			upstream := args[1]
+			scheme := "http"
+			switch {
+			case asBoth:
+				scheme = "both"
+			case asHTTPS:
+				scheme = "https"
+			case asHTTP:
+				scheme = "http"
+			}
+			newCaddy := d.caddyfile
+			if scheme == "http" || scheme == "both" {
+				newCaddy = dns.AppendBlock(newCaddy, hostname, "http", upstream)
+			}
+			if scheme == "https" || scheme == "both" {
+				newCaddy = dns.AppendBlock(newCaddy, hostname, "https", upstream)
+			}
+			caddyPath := filepath.Join(d.root, "stacks", "ct-mgmt", "Caddyfile")
+			if err := os.WriteFile(caddyPath, newCaddy, 0o644); err != nil {
+				return err
+			}
+			if err := dns.WriteCaddyfileAndReload(ctx, d.runner, d.ctMgmtTarget, newCaddy); err != nil {
+				return err
+			}
+			return reloadDnsmasq(ctx, d, append(d.desired, dns.Record{Hostname: hostname, IP: d.ctMgmtIP}))
+		},
+	}
+	c.Flags().BoolVar(&asHTTP, "http", false, "Emit only the http:// listener (default)")
+	c.Flags().BoolVar(&asHTTPS, "https", false, "Emit only the HTTPS listener (with tls internal)")
+	c.Flags().BoolVar(&asBoth, "both", false, "Emit both http:// and HTTPS listeners")
+	c.Flags().BoolVar(&noCaddy, "no-caddy", false, "Direct DNS record only (no Caddy block)")
+	c.Flags().StringVar(&directIP, "ip", "", "(--no-caddy only) target IP for the DNS record")
+	return c
+}
+
+// reloadDnsmasq re-renders the managed dnsmasq config from the given full
+// record set and pushes it to ct-dns.
+func reloadDnsmasq(ctx context.Context, d *dnsCtx, records []dns.Record) error {
+	rendered := dns.RenderDnsmasq(records)
+	return dns.WriteDnsmasqAndReload(ctx, d.runner, d.ctDnsTarget, rendered)
 }
