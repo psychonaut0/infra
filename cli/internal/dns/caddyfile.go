@@ -105,6 +105,54 @@ func AppendBlock(content []byte, hostname, listenerScheme, upstream string) []by
 	return []byte(b.String())
 }
 
+// RemoveBlocks deletes every top-level block whose opening line matches
+// `[http(s)://]hostname {`. Returns the new bytes and the number removed.
+// Operates on raw lines so unrelated formatting/comments are preserved.
+func RemoveBlocks(content []byte, hostname string) ([]byte, int) {
+	scanner := bufio.NewScanner(bytes.NewReader(content))
+	scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
+	var out bytes.Buffer
+	depth := 0
+	skipping := false
+	removed := 0
+	for scanner.Scan() {
+		line := scanner.Text()
+		trimmed := strings.TrimSpace(line)
+		if depth == 0 {
+			m := openRE.FindStringSubmatch(trimmed)
+			if m != nil && m[2] == hostname {
+				skipping = true
+				removed++
+				depth = 1
+				continue
+			}
+		}
+		if depth > 0 {
+			if skipping {
+				depth += strings.Count(line, "{")
+				depth -= strings.Count(line, "}")
+				if depth == 0 {
+					skipping = false
+					// Eat one trailing blank line if present.
+					if scanner.Scan() {
+						next := scanner.Text()
+						if strings.TrimSpace(next) != "" {
+							out.WriteString(next)
+							out.WriteByte('\n')
+						}
+					}
+				}
+				continue
+			}
+			depth += strings.Count(line, "{")
+			depth -= strings.Count(line, "}")
+		}
+		out.WriteString(line)
+		out.WriteByte('\n')
+	}
+	return out.Bytes(), removed
+}
+
 func classify(b *Block, body []string) {
 	// Managed shape: tls internal? + reverse_proxy <X>; optional transport
 	// stanza. Anything else (root/file_server/multiple sites) is unmanaged.
