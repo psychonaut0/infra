@@ -75,6 +75,36 @@ func ParseCaddyfile(content []byte) ([]Block, error) {
 	return blocks, nil
 }
 
+// AppendBlock appends one new top-level site block to content. listenerScheme
+// is "http" or "https". upstream is a URL (http:// or https://) or bare
+// host:port — when https://, the block includes a tls_insecure_skip_verify
+// transport stanza. The returned bytes always end with a trailing newline.
+func AppendBlock(content []byte, hostname, listenerScheme, upstream string) []byte {
+	upstreamHTTPS := strings.HasPrefix(upstream, "https://")
+	var b strings.Builder
+	b.Write(content)
+	if len(content) > 0 && !bytes.HasSuffix(content, []byte("\n")) {
+		b.WriteByte('\n')
+	}
+	b.WriteByte('\n')
+	switch listenerScheme {
+	case "https":
+		b.WriteString(hostname)
+		b.WriteString(" {\n\ttls internal\n")
+	default:
+		b.WriteString("http://")
+		b.WriteString(hostname)
+		b.WriteString(" {\n")
+	}
+	b.WriteString("\treverse_proxy ")
+	b.WriteString(upstream)
+	if upstreamHTTPS {
+		b.WriteString(" {\n\t\ttransport http {\n\t\t\ttls_insecure_skip_verify\n\t\t}\n\t}")
+	}
+	b.WriteString("\n}\n")
+	return []byte(b.String())
+}
+
 func classify(b *Block, body []string) {
 	// Managed shape: tls internal? + reverse_proxy <X>; optional transport
 	// stanza. Anything else (root/file_server/multiple sites) is unmanaged.

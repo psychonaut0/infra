@@ -75,3 +75,30 @@ func TestParseCaddyfile_DetectsUnmanaged(t *testing.T) {
 		t.Errorf("expected one unmanaged block, got %+v", blocks)
 	}
 }
+
+func TestAppendBlock_HTTP_PlainUpstream(t *testing.T) {
+	in := []byte("http://existing.lan {\n\treverse_proxy 192.168.3.99:1234\n}\n")
+	out := AppendBlock(in, "newsvc.lan", "http", "192.168.3.50:8080")
+	want := "http://existing.lan {\n\treverse_proxy 192.168.3.99:1234\n}\n\nhttp://newsvc.lan {\n\treverse_proxy 192.168.3.50:8080\n}\n"
+	if string(out) != want {
+		t.Errorf("got:\n%s\nwant:\n%s", out, want)
+	}
+}
+
+func TestAppendBlock_HTTPS_TLSUpstream(t *testing.T) {
+	in := []byte("")
+	out := AppendBlock(in, "https-svc.lan", "https", "https://192.168.3.7:8971")
+	want := "\nhttps-svc.lan {\n\ttls internal\n\treverse_proxy https://192.168.3.7:8971 {\n\t\ttransport http {\n\t\t\ttls_insecure_skip_verify\n\t\t}\n\t}\n}\n"
+	if string(out) != want {
+		t.Errorf("got:\n%q\nwant:\n%q", out, want)
+	}
+}
+
+func TestAppendBlock_HTTP_TLSUpstream(t *testing.T) {
+	in := []byte("")
+	out := AppendBlock(in, "frigate.lan", "http", "https://192.168.3.7:8971")
+	want := "\nhttp://frigate.lan {\n\treverse_proxy https://192.168.3.7:8971 {\n\t\ttransport http {\n\t\t\ttls_insecure_skip_verify\n\t\t}\n\t}\n}\n"
+	if string(out) != want {
+		t.Errorf("got:\n%q\nwant:\n%q", out, want)
+	}
+}
