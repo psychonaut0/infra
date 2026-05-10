@@ -15,8 +15,11 @@ import (
 	"github.com/psychonaut0/infra/cli/internal/dns"
 	"github.com/psychonaut0/infra/cli/internal/repo"
 	"github.com/psychonaut0/infra/cli/internal/ssh"
+	"github.com/psychonaut0/infra/cli/internal/ui"
 	"github.com/spf13/cobra"
 )
+
+var uiConfirmReal = ui.Confirm
 
 func newDnsCmd() *cobra.Command {
 	c := &cobra.Command{
@@ -25,6 +28,7 @@ func newDnsCmd() *cobra.Command {
 	}
 	c.AddCommand(newDnsLsCmd())
 	c.AddCommand(newDnsAddCmd())
+	c.AddCommand(newDnsRmCmd())
 	return c
 }
 
@@ -315,4 +319,83 @@ func newDnsAddCmd() *cobra.Command {
 func reloadDnsmasq(ctx context.Context, d *dnsCtx, records []dns.Record) error {
 	rendered := dns.RenderDnsmasq(records)
 	return dns.WriteDnsmasqAndReload(ctx, d.runner, d.ctDnsTarget, rendered)
+}
+
+func newDnsRmCmd() *cobra.Command {
+	var yes bool
+	c := &cobra.Command{
+		Use:   "rm <hostname>",
+		Short: "Remove a DNS record and matching Caddy block(s)",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(_ *cobra.Command, args []string) error {
+			hostname := args[0]
+			d, err := loadDnsCtx()
+			if err != nil {
+				return err
+			}
+			caddyHits := 0
+			for _, b := range d.caddyBlocks {
+				if b.Hostname == hostname {
+					caddyHits++
+				}
+			}
+			extraHit := false
+			for _, e := range d.extras {
+				if e.Name == hostname {
+					extraHit = true
+					break
+				}
+			}
+			if caddyHits == 0 && !extraHit {
+				return fmt.Errorf("%s not found in Caddyfile or dns-extra.yaml", hostname)
+			}
+			if !yes {
+				ok, err := uiConfirm(fmt.Sprintf("Remove %s (Caddy blocks: %d, extra: %v)?", hostname, caddyHits, extraHit))
+				if err != nil {
+					return err
+				}
+				if !ok {
+					return nil
+				}
+			}
+			ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+			defer cancel()
+			if caddyHits > 0 {
+				newCaddy, _ := dns.RemoveBlocks(d.caddyfile, hostname)
+				caddyPath := filepath.Join(d.root, "stacks", "ct-mgmt", "Caddyfile")
+				if err := os.WriteFile(caddyPath, newCaddy, 0o644); err != nil {
+					return err
+				}
+				if err := dns.WriteCaddyfileAndReload(ctx, d.runner, d.ctMgmtTarget, newCaddy); err != nil {
+					return err
+				}
+			}
+			if extraHit {
+				newExtras := make([]dns.ExtraEntry, 0, len(d.extras)-1)
+				for _, e := range d.extras {
+					if e.Name != hostname {
+						newExtras = append(newExtras, e)
+					}
+				}
+				if err := dns.WriteExtra(filepath.Join(d.root, "stacks", "dns-extra.yaml"), newExtras); err != nil {
+					return err
+				}
+			}
+			// Recompute desired and push.
+			desired := make([]dns.Record, 0, len(d.desired))
+			for _, r := range d.desired {
+				if r.Hostname != hostname {
+					desired = append(desired, r)
+				}
+			}
+			return reloadDnsmasq(ctx, d, desired)
+		},
+	}
+	c.Flags().BoolVarP(&yes, "yes", "y", false, "Skip confirmation")
+	return c
+}
+
+// uiConfirm wraps the existing ui.Confirm so we don't add a new helper.
+func uiConfirm(prompt string) (bool, error) {
+	return uiConfirmReal(prompt)
 }
