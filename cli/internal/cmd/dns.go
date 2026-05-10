@@ -29,6 +29,7 @@ func newDnsCmd() *cobra.Command {
 	c.AddCommand(newDnsLsCmd())
 	c.AddCommand(newDnsAddCmd())
 	c.AddCommand(newDnsRmCmd())
+	c.AddCommand(newDnsSyncCmd())
 	return c
 }
 
@@ -398,4 +399,87 @@ func newDnsRmCmd() *cobra.Command {
 // uiConfirm wraps the existing ui.Confirm so we don't add a new helper.
 func uiConfirm(prompt string) (bool, error) {
 	return uiConfirmReal(prompt)
+}
+
+func newDnsSyncCmd() *cobra.Command {
+	var apply, bootstrap bool
+	c := &cobra.Command{
+		Use:   "sync",
+		Short: "Reconcile live DNS to repo state (dry-run by default)",
+		RunE: func(_ *cobra.Command, _ []string) error {
+			d, err := loadDnsCtx()
+			if err != nil {
+				return err
+			}
+			ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+			defer cancel()
+			liveBytes, err := dns.ReadDnsmasq(ctx, d.runner, d.ctDnsTarget)
+			if err != nil {
+				return err
+			}
+			live, err := dns.ParseDnsmasq(liveBytes)
+			if err != nil {
+				return err
+			}
+			if bootstrap {
+				piholeLines, err := dns.ReadPiholeHostsArray(ctx, d.runner, d.ctDnsTarget)
+				if err != nil {
+					return err
+				}
+				// Each line is "<ip> <hostname>".
+				type pihRec struct{ ip, host string }
+				var legacy []pihRec
+				for _, l := range piholeLines {
+					parts := strings.Fields(l)
+					if len(parts) != 2 {
+						continue
+					}
+					legacy = append(legacy, pihRec{ip: parts[0], host: parts[1]})
+				}
+				known := map[string]struct{}{}
+				for _, r := range d.desired {
+					known[r.Hostname] = struct{}{}
+				}
+				orphans := []pihRec{}
+				for _, l := range legacy {
+					if _, ok := known[l.host]; !ok {
+						orphans = append(orphans, l)
+					}
+				}
+				if len(orphans) > 0 {
+					fmt.Fprintln(os.Stderr, "Pi-hole records with no source in Caddyfile/dns-extra.yaml:")
+					for _, o := range orphans {
+						fmt.Fprintf(os.Stderr, "  %s -> %s\n", o.host, o.ip)
+					}
+					fmt.Fprintln(os.Stderr, "Add them to stacks/dns-extra.yaml and re-run --bootstrap.")
+					if !apply {
+						return fmt.Errorf("orphan legacy records present")
+					}
+				}
+				// On --bootstrap --apply we just write whatever the repo
+				// already says — orphans are dropped.
+			}
+			drift := dns.ComputeDrift(d.desired, live)
+			if len(drift.ToAdd)+len(drift.ToRemove)+len(drift.ToChange) == 0 {
+				fmt.Println("In sync.")
+				return nil
+			}
+			for _, r := range drift.ToAdd {
+				fmt.Printf("+ would add:    %-30s %s\n", r.Hostname, r.IP)
+			}
+			for _, r := range drift.ToRemove {
+				fmt.Printf("- would remove: %-30s %s\n", r.Hostname, r.IP)
+			}
+			for _, c := range drift.ToChange {
+				fmt.Printf("~ would change: %-30s %s (was %s)\n", c.New.Hostname, c.New.IP, c.Old.IP)
+			}
+			if !apply {
+				return fmt.Errorf("drift detected (run with --apply to commit)")
+			}
+			return reloadDnsmasq(ctx, d, d.desired)
+		},
+	}
+	c.Flags().BoolVar(&apply, "apply", false, "Actually apply changes (default is dry-run)")
+	c.Flags().BoolVar(&bootstrap, "bootstrap", false, "Migrate from pihole.toml dns.hosts to the managed dnsmasq file")
+	return c
 }
