@@ -227,9 +227,11 @@ Hardware and storage details in `docs/hardware.md`.
 | Restart a service | `infra restart <service>` |
 | Pull + redeploy a service / whole CT | `infra deploy <service\|ct>` |
 | Proxmox CT overview (VMID, IP, CPU/RAM/disk) | `infra ct status` |
+| Add/remove a `<name>.lan` service (Caddy + Pi-hole at once) | `infra dns add <name>.lan <upstream-url>` / `infra dns rm <name>.lan` |
+| Audit DNS/Caddy drift                                       | `infra dns ls`, `infra dns sync` |
 | Self-update from the LAN mirror | `infra update [-y]` |
 | Build from a repo checkout instead | `infra update --from-source` |
 
-Fall back to raw SSH only for things `infra` doesn't yet wrap: Proxmox host operations (creating CTs, editing PCT configs), bind-mount tweaks, restic ops on ct-backup, Pi-hole config edits, and the like.
+Fall back to raw SSH only for things `infra` doesn't yet wrap: Proxmox host operations (creating CTs, editing PCT configs), bind-mount tweaks, restic ops on ct-backup, and the like.
 
 Design specs: `docs/superpowers/specs/2026-04-18-infra-cli-design.md` (v1) and `2026-04-29-infra-cli-cicd-design.md` (CI/CD pipeline + LAN mirror).
