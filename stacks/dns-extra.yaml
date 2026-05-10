@@ -1,0 +1,5 @@
+# Direct (non-Caddy) DNS records — managed by `infra dns`.
+- name: mc-modded.lan
+  ip: 192.168.3.14
+- name: mc-vanilla.lan
+  ip: 192.168.3.14
