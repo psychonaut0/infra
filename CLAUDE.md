@@ -234,4 +234,4 @@ Hardware and storage details in `docs/hardware.md`.
 
 Fall back to raw SSH only for things `infra` doesn't yet wrap: Proxmox host operations (creating CTs, editing PCT configs), bind-mount tweaks, restic ops on ct-backup, and the like.
 
-Design specs: `docs/superpowers/specs/2026-04-18-infra-cli-design.md` (v1) and `2026-04-29-infra-cli-cicd-design.md` (CI/CD pipeline + LAN mirror).
+Design specs: `docs/superpowers/specs/2026-04-18-infra-cli-design.md` (v1), `2026-04-29-infra-cli-cicd-design.md` (CI/CD pipeline + LAN mirror), and `2026-04-30-infra-dns-design.md` (Caddy + Pi-hole sync).
