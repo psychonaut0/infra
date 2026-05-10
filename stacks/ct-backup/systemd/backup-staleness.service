@@ -1,0 +1,6 @@
+[Unit]
+Description=Mark backup status.json stale when last success >36h old
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/staleness-check.sh

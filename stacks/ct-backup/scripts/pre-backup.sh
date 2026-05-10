@@ -42,7 +42,7 @@ log() { echo "[$(date -Iseconds)] $*" | tee -a "$LOG" >&2; }
 
 # Fresh staging
 rm -rf "$STAGING"
-install -d -m 700 "$STAGING"/{env,volumes,stacks,pve-main,pve-node,host-cfg-main,host-cfg-node}
+install -d -m 700 "$STAGING"/{env,volumes,stacks,sqlite,pve-main,pve-node,host-cfg-main,host-cfg-node}
 
 # --- 1. Rsync .env files from each CT's /opt/stacks ---
 # The rrsync restriction limits us to /opt/stacks. We pull only .env files
@@ -110,6 +110,26 @@ done
 log "Dumping Immich Postgres from ct-photos"
 ssh "${SSH_OPTS[@]}" "root@${CT_IPS[ct-photos]}" pg-dump-immich \
   | gzip > "$STAGING/immich-postgres.sql.gz" 2>>"$LOG"
+
+# --- 3b. SQLite consistency dumps ---
+# Online .backup snapshots (safe against live writers) for SQLite-backed
+# services. The raw .db files are also captured by other paths (full stacks
+# rsync for ct-ha, bind-mount paths) but those are not crash-consistent
+# without quiescing the writer. Each entry is "<ct>:<dump-name>"; the target
+# host must have SQLITE_DB_<NAME> configured in /etc/backup-dispatch.conf.
+SQLITE_TARGETS=(
+  "ct-ha:ha"
+  "ct-nvr:frigate"
+)
+for ENTRY in "${SQLITE_TARGETS[@]}"; do
+  CT="${ENTRY%%:*}"
+  NAME="${ENTRY#*:}"
+  IP="${CT_IPS[$CT]}"
+  log "SQLite dump $NAME from $CT ($IP)"
+  ssh "${SSH_OPTS[@]}" "root@$IP" "sqlite-dump $NAME" \
+    > "$STAGING/sqlite/${CT}-${NAME}.db.gz" 2>>"$LOG" \
+    || log "WARN: sqlite-dump $NAME failed for $CT"
+done
 
 # --- 4. /etc/pve from both Proxmox hosts ---
 log "Pulling /etc/pve from proxmoxmain"

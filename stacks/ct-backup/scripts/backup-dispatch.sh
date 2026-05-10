@@ -16,6 +16,8 @@ CONF=/etc/backup-dispatch.conf
 ALLOW_RSYNC_PATHS=""
 ALLOW_EXPORT_VOLUMES=0
 ALLOW_PG_DUMP_IMMICH=0
+ALLOW_SQLITE_DUMP=0
+# SQLITE_DB_<name>=/abs/path declared in /etc/backup-dispatch.conf per host.
 
 if [[ -r "$CONF" ]]; then
   # shellcheck disable=SC1090
@@ -61,6 +63,24 @@ case "$CMD" in
   pg-dump-immich)
     [[ "$ALLOW_PG_DUMP_IMMICH" == "1" ]] || { echo "pg-dump-immich not allowed" >&2; exit 1; }
     exec docker exec immich_postgres pg_dump -U postgres immich
+    ;;
+  "sqlite-dump "*)
+    # sqlite-dump <name>: looks up SQLITE_DB_<NAME> in /etc/backup-dispatch.conf,
+    # runs sqlite3 .backup (online backup API — safe against live writers) into
+    # a temp file, then streams gzipped to stdout.
+    [[ "$ALLOW_SQLITE_DUMP" == "1" ]] || { echo "sqlite-dump not allowed" >&2; exit 1; }
+    NAME="${CMD#sqlite-dump }"
+    [[ "$NAME" =~ ^[A-Za-z0-9_]+$ ]] || { echo "bad sqlite-dump name" >&2; exit 1; }
+    UPNAME="${NAME^^}"
+    VAR="SQLITE_DB_${UPNAME}"
+    DBPATH="${!VAR:-}"
+    [[ -n "$DBPATH" ]] || { echo "no DB configured for $NAME" >&2; exit 1; }
+    [[ -f "$DBPATH" ]] || { echo "sqlite db not found: $DBPATH" >&2; exit 1; }
+    command -v sqlite3 >/dev/null || { echo "sqlite3 not installed" >&2; exit 1; }
+    TMPDB=$(mktemp --suffix=.db)
+    trap 'rm -f "$TMPDB"' EXIT
+    sqlite3 "$DBPATH" ".backup '$TMPDB'" >&2
+    exec gzip -c "$TMPDB"
     ;;
   *)
     echo "Command not permitted: $CMD" >&2

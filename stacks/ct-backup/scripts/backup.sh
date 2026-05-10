@@ -53,11 +53,13 @@ trap telegram_fail ERR
 } 2>&1 | tee -a "$LOG"
 
 # --- Success: write status.json for Gatus ---
-DURATION=$(( $(date +%s) - START ))
+END=$(date +%s)
+DURATION=$(( END - START ))
 SNAPS=$(restic snapshots --json 2>/dev/null | jq 'length' 2>/dev/null || echo 0)
 cat > "$STATUS_DIR/status.json" <<EOF
 {
   "timestamp": "$(date -Iseconds)",
+  "timestamp_unix": $END,
   "duration_sec": $DURATION,
   "snapshots": $SNAPS
 }
