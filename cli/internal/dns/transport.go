@@ -7,6 +7,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"strings"
 
 	"github.com/psychonaut0/infra/cli/internal/ssh"
 )
@@ -53,17 +54,41 @@ func ReadDnsmasq(ctx context.Context, runner *ssh.Runner, target string) ([]byte
 // WriteDnsmasqAndReload pushes new content into the pihole container and
 // triggers a DNS reload.
 func WriteDnsmasqAndReload(ctx context.Context, runner *ssh.Runner, target string, content []byte) error {
+	if _, err := EnsureEtcDnsmasqD(ctx, runner, target); err != nil {
+		return err
+	}
 	cmd := "docker exec -i " + CtDnsContainer + " sh -c '" +
 		"tee " + CtDnsConfPath + ".infra-dns.tmp > /dev/null && " +
 		"mv " + CtDnsConfPath + ".infra-dns.tmp " + CtDnsConfPath + "'"
 	if err := runner.Stream(ctx, target, cmd, bytes.NewReader(content), nil, nil); err != nil {
 		return fmt.Errorf("push dnsmasq config: %w", err)
 	}
-	if _, err := runner.Output(ctx, target,
-		"docker exec "+CtDnsContainer+" pihole reloaddns"); err != nil {
-		return fmt.Errorf("reloaddns: %w", err)
+	if _, err := runner.Output(ctx, target, "docker restart "+CtDnsContainer); err != nil {
+		return fmt.Errorf("restart pihole: %w", err)
 	}
 	return nil
+}
+
+// EnsureEtcDnsmasqD makes sure pihole.toml has `misc.etc_dnsmasq_d = true` so
+// our managed /etc/dnsmasq.d/02-infra-dns.conf is actually read by pihole-FTL.
+// Idempotent: returns (true, nil) if a change was applied, (false, nil) if
+// already true.
+func EnsureEtcDnsmasqD(ctx context.Context, runner *ssh.Runner, target string) (bool, error) {
+	check := "docker exec " + CtDnsContainer +
+		` grep -q '^[[:space:]]*etc_dnsmasq_d[[:space:]]*=[[:space:]]*true' /etc/pihole/pihole.toml && echo true || echo false`
+	out, err := runner.Output(ctx, target, check)
+	if err != nil {
+		return false, fmt.Errorf("check etc_dnsmasq_d: %w", err)
+	}
+	if strings.TrimSpace(string(out)) == "true" {
+		return false, nil
+	}
+	flip := "docker exec " + CtDnsContainer +
+		` sed -i 's|^\([[:space:]]*\)etc_dnsmasq_d[[:space:]]*=[[:space:]]*false|\1etc_dnsmasq_d = true|' /etc/pihole/pihole.toml`
+	if _, err := runner.Output(ctx, target, flip); err != nil {
+		return false, fmt.Errorf("flip etc_dnsmasq_d: %w", err)
+	}
+	return true, nil
 }
 
 // ReadPiholeHostsArray reads the legacy `dns.hosts` array from pihole.toml

@@ -278,7 +278,11 @@ func newDnsAddCmd() *cobra.Command {
 				if err := dns.WriteExtra(filepath.Join(d.root, "stacks", "dns-extra.yaml"), newExtras); err != nil {
 					return err
 				}
-				return reloadDnsmasq(ctx, d, append(d.desired, dns.Record{Hostname: hostname, IP: directIP}))
+				if err := reloadDnsmasq(ctx, d, append(d.desired, dns.Record{Hostname: hostname, IP: directIP})); err != nil {
+					return err
+				}
+				fmt.Printf("Added %s (direct) → %s\n", hostname, directIP)
+				return nil
 			}
 			if len(args) != 2 {
 				return fmt.Errorf("upstream URL required (or pass --no-caddy --ip <ip>)")
@@ -310,7 +314,11 @@ func newDnsAddCmd() *cobra.Command {
 			if err := dns.WriteCaddyfileAndReload(ctx, d.runner, d.ctMgmtTarget, newCaddy); err != nil {
 				return err
 			}
-			return reloadDnsmasq(ctx, d, append(d.desired, dns.Record{Hostname: hostname, IP: d.ctMgmtIP}))
+			if err := reloadDnsmasq(ctx, d, append(d.desired, dns.Record{Hostname: hostname, IP: d.ctMgmtIP})); err != nil {
+				return err
+			}
+			fmt.Printf("Added %s (%s) → %s; DNS → %s\n", hostname, scheme, upstream, d.ctMgmtIP)
+			return nil
 		},
 	}
 	c.Flags().BoolVar(&asHTTP, "http", false, "Emit only the http:// listener (default)")
@@ -458,6 +466,9 @@ func newDnsSyncCmd() *cobra.Command {
 				for _, l := range piholeLines {
 					parts := strings.Fields(l)
 					if len(parts) != 2 {
+						continue
+					}
+					if net.ParseIP(parts[0]) == nil {
 						continue
 					}
 					legacy = append(legacy, pihRec{ip: parts[0], host: parts[1]})
