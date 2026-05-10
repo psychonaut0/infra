@@ -30,6 +30,7 @@ func newDnsCmd() *cobra.Command {
 	c.AddCommand(newDnsAddCmd())
 	c.AddCommand(newDnsRmCmd())
 	c.AddCommand(newDnsSyncCmd())
+	c.AddCommand(newDnsReloadCmd())
 	return c
 }
 
@@ -393,6 +394,26 @@ func newDnsRmCmd() *cobra.Command {
 		},
 	}
 	c.Flags().BoolVarP(&yes, "yes", "y", false, "Skip confirmation")
+	return c
+}
+
+func newDnsReloadCmd() *cobra.Command {
+	c := &cobra.Command{
+		Use:   "reload",
+		Short: "Re-push current repo state to ct-mgmt + ct-dns and reload services",
+		RunE: func(_ *cobra.Command, _ []string) error {
+			d, err := loadDnsCtx()
+			if err != nil {
+				return err
+			}
+			ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+			defer cancel()
+			if err := dns.WriteCaddyfileAndReload(ctx, d.runner, d.ctMgmtTarget, d.caddyfile); err != nil {
+				return err
+			}
+			return reloadDnsmasq(ctx, d, d.desired)
+		},
+	}
 	return c
 }
 
