@@ -4,7 +4,7 @@
 
 - **ISP:** <ISP> FWA (wireless). Static public IPv4 **`<PUBLIC_IP>`** ("IP Pubblico Statico" — explicitly requested, confirmed **not CGNAT** via external reachability test 2026-04-21).
 - **Topology:** <ISP_ROUTER> (`192.168.0.1`, WAN = public IP) → UniFi Gateway (WAN `192.168.0.2`, LAN gateway `192.168.1.1`) → LAN `192.168.1.0/24`.
-- **Inbound architecture:** <ISP_ROUTER> is in **DMZ Host → `192.168.0.2`** (UniFi WAN). All inbound port-forward rules live on **UniFi only** — never touch the <ISP_ROUTER>. <ISP_ROUTER> firewall is off (no extra filtering beyond default NAT). If inbound breaks: check (a) UniFi PF rule enabled, (b) <ISP_ROUTER> DMZ still pointed at 192.168.0.2 (<ISP_ROUTER> has been known to drop DMZ across firmware updates), (c) UniFi firewall not overriding the PF.
+- **Inbound architecture:** ISP router is in **DMZ Host → `192.168.0.2`** (UniFi WAN). All inbound port-forward rules live on **UniFi only** — never touch the ISP router. ISP-router firewall is off (no extra filtering beyond default NAT). If inbound breaks: check (a) UniFi PF rule enabled, (b) ISP-router DMZ still pointed at 192.168.0.2 (ISP-router has been known to drop DMZ across firmware updates), (c) UniFi firewall not overriding the PF.
 - **Personal domain:** `<PERSONAL_DOMAIN>` (Cloudflare Registrar + Cloudflare DNS). Records pointing at home public IP must be **DNS-only (grey cloud)** — CF free-tier proxy only supports HTTP(S), not arbitrary TCP/UDP.
 - **Public endpoints currently exposed via UniFi port-forward:**
   - `mc.<PERSONAL_DOMAIN>:25565/tcp` → `192.168.3.14:25565` (mc-vanilla on ct-games)
