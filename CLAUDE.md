@@ -14,9 +14,8 @@
 ### blvckmain (Main PC)
 - **Hostname:** blvckmain (resolves to 192.168.1.110)
 - **User:** psy
-- **OS:** Desktop (Windows/Linux)
 - **SSH:** Port 22, key-based auth (no password)
-- **Role:** Primary workstation. Has SSH access to all other machines.
+- **Role:** Primary workstation; operator host for fleet operations.
 
 ### proxmoxmain
 - **IP:** 192.168.3.2
