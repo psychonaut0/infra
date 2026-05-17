@@ -26,7 +26,14 @@ AUTH="Authorization: Bearer ${TOKEN}"
 ACCEPT="Accept: application/vnd.github+json"
 
 API="https://api.github.com/repos/${REPO}/releases/latest"
-release_json=$(curl -fsSL -H "$AUTH" -H "$ACCEPT" "$API")
+# /bin/sh on Debian is dash, which does NOT propagate set -e through $(...).
+# A truncated curl response would silently leave $release_json with partial
+# JSON and bomb out later in jq with "control characters at line X col Y"
+# (observed 2026-05-17). Check curl exit explicitly and validate the JSON.
+release_json=$(curl -fsSL --retry 3 --retry-delay 2 --max-time 30 -H "$AUTH" -H "$ACCEPT" "$API") \
+    || { echo "fetch latest release failed" >&2; exit 1; }
+echo "$release_json" | jq empty >/dev/null 2>&1 \
+    || { echo "release JSON did not parse (truncated response?)" >&2; exit 1; }
 
 tag=$(echo "$release_json" | jq -r '.tag_name')
 [ -n "$tag" ] && [ "$tag" != "null" ] || { echo "no tag in release JSON" >&2; exit 1; }
@@ -50,8 +57,8 @@ for arch in $ARCHES; do
     sha_url=$(echo "$release_json" | jq -r ".assets[] | select(.name==\"${bin_name}.sha256\") | .url")
     [ -n "$bin_url" ] && [ "$bin_url" != "null" ] || { echo "asset ${bin_name} not found in release" >&2; exit 1; }
 
-    curl -fsSL -H "$AUTH" -H "Accept: application/octet-stream" "$bin_url"  -o "$work/$bin_name"
-    curl -fsSL -H "$AUTH" -H "Accept: application/octet-stream" "$sha_url" -o "$work/$bin_name.sha256"
+    curl -fsSL --retry 3 --retry-delay 2 --max-time 30 -H "$AUTH" -H "Accept: application/octet-stream" "$bin_url"  -o "$work/$bin_name"
+    curl -fsSL --retry 3 --retry-delay 2 --max-time 30 -H "$AUTH" -H "Accept: application/octet-stream" "$sha_url" -o "$work/$bin_name.sha256"
 
     expected=$(awk '{print $1}' "$work/$bin_name.sha256")
     actual=$(sha256sum "$work/$bin_name" | awk '{print $1}')
