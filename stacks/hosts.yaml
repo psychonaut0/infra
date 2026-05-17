@@ -40,3 +40,6 @@ ct-games:
 
 ct-tools:
   ip: 192.168.3.15
+
+ct-portfolio:
+  ip: 192.168.3.16

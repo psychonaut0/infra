@@ -27,6 +27,9 @@
     "ct-photos": {
       "ip": "192.168.3.9"
     },
+    "ct-portfolio": {
+      "ip": "192.168.3.16"
+    },
     "ct-tools": {
       "ip": "192.168.3.15"
     },
@@ -117,8 +120,12 @@
       "ct-media",
       "ct-nvr",
       "ct-photos",
+      "ct-portfolio",
       "ct-tools",
       "ct-tunnel"
+    ],
+    "portfolio": [
+      "ct-portfolio"
     ],
     "prowlarr": [
       "ct-media"
