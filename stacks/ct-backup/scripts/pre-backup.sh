@@ -42,7 +42,7 @@ log() { echo "[$(date -Iseconds)] $*" | tee -a "$LOG" >&2; }
 
 # Fresh staging
 rm -rf "$STAGING"
-install -d -m 700 "$STAGING"/{env,volumes,stacks,pve-main,pve-node,host-cfg-main,host-cfg-node}
+install -d -m 700 "$STAGING"/{env,volumes,stacks,sqlite,pve-main,pve-node,host-cfg-main,host-cfg-node}
 
 # --- 1. Rsync .env files from each CT's /opt/stacks ---
 # The rrsync restriction limits us to /opt/stacks. We pull only .env files
@@ -62,11 +62,25 @@ done
 # ct-ha and ct-tools bind-mount their service state (HA config, Mosquitto,
 # ESPHome per-device keys) directly from /opt/stacks subdirs into containers,
 # so a full rsync is the only way to capture it.
+#
+# Excludes skip regenerable MC-server derivatives (BlueMap tile cache,
+# server logs, crash reports, downloaded libraries/versions). Only MC
+# stack paths match these — HA/ESPHome trees are unaffected.
+FULL_STACK_EXCLUDES=(
+  --exclude='data/*/bluemap/web/maps/*/tiles/'
+  --exclude='data/*/logs/'
+  --exclude='data/*/crash-reports/'
+  --exclude='data/*/cache/'
+  --exclude='data/*/libraries/'
+  --exclude='data/*/versions/'
+  --exclude='data/*/.cache/'
+)
 for CT in "${FULL_STACK_CTS[@]}"; do
   IP="${CT_IPS[$CT]}"
   log "Pulling full /opt/stacks/$CT from $CT ($IP)"
   install -d "$STAGING/stacks/$CT"
   rsync -a -e "$RSYNC_E" \
+    "${FULL_STACK_EXCLUDES[@]}" \
     "root@$IP:/opt/stacks/$CT/" "$STAGING/stacks/$CT/" \
     2>>"$LOG" || log "WARN: full stacks sync failed for $CT"
 done
@@ -96,6 +110,26 @@ done
 log "Dumping Immich Postgres from ct-photos"
 ssh "${SSH_OPTS[@]}" "root@${CT_IPS[ct-photos]}" pg-dump-immich \
   | gzip > "$STAGING/immich-postgres.sql.gz" 2>>"$LOG"
+
+# --- 3b. SQLite consistency dumps ---
+# Online .backup snapshots (safe against live writers) for SQLite-backed
+# services. The raw .db files are also captured by other paths (full stacks
+# rsync for ct-ha, bind-mount paths) but those are not crash-consistent
+# without quiescing the writer. Each entry is "<ct>:<dump-name>"; the target
+# host must have SQLITE_DB_<NAME> configured in /etc/backup-dispatch.conf.
+SQLITE_TARGETS=(
+  "ct-ha:ha"
+  "ct-nvr:frigate"
+)
+for ENTRY in "${SQLITE_TARGETS[@]}"; do
+  CT="${ENTRY%%:*}"
+  NAME="${ENTRY#*:}"
+  IP="${CT_IPS[$CT]}"
+  log "SQLite dump $NAME from $CT ($IP)"
+  ssh "${SSH_OPTS[@]}" "root@$IP" "sqlite-dump $NAME" \
+    > "$STAGING/sqlite/${CT}-${NAME}.db.gz" 2>>"$LOG" \
+    || log "WARN: sqlite-dump $NAME failed for $CT"
+done
 
 # --- 4. /etc/pve from both Proxmox hosts ---
 log "Pulling /etc/pve from proxmoxmain"

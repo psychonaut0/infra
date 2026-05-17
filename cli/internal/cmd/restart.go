@@ -21,11 +21,7 @@ func newRestartCmd() *cobra.Command {
 		Short: "Restart a service via docker compose",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(_ *cobra.Command, args []string) error {
-			root, err := repo.Locate()
-			if err != nil {
-				return err
-			}
-			idx, err := discover.Walk(root)
+			idx, err := discover.Load(repo.Locate)
 			if err != nil {
 				return err
 			}
@@ -60,7 +56,7 @@ func newRestartCmd() *cobra.Command {
 
 			ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 			defer cancel()
-			return ssh.New().Interactive(ctx, loc.CT, remote)
+			return ssh.New().Interactive(ctx, idx.SSHTarget(loc.CT), remote)
 		},
 	}
 	c.Flags().BoolVarP(&yes, "yes", "y", false, "Skip confirmation")

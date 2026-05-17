@@ -55,22 +55,26 @@ echo "  installing Docker engine"
 pct exec "$VMID" -- bash -c '
 set -euo pipefail
 export DEBIAN_FRONTEND=noninteractive
-if command -v docker >/dev/null; then
-  echo "  docker already present, skipping install"
-  exit 0
+if ! command -v docker >/dev/null; then
+  apt-get update -qq
+  apt-get install -y -qq ca-certificates curl gnupg
+  install -m 0755 -d /etc/apt/keyrings
+  curl -fsSL https://download.docker.com/linux/debian/gpg -o /etc/apt/keyrings/docker.asc
+  chmod a+r /etc/apt/keyrings/docker.asc
+  . /etc/os-release
+  echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/debian $VERSION_CODENAME stable" \
+    > /etc/apt/sources.list.d/docker.list
+  apt-get update -qq
+  apt-get install -y -qq docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
 fi
-apt-get update -qq
-apt-get install -y -qq ca-certificates curl gnupg
-install -m 0755 -d /etc/apt/keyrings
-curl -fsSL https://download.docker.com/linux/debian/gpg -o /etc/apt/keyrings/docker.asc
-chmod a+r /etc/apt/keyrings/docker.asc
-. /etc/os-release
-echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/debian $VERSION_CODENAME stable" \
-  > /etc/apt/sources.list.d/docker.list
-apt-get update -qq
-apt-get install -y -qq docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
-systemctl enable --now docker
 '
+
+echo "  applying /etc/docker/daemon.json (log caps + live-restore)"
+DAEMON_JSON_SRC="$INFRA_REPO/scripts/docker-daemon.json"
+[[ -r "$DAEMON_JSON_SRC" ]] || { echo "ERROR: $DAEMON_JSON_SRC missing" >&2; exit 1; }
+pct push "$VMID" "$DAEMON_JSON_SRC" /etc/docker/daemon.json
+pct exec "$VMID" -- systemctl enable --now docker
+pct exec "$VMID" -- systemctl restart docker
 
 # --- Copy the stack into /opt/stacks/<ct-name>/ inside the CT ---
 echo "  copying stack files from $STACK_DIR"

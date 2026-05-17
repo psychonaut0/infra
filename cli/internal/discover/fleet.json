@@ -1,0 +1,143 @@
+{
+  "hosts": {
+    "ct-backup": {
+      "ip": "192.168.3.13"
+    },
+    "ct-dns": {
+      "ip": "192.168.3.5"
+    },
+    "ct-files": {
+      "ip": "192.168.3.11"
+    },
+    "ct-games": {
+      "ip": "192.168.3.14"
+    },
+    "ct-ha": {
+      "ip": "192.168.3.10"
+    },
+    "ct-media": {
+      "ip": "192.168.3.8"
+    },
+    "ct-mgmt": {
+      "ip": "192.168.3.12"
+    },
+    "ct-nvr": {
+      "ip": "192.168.3.7"
+    },
+    "ct-photos": {
+      "ip": "192.168.3.9"
+    },
+    "ct-portfolio": {
+      "ip": "192.168.3.16"
+    },
+    "ct-tools": {
+      "ip": "192.168.3.15"
+    },
+    "ct-tunnel": {
+      "ip": "192.168.3.6"
+    },
+    "proxmoxmain": {
+      "ip": "192.168.3.2"
+    },
+    "proxmoxnode": {
+      "ip": "192.168.3.3"
+    }
+  },
+  "services": {
+    "backup-modded": [
+      "ct-games"
+    ],
+    "backup-vanilla": [
+      "ct-games"
+    ],
+    "caddy": [
+      "ct-mgmt"
+    ],
+    "cloudflared": [
+      "ct-tunnel"
+    ],
+    "dashboard": [
+      "ct-mgmt"
+    ],
+    "deluge": [
+      "ct-media"
+    ],
+    "esphome": [
+      "ct-tools"
+    ],
+    "filebrowser": [
+      "ct-files"
+    ],
+    "flaresolverr": [
+      "ct-media"
+    ],
+    "frigate": [
+      "ct-nvr"
+    ],
+    "gatus": [
+      "ct-mgmt"
+    ],
+    "homeassistant": [
+      "ct-ha"
+    ],
+    "immich-machine-learning": [
+      "ct-photos"
+    ],
+    "immich-postgres": [
+      "ct-photos"
+    ],
+    "immich-redis": [
+      "ct-photos"
+    ],
+    "immich-server": [
+      "ct-photos"
+    ],
+    "jellyfin": [
+      "ct-media"
+    ],
+    "mc-modded": [
+      "ct-games"
+    ],
+    "mc-vanilla": [
+      "ct-games"
+    ],
+    "mosquitto": [
+      "ct-ha"
+    ],
+    "pihole": [
+      "ct-dns"
+    ],
+    "playit-agent": [
+      "ct-games"
+    ],
+    "portainer": [
+      "ct-mgmt"
+    ],
+    "portainer-agent": [
+      "ct-dns",
+      "ct-files",
+      "ct-ha",
+      "ct-media",
+      "ct-nvr",
+      "ct-photos",
+      "ct-portfolio",
+      "ct-tools",
+      "ct-tunnel"
+    ],
+    "portfolio": [
+      "ct-portfolio"
+    ],
+    "prowlarr": [
+      "ct-media"
+    ],
+    "radarr": [
+      "ct-media"
+    ],
+    "samba": [
+      "ct-files"
+    ],
+    "sonarr": [
+      "ct-media"
+    ]
+  }
+}

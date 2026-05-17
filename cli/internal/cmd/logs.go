@@ -23,11 +23,7 @@ func newLogsCmd() *cobra.Command {
 		Short: "Tail logs for a service (follow mode by default)",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(_ *cobra.Command, args []string) error {
-			root, err := repo.Locate()
-			if err != nil {
-				return err
-			}
-			idx, err := discover.Walk(root)
+			idx, err := discover.Load(repo.Locate)
 			if err != nil {
 				return err
 			}
@@ -57,7 +53,7 @@ func newLogsCmd() *cobra.Command {
 			defer cancel()
 
 			runner := ssh.New()
-			err = runner.Interactive(ctx, loc.CT, remote)
+			err = runner.Interactive(ctx, idx.SSHTarget(loc.CT), remote)
 			// ssh returns non-zero on Ctrl-C — treat as clean exit if context was cancelled.
 			if err != nil && ctx.Err() != nil {
 				return nil
