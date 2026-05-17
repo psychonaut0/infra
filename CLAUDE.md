@@ -8,6 +8,8 @@
 - **Personal domain:** `<PERSONAL_DOMAIN>` (Cloudflare Registrar + Cloudflare DNS). Records pointing at home public IP must be **DNS-only (grey cloud)** — CF free-tier proxy only supports HTTP(S), not arbitrary TCP/UDP.
 - **Public endpoints currently exposed via UniFi port-forward:**
   - `mc.<PERSONAL_DOMAIN>:25565/tcp` → `192.168.3.14:25565` (mc-vanilla on ct-games)
+- **Public endpoints currently exposed via Cloudflare Tunnel (ct-tunnel):**
+  - `portfolio.<PERSONAL_DOMAIN>` (HTTPS) → `192.168.3.16:3000` (portfolio on ct-portfolio)
 
 ## Network & Devices
 
@@ -146,6 +148,17 @@
 - **Ports:** 6052 (ESPHome HTTP UI)
 - **Config notes:** AppArmor unconfined + proc/sys rw mount for Docker compatibility. ESPHome uses `network_mode: host` for mDNS device discovery.
 
+### ct-portfolio (LXC — VMID 113 on proxmoxmain)
+- **IP:** 192.168.3.16
+- **User:** root
+- **OS:** Debian 13 (Trixie), unprivileged LXC
+- **SSH:** Port 22, key-based auth (no password)
+- **Resources:** 1 vCPU, 1024MB RAM, 256MB swap, 8GB disk
+- **Role:** Public-facing portfolio site at `portfolio.<PERSONAL_DOMAIN>`. Runs a Next.js standalone container built from the separate `psychonaut0/portfolio` GitHub repo, distributed via `ghcr.io/psychonaut0/portfolio`.
+- **Stack:** `/opt/stacks/ct-portfolio/docker-compose.yml` (local copy: `stacks/ct-portfolio/`). The application source lives in a **separate** repo (`psychonaut0/portfolio`); this repo only owns the deploy descriptor. Roll forward = bump the image tag in the compose file (or `docker compose pull && up -d` for `:latest`); roll back = pin a `:sha-<short>` tag.
+- **Ports:** 3000 (Next.js HTTP, also LAN entry via Caddy at http://portfolio.lan and public entry via Cloudflare Tunnel)
+- **Config notes:** AppArmor unconfined + proc/sys rw mount for Docker compatibility. Stateless container — no persistent volumes. Public exposure handled entirely by the existing cloudflared tunnel on ct-tunnel (no port-forward, no UniFi changes). Healthcheck targets `127.0.0.1` (not `localhost`) because busybox `wget` in the alpine runtime image doesn't fall back to IPv4 after a refused IPv6 connection.
+
 ### ct-photos (LXC — VMID 106 on proxmoxmain)
 - **IP:** 192.168.3.9
 - **User:** root
@@ -193,6 +206,7 @@ blvckmain (main PC)
   ├── ssh ct-games       → 192.168.3.14:22   (root, key auth)
   ├── ssh ct-ha          → 192.168.3.10:22   (root, key auth)
   ├── ssh ct-tools       → 192.168.3.15:22   (root, key auth)
+  ├── ssh ct-portfolio   → 192.168.3.16:22   (root, key auth)
   └── ssh ct-backup      → 192.168.3.13:22   (root, key auth)
 ```
 
@@ -209,6 +223,7 @@ ESPHome dashboard runs on ct-tools (http://esphome.lan or http://192.168.3.15:60
 Proxmox VE runs on proxmoxmain (https://proxmox.lan or https://192.168.3.2:8006) and proxmoxnode (https://proxmox-node.lan or https://192.168.3.3:8006).
 Immich photo management runs on ct-photos (https://immich.lan or http://192.168.3.9:2283) with iGPU ML inference.
 Minecraft servers run on ct-games (192.168.3.14:25565 for vanilla/Paper, :25566 for modded). Vanilla is publicly reachable at `mc.<PERSONAL_DOMAIN>:25565` via UniFi port-forward from the static public IP. Playit.gg agent remains as transitional fallback and will be retired. LAN RCON on :25575 (vanilla) / :25576 (modded). Daily `.tgz` archives on mergerfs at `/mnt/cloud/volumes/games/archives/<server>/`.
+Portfolio site runs on ct-portfolio (https://portfolio.<PERSONAL_DOMAIN> publicly, http://portfolio.lan on LAN). Stateless Next.js standalone container pulled from `ghcr.io/psychonaut0/portfolio:latest`. Source repo: `github.com/psychonaut0/portfolio` (separate from infra).
 infra CLI release mirror runs natively on ct-mgmt as a systemd timer (every 5 min) and is served via Caddy at http://infra-bin.lan. Pulls GitHub Release artifacts and re-publishes to the LAN. Source + deploy notes: `stacks/ct-mgmt/infra-mirror/`.
 Hardware and storage details in `docs/hardware.md`.
 
