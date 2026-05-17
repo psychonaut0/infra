@@ -26,11 +26,12 @@ func newDeployCmd() *cobra.Command {
 		Short: "Sync stack files + pull images + up -d (service-level or whole-CT)",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(_ *cobra.Command, args []string) error {
-			repoRoot, err := repo.Locate()
-			if err != nil {
-				return err
+			repoRoot, repoErr := repo.Locate()
+			if repoErr != nil && !noSync {
+				fmt.Fprintf(os.Stderr, "warning: %v — falling back to image-only deploy (--no-sync)\n", repoErr)
+				noSync = true
 			}
-			idx, err := discover.Load(func() (string, error) { return repoRoot, nil })
+			idx, err := discover.Load(repo.Locate)
 			if err != nil {
 				return err
 			}
