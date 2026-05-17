@@ -177,10 +177,15 @@ endpoints:
     group: important
     url: "http://backup.lan/status.json"
     interval: 15m
+    # Staleness is enforced server-side by ct-backup's staleness-check.timer:
+    # if the last successful backup is older than 36h, status.json's
+    # `timestamp` is cleared and `stale: true` is set. Both conditions
+    # below catch that, plus a missing/malformed status.json.
     conditions:
       - "[CONNECTED] == true"
       - "[STATUS] == 200"
       - "[BODY].timestamp != \"\""
+      - "[BODY].timestamp_unix > 0"
     alerts:
       - type: telegram
 
@@ -235,3 +240,30 @@ endpoints:
       - "[STATUS] < 400"
     alerts:
       - type: telegram
+
+  - name: Portfolio (LAN)
+    group: background
+    url: "http://192.168.3.16:3000/"
+    interval: 60s
+    conditions:
+      - "[CONNECTED] == true"
+      - "[STATUS] == 200"
+    alerts:
+      - type: telegram
+        failure-threshold: 5
+        success-threshold: 2
+        send-on-resolved: true
+
+  - name: Portfolio (public)
+    group: background
+    url: "https://portfolio.ncsp.dev/"
+    interval: 5m
+    conditions:
+      - "[CONNECTED] == true"
+      - "[STATUS] == 200"
+      - "[CERTIFICATE_EXPIRATION] > 168h"
+    alerts:
+      - type: telegram
+        failure-threshold: 3
+        success-threshold: 2
+        send-on-resolved: true

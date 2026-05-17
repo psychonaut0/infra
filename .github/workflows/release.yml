@@ -1,0 +1,82 @@
+# .github/workflows/release.yml
+name: release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write   # required to create/update GH Releases
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - goos: linux
+            goarch: amd64
+          - goos: linux
+            goarch: arm64
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: cli/go.mod
+          cache-dependency-path: cli/go.sum
+      - name: Snapshot fleet (hosts + services)
+        working-directory: cli
+        run: go run ./cmd/snapshot-services .. > internal/discover/fleet.json
+      - name: Build
+        working-directory: cli
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+          CGO_ENABLED: 0
+          TAG: ${{ github.ref_name }}
+          SHA: ${{ github.sha }}
+        run: |
+          SHORT_SHA=$(echo "$SHA" | cut -c1-7)
+          OUT="../infra-${GOOS}-${GOARCH}"
+          go build \
+            -trimpath \
+            -ldflags "-s -w -X main.Version=${TAG} -X main.Commit=${SHORT_SHA}" \
+            -o "${OUT}" \
+            ./cmd/infra
+      - name: Compute sha256
+        run: |
+          cd ${{ github.workspace }}
+          sha256sum infra-${{ matrix.goos }}-${{ matrix.goarch }} \
+            > infra-${{ matrix.goos }}-${{ matrix.goarch }}.sha256
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: infra-${{ matrix.goos }}-${{ matrix.goarch }}
+          path: |
+            infra-${{ matrix.goos }}-${{ matrix.goarch }}
+            infra-${{ matrix.goos }}-${{ matrix.goarch }}.sha256
+          retention-days: 7
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+      - name: List artifacts
+        run: ls -la artifacts/
+      - name: Create GH Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          generate_release_notes: true
+          files: |
+            artifacts/infra-linux-amd64
+            artifacts/infra-linux-amd64.sha256
+            artifacts/infra-linux-arm64
+            artifacts/infra-linux-arm64.sha256

@@ -17,10 +17,27 @@ type ServiceLocation struct {
 	ComposePath string // absolute path to that CT's docker-compose.yml
 }
 
-// Index maps service names to their locations. A single name may map to
-// multiple CTs (e.g. portainer-agent).
+// Host describes how to reach a fleet member over SSH.
+type Host struct {
+	IP string `json:"ip" yaml:"ip"`
+}
+
+// Index maps service names to their locations and host names to their SSH
+// coordinates. A single service name may map to multiple CTs (e.g.
+// portainer-agent).
 type Index struct {
+	Hosts    map[string]Host
 	Services map[string][]ServiceLocation
+}
+
+// SSHTarget returns the form to pass to `ssh` for the given fleet host
+// ("root@<ip>" when the inventory has an entry, or the bare name as a
+// fallback so existing ~/.ssh/config aliases keep working).
+func (i *Index) SSHTarget(host string) string {
+	if h, ok := i.Hosts[host]; ok && h.IP != "" {
+		return "root@" + h.IP
+	}
+	return host
 }
 
 // All returns the sorted list of distinct service names.

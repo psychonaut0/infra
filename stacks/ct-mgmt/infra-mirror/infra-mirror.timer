@@ -1,0 +1,11 @@
+[Unit]
+Description=infra CLI release mirror sync (every 5 min)
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=5min
+Persistent=true
+Unit=infra-mirror.service
+
+[Install]
+WantedBy=timers.target

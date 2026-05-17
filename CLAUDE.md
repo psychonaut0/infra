@@ -2,21 +2,22 @@
 
 ## Upstream / External Access
 
-- **ISP:** Fastweb FWA (wireless). Static public IPv4 **`93.38.52.48`** ("IP Pubblico Statico" — explicitly requested, confirmed **not CGNAT** via external reachability test 2026-04-21).
-- **Topology:** Fastweb Fastgate FG4224L (`192.168.0.1`, WAN = public IP) → UniFi Gateway (WAN `192.168.0.2`, LAN gateway `192.168.1.1`) → LAN `192.168.1.0/24`.
-- **Inbound architecture:** Fastgate is in **DMZ Host → `192.168.0.2`** (UniFi WAN). All inbound port-forward rules live on **UniFi only** — never touch the Fastgate. Fastgate firewall is off (no extra filtering beyond default NAT). If inbound breaks: check (a) UniFi PF rule enabled, (b) Fastgate DMZ still pointed at 192.168.0.2 (Fastgate has been known to drop DMZ across firmware updates), (c) UniFi firewall not overriding the PF.
-- **Personal domain:** `ncsp.dev` (Cloudflare Registrar + Cloudflare DNS). Records pointing at home public IP must be **DNS-only (grey cloud)** — CF free-tier proxy only supports HTTP(S), not arbitrary TCP/UDP.
+- **ISP:** <ISP> FWA (wireless). Static public IPv4 **`<PUBLIC_IP>`** ("IP Pubblico Statico" — explicitly requested, confirmed **not CGNAT** via external reachability test 2026-04-21).
+- **Topology:** <ISP_ROUTER> (`192.168.0.1`, WAN = public IP) → UniFi Gateway (WAN `192.168.0.2`, LAN gateway `192.168.1.1`) → LAN `192.168.1.0/24`.
+- **Inbound architecture:** ISP router is in **DMZ Host → `192.168.0.2`** (UniFi WAN). All inbound port-forward rules live on **UniFi only** — never touch the ISP router. ISP-router firewall is off (no extra filtering beyond default NAT). If inbound breaks: check (a) UniFi PF rule enabled, (b) ISP-router DMZ still pointed at 192.168.0.2 (ISP-router has been known to drop DMZ across firmware updates), (c) UniFi firewall not overriding the PF.
+- **Personal domain:** `<PERSONAL_DOMAIN>` (Cloudflare Registrar + Cloudflare DNS). Records pointing at home public IP must be **DNS-only (grey cloud)** — CF free-tier proxy only supports HTTP(S), not arbitrary TCP/UDP.
 - **Public endpoints currently exposed via UniFi port-forward:**
-  - `mc.ncsp.dev:25565/tcp` → `192.168.3.14:25565` (mc-vanilla on ct-games)
+  - `mc.<PERSONAL_DOMAIN>:25565/tcp` → `192.168.3.14:25565` (mc-vanilla on ct-games)
+- **Public endpoints currently exposed via Cloudflare Tunnel (ct-tunnel):**
+  - `portfolio.<PERSONAL_DOMAIN>` (HTTPS) → `192.168.3.16:3000` (portfolio on ct-portfolio)
 
 ## Network & Devices
 
 ### blvckmain (Main PC)
 - **Hostname:** blvckmain (resolves to 192.168.1.110)
 - **User:** psy
-- **OS:** Desktop (Windows/Linux)
 - **SSH:** Port 22, key-based auth (no password)
-- **Role:** Primary workstation. Has SSH access to all other machines.
+- **Role:** Primary workstation; operator host for fleet operations.
 
 ### proxmoxmain
 - **IP:** 192.168.3.2
@@ -39,6 +40,7 @@
 - **Role:** Secondary Proxmox cluster node. Shares authorized_keys with proxmoxmain via pmxcfs.
 - **CTs:** ct-dns (VMID 102), ct-ha (VMID 111)
 - **Storage:** See `docs/hardware.md` for full disk and storage layout.
+
 
 ### ct-dns (LXC — VMID 102 on proxmoxnode)
 - **IP:** 192.168.3.5
@@ -99,7 +101,7 @@
 - **OS:** Debian 13 (Trixie), unprivileged LXC
 - **SSH:** Port 22, key-based auth (no password)
 - **Resources:** 6 vCPU, 16384MB RAM, 4096MB swap, 40GB disk
-- **Role:** Game server host. Runs two Minecraft servers (vanilla/Paper + heavy modded) plus two itzg/mc-backup sidecars (daily `.tgz` to mergerfs). Public reach for mc-vanilla is via UniFi port-forward → `mc.ncsp.dev:25565` (direct from static public IP — see top-level *Upstream / External Access*). A Playit.gg agent remains in the stack as transitional fallback since 2026-04-21 and will be removed once the direct endpoint is proven stable.
+- **Role:** Game server host. Runs two Minecraft servers (vanilla/Paper + heavy modded) plus two itzg/mc-backup sidecars (daily `.tgz` to mergerfs). Public reach for mc-vanilla is via UniFi port-forward → `mc.<PERSONAL_DOMAIN>:25565` (direct from static public IP — see top-level *Upstream / External Access*). A Playit.gg agent remains in the stack as transitional fallback since 2026-04-21 and will be removed once the direct endpoint is proven stable.
 - **Stack:** `/opt/stacks/ct-games/docker-compose.yml` (local copy: `stacks/ct-games/`)
 - **Ports:** 25565 (mc-vanilla game, also publicly reachable via UniFi PF), 25566 (mc-modded game), 25575 (mc-vanilla RCON, LAN-only), 25576 (mc-modded RCON, LAN-only)
 - **Config notes:** AppArmor unconfined + proc/sys rw for Docker-in-LXC. Shared `gamesnet` Docker bridge for agent→MC routing. Live world data on CT's NVMe at `/opt/stacks/ct-games/data/`. Archive bind mount: `/mnt/cloud/volumes/games/archives` → `/mnt/archives` (daily `.tgz` per server, 14-day retention via `PRUNE_BACKUPS_DAYS`). Playit agent (transitional): reads `SECRET_KEY` from `PLAYIT_SECRET` in `.env`; two tunnels attached server-side.
@@ -111,7 +113,7 @@
 - **SSH:** Port 22, key-based auth (no password)
 - **Resources:** 1 vCPU, 512MB RAM, 256MB swap, 4GB disk
 - **Role:** Management and monitoring. Runs Portainer CE, the custom Home Lab dashboard, Gatus uptime monitoring, and Caddy reverse proxy for all `.lan` services.
-- **Stack:** `/opt/stacks/ct-mgmt/docker-compose.yml` (local copy: `stacks/ct-mgmt/`)
+- **Stack:** `/opt/stacks/ct-mgmt/docker-compose.yml` (local copy: `stacks/ct-mgmt/`). Also runs the native systemd `infra-mirror.timer` from `stacks/ct-mgmt/infra-mirror/` for CLI release distribution at `infra-bin.lan`.
 - **Ports:** 80/443 (Caddy), 3000 (dashboard), 8080 (Gatus status page), 9443 (Portainer HTTPS UI), 8000 (Edge Agent communication)
 - **Dashboard:** Custom Preact + Bun SSR app with live health checks and Proxmox resource monitoring (source: `stacks/ct-mgmt/dashboard-src/`). Requires PVE API token in `dashboard-src/.env` (gitignored).
 - **Gatus:** Uptime monitoring with 3-tier checks (critical/important/background) and Telegram alerting. Config: `stacks/ct-mgmt/gatus/config.yaml`. Telegram credentials in `gatus/.env` (gitignored).
@@ -119,7 +121,7 @@
 
 ### ct-ha (LXC — VMID 111 on proxmoxnode)
 - **IP:** 192.168.3.10 (inherited from retired HAOS VM — see note below)
-- **MAC:** `02:FF:32:B5:62:EA` (inherited from retired HAOS VM)
+- **MAC:** `<HAOS_INHERITED_MAC>` (inherited from retired HAOS VM)
 - **User:** root
 - **OS:** Debian 13 (Trixie), unprivileged LXC
 - **SSH:** Port 22, key-based auth (no password)
@@ -140,6 +142,17 @@
 - **Stack:** `/opt/stacks/ct-tools/docker-compose.yml` (local copy: `stacks/ct-tools/`)
 - **Ports:** 6052 (ESPHome HTTP UI)
 - **Config notes:** AppArmor unconfined + proc/sys rw mount for Docker compatibility. ESPHome uses `network_mode: host` for mDNS device discovery.
+
+### ct-portfolio (LXC — VMID 113 on proxmoxmain)
+- **IP:** 192.168.3.16
+- **User:** root
+- **OS:** Debian 13 (Trixie), unprivileged LXC
+- **SSH:** Port 22, key-based auth (no password)
+- **Resources:** 1 vCPU, 1024MB RAM, 256MB swap, 8GB disk
+- **Role:** Public-facing portfolio site at `portfolio.<PERSONAL_DOMAIN>`. Runs a Next.js standalone container built from the separate `psychonaut0/portfolio` GitHub repo, distributed via `ghcr.io/psychonaut0/portfolio`.
+- **Stack:** `/opt/stacks/ct-portfolio/docker-compose.yml` (local copy: `stacks/ct-portfolio/`). The application source lives in a **separate** repo (`psychonaut0/portfolio`); this repo only owns the deploy descriptor. Roll forward = bump the image tag in the compose file (or `docker compose pull && up -d` for `:latest`); roll back = pin a `:sha-<short>` tag.
+- **Ports:** 3000 (Next.js HTTP, also LAN entry via Caddy at http://portfolio.lan and public entry via Cloudflare Tunnel)
+- **Config notes:** AppArmor unconfined + proc/sys rw mount for Docker compatibility. Stateless container — no persistent volumes. Public exposure handled entirely by the existing cloudflared tunnel on ct-tunnel (no port-forward, no UniFi changes). Healthcheck targets `127.0.0.1` (not `localhost`) because busybox `wget` in the alpine runtime image doesn't fall back to IPv4 after a refused IPv6 connection.
 
 ### ct-photos (LXC — VMID 106 on proxmoxmain)
 - **IP:** 192.168.3.9
@@ -188,6 +201,7 @@ blvckmain (main PC)
   ├── ssh ct-games       → 192.168.3.14:22   (root, key auth)
   ├── ssh ct-ha          → 192.168.3.10:22   (root, key auth)
   ├── ssh ct-tools       → 192.168.3.15:22   (root, key auth)
+  ├── ssh ct-portfolio   → 192.168.3.16:22   (root, key auth)
   └── ssh ct-backup      → 192.168.3.13:22   (root, key auth)
 ```
 
@@ -203,9 +217,30 @@ Home Assistant Container runs on ct-ha (https://homeassistant.lan or http://192.
 ESPHome dashboard runs on ct-tools (http://esphome.lan or http://192.168.3.15:6052) for IoT device firmware builds and OTA updates.
 Proxmox VE runs on proxmoxmain (https://proxmox.lan or https://192.168.3.2:8006) and proxmoxnode (https://proxmox-node.lan or https://192.168.3.3:8006).
 Immich photo management runs on ct-photos (https://immich.lan or http://192.168.3.9:2283) with iGPU ML inference.
-Minecraft servers run on ct-games (192.168.3.14:25565 for vanilla/Paper, :25566 for modded). Vanilla is publicly reachable at `mc.ncsp.dev:25565` via UniFi port-forward from the static public IP. Playit.gg agent remains as transitional fallback and will be retired. LAN RCON on :25575 (vanilla) / :25576 (modded). Daily `.tgz` archives on mergerfs at `/mnt/cloud/volumes/games/archives/<server>/`.
+Minecraft servers run on ct-games (192.168.3.14:25565 for vanilla/Paper, :25566 for modded). Vanilla is publicly reachable at `mc.<PERSONAL_DOMAIN>:25565` via UniFi port-forward from the static public IP. Playit.gg agent remains as transitional fallback and will be retired. LAN RCON on :25575 (vanilla) / :25576 (modded). Daily `.tgz` archives on mergerfs at `/mnt/cloud/volumes/games/archives/<server>/`.
+Portfolio site runs on ct-portfolio (https://portfolio.<PERSONAL_DOMAIN> publicly, http://portfolio.lan on LAN). Stateless Next.js standalone container pulled from `ghcr.io/psychonaut0/portfolio:latest`. Source repo: `github.com/psychonaut0/portfolio` (separate from infra).
+infra CLI release mirror runs natively on ct-mgmt as a systemd timer (every 5 min) and is served via Caddy at http://infra-bin.lan. Pulls GitHub Release artifacts and re-publishes to the LAN. Source + deploy notes: `stacks/ct-mgmt/infra-mirror/`.
 Hardware and storage details in `docs/hardware.md`.
 
 ## CLI
 
-`infra` is a Go CLI at `~/.local/bin/infra` that wraps common SSH + docker compose operations across the fleet. Source at `cli/`. Commands: `ls`, `status`, `logs <service>`, `restart <service>`, `deploy <service|ct>`, `ct status`, `update` (self-update), `version`. Auto-discovers services from `stacks/ct-*/docker-compose.yml` at each run. Build/install with `cd cli && make install`; self-update with `infra update`. Design: `docs/superpowers/specs/2026-04-18-infra-cli-design.md`.
+`infra` is a Go CLI installed at `~/.local/bin/infra` (workstations) and `/usr/local/bin/infra` (every CT + Proxmox node). Source at `cli/`. Self-updates via the LAN release mirror (`http://infra-bin.lan`) — no repo checkout required on consumers. Bootstrap a fresh host with `curl -fsSL http://infra-bin.lan/install.sh | sh`. Build/install locally with `cd cli && make install`.
+
+**Prefer `infra` over raw SSH for fleet operations.** Common tasks:
+
+| Task | Command |
+|---|---|
+| List service → CT mapping | `infra ls` |
+| See container state across the fleet | `infra status` (add `--ct ct-X` to scope) |
+| Tail a service's logs | `infra logs <service>` |
+| Restart a service | `infra restart <service>` |
+| Pull + redeploy a service / whole CT | `infra deploy <service\|ct>` |
+| Proxmox CT overview (VMID, IP, CPU/RAM/disk) | `infra ct status` |
+| Add/remove a `<name>.lan` service (Caddy + Pi-hole at once) | `infra dns add <name>.lan <upstream-url>` / `infra dns rm <name>.lan` |
+| Audit DNS/Caddy drift                                       | `infra dns ls`, `infra dns sync` |
+| Self-update from the LAN mirror | `infra update [-y]` |
+| Build from a repo checkout instead | `infra update --from-source` |
+
+Fall back to raw SSH only for things `infra` doesn't yet wrap: Proxmox host operations (creating CTs, editing PCT configs), bind-mount tweaks, restic ops on ct-backup, and the like.
+
+Design specs: `docs/superpowers/specs/2026-04-18-infra-cli-design.md` (v1), `2026-04-29-infra-cli-cicd-design.md` (CI/CD pipeline + LAN mirror), and `2026-04-30-infra-dns-design.md` (Caddy + Pi-hole sync).

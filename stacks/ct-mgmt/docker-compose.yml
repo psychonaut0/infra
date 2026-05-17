@@ -32,6 +32,7 @@ services:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
       - caddy-data:/data
       - caddy-config:/config
+      - /var/www/infra-bin:/srv/infra-bin:ro
 
   gatus:
     image: twinproduction/gatus:v5.35.0
