@@ -1,6 +1,6 @@
 services:
   portfolio:
-    image: ghcr.io/psychonaut0/portfolio:sha-3871767
+    image: ghcr.io/psychonaut0/portfolio:sha-990a608
     container_name: portfolio
     restart: unless-stopped
     ports:
