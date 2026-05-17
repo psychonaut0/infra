@@ -95,3 +95,7 @@ http://infra-bin.lan {
 	file_server
 	encode gzip
 }
+
+http://portfolio.lan {
+	reverse_proxy http://192.168.3.16:3000
+}
