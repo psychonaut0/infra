@@ -28,16 +28,18 @@ func ReadCaddyfile(ctx context.Context, runner *ssh.Runner, target string) ([]by
 }
 
 // WriteCaddyfileAndReload pushes new content and recreates the caddy
-// container so the new config is picked up. Caddy's reload-on-config-change
-// isn't reliable through the Docker bind-mount in our setup; full recreate
-// is the safe path.
+// container so the new config is picked up. --force-recreate is required:
+// writeRemote uses tee+mv which swaps the inode of the bind-mounted file,
+// leaving the running container attached to the orphan old inode. Without
+// --force-recreate, `docker compose up -d` sees no compose-file delta and
+// leaves the container untouched — the new Caddyfile silently never takes
+// effect.
 func WriteCaddyfileAndReload(ctx context.Context, runner *ssh.Runner, target string, content []byte) error {
-	// Stream the file via stdin to ssh+tee.
 	if err := writeRemote(ctx, runner, target, CtMgmtCaddyfilePath, content); err != nil {
 		return fmt.Errorf("push Caddyfile: %w", err)
 	}
 	if _, err := runner.Output(ctx, target,
-		"cd /opt/stacks/ct-mgmt && docker compose up -d caddy"); err != nil {
+		"cd /opt/stacks/ct-mgmt && docker compose up -d --force-recreate caddy"); err != nil {
 		return fmt.Errorf("recreate caddy: %w", err)
 	}
 	return nil
