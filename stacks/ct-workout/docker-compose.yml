@@ -18,7 +18,7 @@ services:
       retries: 10
 
   server:
-    image: ghcr.io/psychonaut0/workout-tracker-server:<SERVER_IMAGE_TAG>
+    image: ghcr.io/psychonaut0/workout-tracker-server:sha-c468036
     restart: unless-stopped
     # Runs as the host user that owns ./secrets/jwt_private_key.pem (0600); non-swarm
     # compose bind-mounts file secrets preserving the host file's owner/mode.
