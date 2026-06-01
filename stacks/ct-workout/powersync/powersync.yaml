@@ -1,0 +1,45 @@
+# PowerSync self-hosted service config (journeyapps/powersync-service:1.21.0).
+# Values are injected from the container environment via the !env tag.
+
+# Source database: the application Postgres, reached in-cluster as powersync_role
+# over logical replication (publication "powersync"). sslmode disable is fine on
+# the private compose/Tailscale network.
+replication:
+  connections:
+    - type: postgresql
+      uri: !env PS_DATA_SOURCE_URI
+      sslmode: disable
+
+# Bucket storage: the dedicated powersync-storage Postgres (separate from source).
+storage:
+  type: postgresql
+  uri: !env PS_STORAGE_SOURCE_URI
+  sslmode: disable
+
+# Sync API HTTP port (container-internal).
+port: !env PS_PORT
+
+# Sync rules file, relative to this config's directory (/config).
+sync_config:
+  path: sync-rules.yaml
+
+# Trust JWTs signed by the Go API. The token audience must be in this list, and
+# the public key is fetched from the API's JWKS endpoint (plain-HTTP local URL is
+# allowed by default in 1.21 — no allow_local_jwks / block_local_jwks needed).
+client_auth:
+  jwks_uri: !env PS_JWKS_URL
+  audience:
+    - workout-tracker-powersync
+
+# Admin API auth (admin routes). Token supplied via env.
+api:
+  tokens:
+    - !env PS_ADMIN_API_TOKEN
+
+telemetry:
+  disable_telemetry_sharing: true
+
+system:
+  logging:
+    level: info
+    format: json
