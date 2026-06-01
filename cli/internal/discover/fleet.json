@@ -36,6 +36,9 @@
     "ct-tunnel": {
       "ip": "192.168.3.6"
     },
+    "ct-workout": {
+      "ip": "192.168.3.17"
+    },
     "proxmoxmain": {
       "ip": "192.168.3.2"
     },
@@ -122,10 +125,20 @@
       "ct-photos",
       "ct-portfolio",
       "ct-tools",
-      "ct-tunnel"
+      "ct-tunnel",
+      "ct-workout"
     ],
     "portfolio": [
       "ct-portfolio"
+    ],
+    "postgres": [
+      "ct-workout"
+    ],
+    "powersync": [
+      "ct-workout"
+    ],
+    "powersync-storage": [
+      "ct-workout"
     ],
     "prowlarr": [
       "ct-media"
@@ -135,6 +148,9 @@
     ],
     "samba": [
       "ct-files"
+    ],
+    "server": [
+      "ct-workout"
     ],
     "sonarr": [
       "ct-media"
