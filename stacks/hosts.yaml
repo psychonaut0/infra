@@ -43,3 +43,6 @@ ct-tools:
 
 ct-portfolio:
   ip: 192.168.3.16
+
+ct-workout:
+  ip: 192.168.3.17
