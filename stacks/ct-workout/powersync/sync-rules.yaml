@@ -1,0 +1,22 @@
+# PowerSync sync rules. Scoped to the authenticated user (request.user_id() =
+# the JWT sub): their own exercises, sessions, sets, bodyweight logs, and custom
+# day templates/items — plus all shared template exercises and day templates via
+# the global `templates` bucket. Each data query is a single-table SELECT
+# (PowerSync classic sync rules do not support JOINs); child tables (sets,
+# day_template_items) are filtered on their denormalized owner columns.
+bucket_definitions:
+  by_user:
+    parameters: SELECT request.user_id() AS user_id
+    data:
+      - SELECT * FROM exercises WHERE created_by = bucket.user_id
+      - SELECT * FROM sessions WHERE user_id = bucket.user_id
+      - SELECT * FROM sets WHERE user_id = bucket.user_id
+      - SELECT * FROM bodyweight_logs WHERE user_id = bucket.user_id
+      - SELECT * FROM day_templates WHERE created_by = bucket.user_id
+      - SELECT * FROM day_template_items WHERE created_by = bucket.user_id
+      - SELECT * FROM muscle_targets WHERE user_id = bucket.user_id
+  templates:
+    data:
+      - SELECT * FROM exercises WHERE is_template = true
+      - SELECT * FROM day_templates WHERE is_template = true
+      - SELECT * FROM day_template_items WHERE is_template = true
