@@ -99,3 +99,11 @@ http://infra-bin.lan {
 http://portfolio.lan {
 	reverse_proxy http://192.168.3.16:3000
 }
+
+http://workout.lan {
+	reverse_proxy http://192.168.3.17:8080
+}
+
+http://workout-sync.lan {
+	reverse_proxy http://192.168.3.17:8090
+}

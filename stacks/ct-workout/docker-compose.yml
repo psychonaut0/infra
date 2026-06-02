@@ -1,0 +1,103 @@
+name: workout-tracker
+
+services:
+  postgres:
+    image: postgres:16.4-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+    command: [postgres, -c, wal_level=logical, -c, max_wal_senders=10, -c, max_replication_slots=10]
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  server:
+    image: ghcr.io/psychonaut0/workout-tracker-server:sha-bb8f502
+    restart: unless-stopped
+    # Runs as the host user that owns ./secrets/jwt_private_key.pem (0600); non-swarm
+    # compose bind-mounts file secrets preserving the host file's owner/mode.
+    user: "${SERVER_UID:-1000}:${SERVER_GID:-1000}"
+    ports:
+      - "8080:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}?sslmode=disable
+      JWT_PRIVATE_KEY_PATH: /run/secrets/jwt_private_key
+      POWERSYNC_URL: ${POWERSYNC_URL}
+    secrets:
+      - jwt_private_key
+    healthcheck:
+      test: ["CMD", "/server", "-healthcheck"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  powersync-storage:
+    image: postgres:16.4-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POWERSYNC_STORAGE_USER}
+      POSTGRES_PASSWORD: ${POWERSYNC_STORAGE_PASSWORD}
+      POSTGRES_DB: ${POWERSYNC_STORAGE_DB}
+    volumes:
+      - powersync_storage_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POWERSYNC_STORAGE_USER} -d ${POWERSYNC_STORAGE_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  powersync:
+    image: journeyapps/powersync-service:1.21.0
+    restart: unless-stopped
+    command: ["start", "-r", "unified"]
+    ports:
+      - "8090:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      powersync-storage:
+        condition: service_healthy
+      server:
+        condition: service_healthy
+    environment:
+      POWERSYNC_CONFIG_PATH: /config/powersync.yaml
+      PS_PORT: "8080"
+      PS_DATA_SOURCE_URI: postgres://powersync_role:${PS_REPLICATION_PASSWORD}@postgres:5432/${POSTGRES_DB}
+      PS_STORAGE_SOURCE_URI: postgres://${POWERSYNC_STORAGE_USER}:${POWERSYNC_STORAGE_PASSWORD}@powersync-storage:5432/${POWERSYNC_STORAGE_DB}
+      PS_JWKS_URL: http://server:8080/.well-known/jwks.json
+      PS_ADMIN_API_TOKEN: ${PS_ADMIN_API_TOKEN}
+    volumes:
+      - ./powersync:/config:ro
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://localhost:8080/probes/liveness').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 30s
+
+  portainer-agent:
+    image: portainer/agent:latest
+    container_name: portainer-agent
+    restart: unless-stopped
+    ports:
+      - "9001:9001"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - /var/lib/docker/volumes:/var/lib/docker/volumes
+
+volumes:
+  postgres_data:
+  powersync_storage_data:
+
+secrets:
+  jwt_private_key:
+    file: ./secrets/jwt_private_key.pem
