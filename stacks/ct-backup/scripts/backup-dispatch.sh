@@ -64,6 +64,14 @@ case "$CMD" in
     [[ "$ALLOW_PG_DUMP_IMMICH" == "1" ]] || { echo "pg-dump-immich not allowed" >&2; exit 1; }
     exec docker exec immich_postgres pg_dump -U postgres immich
     ;;
+  pg-dump-workout)
+    [[ "$ALLOW_PG_DUMP_WORKOUT" == "1" ]] || { echo "pg-dump-workout not allowed" >&2; exit 1; }
+    exec docker exec workout-tracker-postgres-1 pg_dump -U workout workout_tracker
+    ;;
+  pg-dump-powersync)
+    [[ "$ALLOW_PG_DUMP_POWERSYNC" == "1" ]] || { echo "pg-dump-powersync not allowed" >&2; exit 1; }
+    exec docker exec workout-tracker-powersync-storage-1 pg_dump -U powersync powersync_storage
+    ;;
   "sqlite-dump "*)
     # sqlite-dump <name>: looks up SQLITE_DB_<NAME> in /etc/backup-dispatch.conf,
     # runs sqlite3 .backup (online backup API — safe against live writers) into

@@ -26,6 +26,7 @@ declare -A CT_IPS=(
   [ct-games]=192.168.3.14
   [ct-ha]=192.168.3.10
   [ct-tools]=192.168.3.15
+  [ct-workout]=192.168.3.17
 )
 # CTs whose full /opt/stacks state must be captured (not just .env). Both CTs
 # keep their service data (HA config, Mosquitto passwd/data, ESPHome per-device
@@ -110,6 +111,13 @@ done
 log "Dumping Immich Postgres from ct-photos"
 ssh "${SSH_OPTS[@]}" "root@${CT_IPS[ct-photos]}" pg-dump-immich \
   | gzip > "$STAGING/immich-postgres.sql.gz" 2>>"$LOG"
+
+# --- 3a. Workout Postgres dumps (app DB + PowerSync bucket storage) ---
+log "Dumping workout Postgres from ct-workout"
+ssh "${SSH_OPTS[@]}" "root@${CT_IPS[ct-workout]}" pg-dump-workout \
+  | gzip > "$STAGING/workout-postgres.sql.gz" 2>>"$LOG"
+ssh "${SSH_OPTS[@]}" "root@${CT_IPS[ct-workout]}" pg-dump-powersync \
+  | gzip > "$STAGING/workout-powersync-storage.sql.gz" 2>>"$LOG"
 
 # --- 3b. SQLite consistency dumps ---
 # Online .backup snapshots (safe against live writers) for SQLite-backed
