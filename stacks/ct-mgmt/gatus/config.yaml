@@ -173,6 +173,26 @@ endpoints:
     alerts:
       - type: telegram
 
+  - name: Workout API
+    group: important
+    url: "http://192.168.3.17:8080/healthz"
+    interval: 60s
+    conditions:
+      - "[CONNECTED] == true"
+      - "[STATUS] < 400"
+    alerts:
+      - type: telegram
+
+  - name: Workout PowerSync
+    group: important
+    url: "http://192.168.3.17:8090/probes/liveness"
+    interval: 60s
+    conditions:
+      - "[CONNECTED] == true"
+      - "[STATUS] == 200"
+    alerts:
+      - type: telegram
+
   - name: Backup freshness
     group: important
     url: "http://backup.lan/status.json"

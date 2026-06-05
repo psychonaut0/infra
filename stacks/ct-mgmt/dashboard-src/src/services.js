@@ -7,6 +7,7 @@ export const sections = [
       { name: 'Home Assistant', desc: 'Automation', href: 'https://homeassistant.lan', ping: 'http://192.168.3.10:8123', icon: `${I}/home-assistant.svg` },
       { name: 'Jellyfin', desc: 'Media server', href: 'http://jellyfin.lan', ping: 'http://192.168.3.8:8096', icon: `${I}/jellyfin.svg` },
       { name: 'Immich', desc: 'Photos', href: 'https://immich.lan', ping: 'http://192.168.3.9:2283', icon: `${I}/immich.svg` },
+      { name: 'Workout', desc: 'Workout tracker API', href: 'http://workout.lan', ping: 'http://192.168.3.17:8080', icon: `${I}/workout.svg` },
     ],
   },
   {
