@@ -15,6 +15,7 @@ const services = [
   { name: "Home Assistant", ping: "http://192.168.3.10:8123" },
   { name: "Jellyfin", ping: "http://192.168.3.8:8096" },
   { name: "Immich", ping: "http://192.168.3.9:2283" },
+  { name: "Workout", ping: "http://192.168.3.17:8080" },
   { name: "Portainer", ping: "http://192.168.3.12:9000" },
   { name: "Proxmox", ping: "https://192.168.3.2:8006" },
   { name: "Frigate", ping: "http://192.168.3.7:5000" },
