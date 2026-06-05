@@ -45,6 +45,23 @@ exists with `\dRp` (expect `powersync`). Then bring up the `powersync` service.
 
 ## Backups
 
-`ct-backup` captures `.env` automatically, plus two Postgres dumps via
+`ct-backup` captures the full `/opt/stacks/ct-workout` tree (`.env`,
+`secrets/jwt_private_key.pem`, powersync configs — ct-workout is in
+`FULL_STACK_CTS` in `pre-backup.sh`), plus two Postgres dumps via
 `backup-dispatch.sh`: `pg-dump-workout` (app DB) and `pg-dump-powersync`
 (bucket-storage DB).
+
+## Restore
+
+The dumps are plain single-database `pg_dump`s, which do **not** capture
+cluster-level roles. After restoring into a fresh Postgres:
+
+1. Bring up `postgres` + `server` first — migration `00004` recreates
+   `powersync_role` (as `NOLOGIN`, no password) and the `powersync` publication.
+2. Restore the app DB dump, then re-run the one-time replication-role step
+   above (`ALTER ROLE powersync_role LOGIN PASSWORD ...` with
+   `PS_REPLICATION_PASSWORD` from the restored `.env`).
+3. Restore `secrets/jwt_private_key.pem` (owner `SERVER_UID:SERVER_GID`, mode
+   `0600`) — restoring a *different* key would invalidate all client sessions.
+4. Bring up `powersync` last; it re-syncs bucket storage from the app DB, so a
+   stale/empty bucket-storage restore is acceptable.
