@@ -40,6 +40,8 @@ Post-decomposition state (blvckserver VM retired 2026-04-12). All storage is now
 | 109 | ct-backup | vm-109-disk-0 | 8GB | 12% |
 | 110 | ct-tools | vm-110-disk-0 | 8GB | 35% |
 | 112 | ct-games | vm-112-disk-0 | 40GB | 11% |
+| 113 | ct-portfolio | vm-113-disk-0 | 8GB | 27% |
+| 114 | ct-workout | vm-114-disk-0 | 16GB | 19% |
 
 ## proxmoxnode
 

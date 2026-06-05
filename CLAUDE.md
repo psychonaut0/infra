@@ -27,7 +27,7 @@
 - **CPU:** Intel i5-10400 @ 2.90GHz (6C/12T)
 - **RAM:** 32GB
 - **Role:** Primary Proxmox hypervisor node. Clustered with proxmoxnode. Authorized keys are shared across the cluster. Hosts all bulk storage — mergerfs pool `/mnt/cloud` (exposed as the `cloud` PVE dir pool) and `nvr-data` LVM thin — bind-mounted into local CTs.
-- **CTs:** ct-tunnel (VMID 103), ct-nvr (VMID 104), ct-media (VMID 105), ct-photos (VMID 106), ct-files (VMID 107), ct-mgmt (VMID 108), ct-backup (VMID 109), ct-tools (VMID 110), ct-games (VMID 112)
+- **CTs:** ct-tunnel (VMID 103), ct-nvr (VMID 104), ct-media (VMID 105), ct-photos (VMID 106), ct-files (VMID 107), ct-mgmt (VMID 108), ct-backup (VMID 109), ct-tools (VMID 110), ct-games (VMID 112), ct-portfolio (VMID 113), ct-workout (VMID 114)
 - **Storage:** See `docs/hardware.md` for full disk and storage layout.
 
 ### proxmoxnode
@@ -154,6 +154,17 @@
 - **Ports:** 3000 (Next.js HTTP, also LAN entry via Caddy at http://portfolio.lan and public entry via Cloudflare Tunnel)
 - **Config notes:** AppArmor unconfined + proc/sys rw mount for Docker compatibility. Stateless container — no persistent volumes. Public exposure handled entirely by the existing cloudflared tunnel on ct-tunnel (no port-forward, no UniFi changes). Healthcheck targets `127.0.0.1` (not `localhost`) because busybox `wget` in the alpine runtime image doesn't fall back to IPv4 after a refused IPv6 connection.
 
+### ct-workout (LXC — VMID 114 on proxmoxmain)
+- **IP:** 192.168.3.17
+- **User:** root
+- **OS:** Debian 13 (Trixie), unprivileged LXC
+- **SSH:** Port 22, key-based auth (no password)
+- **Resources:** 2 vCPU, 2048MB RAM, 512MB swap, 16GB disk
+- **Role:** Workout-tracker backend (phone app). Runs a Go API server + its app Postgres, plus the PowerSync sync service + a dedicated PowerSync bucket-storage Postgres. LAN-only — no public exposure.
+- **Stack:** `/opt/stacks/ct-workout/docker-compose.yml` (local copy: `stacks/ct-workout/`). The server image is built from the **separate** `psychonaut0/workout-tracker` repo and pulled as `ghcr.io/psychonaut0/workout-tracker-server:sha-<short>`. Roll forward = bump the pinned tag; roll back = pin a previous one.
+- **Ports:** 8080 (Go API, LAN entry via Caddy at http://workout.lan), 8090 (PowerSync, http://workout-sync.lan)
+- **Config notes:** AppArmor unconfined + proc/sys rw mount for Docker compatibility. Server container runs as dedicated non-root user `workout` (UID 900), which owns `secrets/jwt_private_key.pem` (0600, delivered via compose `secrets:`). One-time `powersync_role` LOGIN+password grant required after fresh deploy *and* after DB restore (plain `pg_dump` doesn't capture roles) — runbook in `stacks/ct-workout/README.md`. Backed up nightly by ct-backup: full `/opt/stacks/ct-workout` tree (includes `.env` + JWT key) plus both Postgres dumps (`pg-dump-workout`, `pg-dump-powersync`).
+
 ### ct-photos (LXC — VMID 106 on proxmoxmain)
 - **IP:** 192.168.3.9
 - **User:** root
@@ -171,7 +182,7 @@
 - **OS:** Debian 13 (Trixie), privileged LXC
 - **SSH:** Port 22, key-based auth (no password)
 - **Resources:** 1 vCPU, 512MB RAM, 256MB swap, 4GB disk
-- **Role:** Off-site backup runner. Runs restic nightly against Backblaze B2, pulling .env files + Docker named volumes + Immich Postgres dump + /etc/pve + host config from all other CTs and both Proxmox nodes, plus bind-mounted bulk data (Immich, samba/psy, *arr configs, Jellyfin config, Frigate config) and the full /opt/stacks tree for ct-ha and ct-tools.
+- **Role:** Off-site backup runner. Runs restic nightly against Backblaze B2, pulling .env files + Docker named volumes + Immich and workout Postgres dumps + /etc/pve + host config from all other CTs and both Proxmox nodes, plus bind-mounted bulk data (Immich, samba/psy, *arr configs, Jellyfin config, Frigate config) and the full /opt/stacks tree for ct-ha, ct-tools, ct-games, and ct-workout.
 - **Stack:** `/opt/stacks/ct-backup/` (local copy: `stacks/ct-backup/`) — no Docker; scripts + systemd units installed natively.
 - **Ports:** 80 (Caddy status endpoint at `backup.lan`)
 - **Schedule:** nightly 03:00, weekly prune Sun 04:00, monthly partial check 1st of month 05:00. Triggered by systemd timers; status.json served for Gatus freshness check.
@@ -202,6 +213,7 @@ blvckmain (main PC)
   ├── ssh ct-ha          → 192.168.3.10:22   (root, key auth)
   ├── ssh ct-tools       → 192.168.3.15:22   (root, key auth)
   ├── ssh ct-portfolio   → 192.168.3.16:22   (root, key auth)
+  ├── ssh ct-workout     → 192.168.3.17:22   (root, key auth)
   └── ssh ct-backup      → 192.168.3.13:22   (root, key auth)
 ```
 
@@ -219,6 +231,7 @@ Proxmox VE runs on proxmoxmain (https://proxmox.lan or https://192.168.3.2:8006)
 Immich photo management runs on ct-photos (https://immich.lan or http://192.168.3.9:2283) with iGPU ML inference.
 Minecraft servers run on ct-games (192.168.3.14:25565 for vanilla/Paper, :25566 for modded). Vanilla is publicly reachable at `mc.<PERSONAL_DOMAIN>:25565` via UniFi port-forward from the static public IP. Playit.gg agent remains as transitional fallback and will be retired. LAN RCON on :25575 (vanilla) / :25576 (modded). Daily `.tgz` archives on mergerfs at `/mnt/cloud/volumes/games/archives/<server>/`.
 Portfolio site runs on ct-portfolio (https://portfolio.<PERSONAL_DOMAIN> publicly, http://portfolio.lan on LAN). Stateless Next.js standalone container pulled from `ghcr.io/psychonaut0/portfolio:latest`. Source repo: `github.com/psychonaut0/portfolio` (separate from infra).
+Workout-tracker backend runs on ct-workout (http://workout.lan API, http://workout-sync.lan PowerSync). Go API + app Postgres + PowerSync service + dedicated bucket-storage Postgres, serving the phone app. LAN-only. Server image: `ghcr.io/psychonaut0/workout-tracker-server` (source repo `github.com/psychonaut0/workout-tracker`, separate from infra).
 infra CLI release mirror runs natively on ct-mgmt as a systemd timer (every 5 min) and is served via Caddy at http://infra-bin.lan. Pulls GitHub Release artifacts and re-publishes to the LAN. Source + deploy notes: `stacks/ct-mgmt/infra-mirror/`.
 Hardware and storage details in `docs/hardware.md`.
 
