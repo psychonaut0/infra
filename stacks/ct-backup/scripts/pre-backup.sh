@@ -28,11 +28,12 @@ declare -A CT_IPS=(
   [ct-tools]=192.168.3.15
   [ct-workout]=192.168.3.17
 )
-# CTs whose full /opt/stacks state must be captured (not just .env). Both CTs
+# CTs whose full /opt/stacks state must be captured (not just .env). These CTs
 # keep their service data (HA config, Mosquitto passwd/data, ESPHome per-device
-# keys) inside their /opt/stacks subdir — bind-mounted into the Docker
-# containers — so the full tree is what matters.
-FULL_STACK_CTS=(ct-ha ct-tools ct-games)
+# keys, ct-workout's JWT signing key in secrets/) inside their /opt/stacks
+# subdir — bind-mounted into the Docker containers — so the full tree is what
+# matters.
+FULL_STACK_CTS=(ct-ha ct-tools ct-games ct-workout)
 PROXMOXMAIN_IP=192.168.3.2
 PROXMOXNODE_IP=192.168.3.3
 
