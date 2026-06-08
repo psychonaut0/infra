@@ -44,7 +44,12 @@ explicitly.
 
 - [ ] `stacks/hosts.yaml` — IP entry
 - [ ] `cli/internal/discover/fleet.json` — IP + service→CT mappings
-      (rebuild/release the CLI so consumers pick it up)
+- [ ] **Cut a release**: fleet.json is *embedded at build time*, so without a
+      new tag every host keeps the old fleet. `git tag vX.Y.Z && git push
+      origin vX.Y.Z` → CI builds the Release → infra-mirror syncs (≤5 min) →
+      `infra update -y` on each host. Workstations with a repo checkout read
+      fleet.json live and mask this gap — **prove it from a CT**:
+      `ssh root@<any-ct> 'infra ls | grep <name>'`
 
 ## 5. DNS
 
