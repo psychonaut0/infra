@@ -36,14 +36,20 @@ live:
 
 record:
   enabled: true
+  # Continuous 24/7 recording, 1-week retention. Recordings are downscaled to
+  # 1080p by the go2rtc QSV transcode streams below (cameras expose no substream),
+  # keeping ~1 week of all-cameras footage within the 393GB nvr-data volume.
+  continuous:
+    days: 7
+  # Object/motion review items (the timeline "checks") tracked for the same week.
   alerts:
     retain:
-      days: 200
-      mode: active_objects
+      days: 7
+      mode: motion
   detections:
     retain:
-      days: 200
-      mode: active_objects
+      days: 7
+      mode: motion
 
 snapshots:
   enabled: true
@@ -67,19 +73,28 @@ go2rtc:
     camera_1:
       - rtsp://frigate:{FRIGATE_RTSP_PASSWORD}@192.168.2.10:554
       - "ffmpeg:camera_1#audio=opus"
+    # Downscaled record feed: GPU (Intel QSV) decode -> scale to 1080p -> H264.
+    # Sources the local restream (no extra camera connection). Used by the
+    # camera's "record" role so 24/7 footage is ~1.5Mbps instead of full 2688x1520.
+    camera_1_record:
+      - "exec:/usr/lib/ffmpeg/7.0/bin/ffmpeg -hide_banner -loglevel warning -hwaccel qsv -qsv_device /dev/dri/renderD128 -hwaccel_output_format qsv -rtsp_transport tcp -i rtsp://127.0.0.1:8554/camera_1 -an -vf vpp_qsv=w=1920:h=1080 -c:v h264_qsv -b:v 1.5M -g 50 -rtsp_transport tcp -f rtsp {{output}}"
     camera_2:
       - rtsp://frigate:{FRIGATE_RTSP_PASSWORD}@192.168.2.11:554
       - "ffmpeg:camera_2#audio=opus"
+    camera_2_record:
+      - "exec:/usr/lib/ffmpeg/7.0/bin/ffmpeg -hide_banner -loglevel warning -hwaccel qsv -qsv_device /dev/dri/renderD128 -hwaccel_output_format qsv -rtsp_transport tcp -i rtsp://127.0.0.1:8554/camera_2 -an -vf vpp_qsv=w=1920:h=1080 -c:v h264_qsv -b:v 1.5M -g 50 -rtsp_transport tcp -f rtsp {{output}}"
     camera_3:
       - rtsp://frigate:{FRIGATE_RTSP_PASSWORD}@192.168.2.12:554
       - "ffmpeg:camera_3#audio=opus"
+    camera_3_record:
+      - "exec:/usr/lib/ffmpeg/7.0/bin/ffmpeg -hide_banner -loglevel warning -hwaccel qsv -qsv_device /dev/dri/renderD128 -hwaccel_output_format qsv -rtsp_transport tcp -i rtsp://127.0.0.1:8554/camera_3 -an -vf vpp_qsv=w=1920:h=1080 -c:v h264_qsv -b:v 1.5M -g 50 -rtsp_transport tcp -f rtsp {{output}}"
 
 cameras:
   camera_1:
     enabled: true
     ffmpeg:
       inputs:
-        - path: rtsp://127.0.0.1:8554/camera_1
+        - path: rtsp://127.0.0.1:8554/camera_1_record
           input_args: preset-rtsp-restream
           roles:
             - record
@@ -96,7 +111,7 @@ cameras:
     enabled: true
     ffmpeg:
       inputs:
-        - path: rtsp://127.0.0.1:8554/camera_2
+        - path: rtsp://127.0.0.1:8554/camera_2_record
           input_args: preset-rtsp-restream
           roles:
             - record
@@ -113,7 +128,7 @@ cameras:
     enabled: true
     ffmpeg:
       inputs:
-        - path: rtsp://127.0.0.1:8554/camera_3
+        - path: rtsp://127.0.0.1:8554/camera_3_record
           input_args: preset-rtsp-restream
           roles:
             - record
