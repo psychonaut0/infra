@@ -15,6 +15,8 @@ services:
       - .env
     environment:
       TZ: Europe/Rome
+      # Required for the user-defined go2rtc `exec:` transcode streams (camera_*_record)
+      GO2RTC_ALLOW_ARBITRARY_EXEC: "true"
     volumes:
       - /mnt/nvr-data/config:/config
       - /mnt/nvr-data/data:/media/frigate
