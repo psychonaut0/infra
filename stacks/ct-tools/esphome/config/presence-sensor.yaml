@@ -1,0 +1,108 @@
+esphome:
+  name: presence-sensor
+  friendly_name: Presence sensor
+
+esp32:
+  board: esp32-c3-devkitm-1
+  framework:
+    type: esp-idf
+
+web_server:
+  port: 80
+
+logger:
+  level: DEBUG
+
+api:
+  encryption:
+    key: !secret presence_api_key
+
+ota:
+  - platform: esphome
+    password: !secret presence_ota_password
+
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+  ap:
+    ssid: "Presence-Sensor Fallback Hotspot"
+    password: !secret presence_ap_password
+
+captive_portal:
+
+# UART LD2420 su ESP32-C3 Super Mini:
+# GPIO20 = RX (ESP)  <- TX sensore (OT1 se fw >=1.5.3, OT2 se fw <=1.5.2)
+# GPIO21 = TX (ESP)  -> RX sensore
+uart:
+  id: uart_ld2420
+  rx_pin: GPIO20
+  tx_pin: GPIO21
+  baud_rate: 115200
+  parity: NONE
+  stop_bits: 1
+
+ld2420:
+  uart_id: uart_ld2420
+
+text_sensor:
+  - platform: ld2420
+    fw_version:
+      name: "LD2420 Firmware"
+
+sensor:
+  - platform: ld2420
+    moving_distance:
+      name: "Moving Distance"
+
+binary_sensor:
+  # Presenza via UART (consigliata)
+  - platform: ld2420
+    has_target:
+      name: "Presence (LD2420)"
+
+  # Presenza via pin OUT del modulo (quello che hai messo su GPIO10)
+  - platform: gpio
+    name: "Presence OUT (GPIO10)"
+    pin:
+      number: GPIO10
+      mode: INPUT
+    filters:
+      - delayed_on: 50ms
+      - delayed_off: 500ms
+
+select:
+  - platform: ld2420
+    operating_mode:
+      name: "Operating Mode"
+
+number:
+  - platform: ld2420
+    presence_timeout:
+      name: "Detection Presence Timeout"
+    min_gate_distance:
+      name: "Detection Gate Minimum"
+    max_gate_distance:
+      name: "Detection Gate Maximum"
+
+    gate_select:
+      name: "Select Gate to Set"
+    still_threshold:
+      name: "Set Still Threshold Value"
+    move_threshold:
+      name: "Set Move Threshold Value"
+
+    gate_move_sensitivity:
+      name: "Move Calibration Sensitivity Factor"
+    gate_still_sensitivity:
+      name: "Still Calibration Sensitivity Factor"
+
+button:
+  - platform: ld2420
+    apply_config:
+      name: "Apply Config"
+    revert_config:
+      name: "Undo Edits"
+    restart_module:
+      name: "Restart Module"
+    factory_reset:
+      name: "Factory Reset"
