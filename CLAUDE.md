@@ -67,11 +67,11 @@
 - **User:** root
 - **OS:** Debian 13 (Trixie), privileged LXC
 - **SSH:** Port 22, key-based auth (no password)
-- **Resources:** 2 vCPU, 4096MB RAM, 1024MB swap, 24GB disk
+- **Resources:** 2 vCPU, 6144MB RAM, 2048MB swap, 24GB disk
 - **Role:** NVR (Network Video Recorder). Runs Frigate with iGPU passthrough for hardware video decoding and AI object detection.
 - **Stack:** `/opt/stacks/ct-nvr/docker-compose.yml` (local copy: `stacks/ct-nvr/`)
 - **Ports:** 8971 (Frigate HTTPS UI), 8554 (RTSP), 8555 (WebRTC)
-- **Config notes:** Privileged CT for device access. iGPU passthrough via `lxc.cgroup2.devices.allow: c 226:* rwm` and `/dev/dri` bind mount. NVR data on LVM thin volume (`nvr-data:vm-100-disk-0`) mounted on host via kpartx at `/mnt/nvr-data` and bind-mounted into CT. AppArmor unconfined + proc/sys rw mount for Docker compatibility. Systemd service `mnt-nvr-data.service` on proxmoxmain handles persistent mount across reboots.
+- **Config notes:** Privileged CT for device access. iGPU passthrough via `lxc.cgroup2.devices.allow: c 226:* rwm` and `/dev/dri` bind mount. NVR data on LVM thin volume (`nvr-data:vm-100-disk-0`) mounted on host via kpartx at `/mnt/nvr-data` and bind-mounted into CT. AppArmor unconfined + proc/sys rw mount for Docker compatibility. Systemd service `mnt-nvr-data.service` on proxmoxmain handles persistent mount across reboots. **RAM was raised 4096→6144MB (2026-07-06)**: the continuous 24/7 recording + 3 QSV transcode ffmpeg processes pushed Frigate past the old 4GB cgroup limit, causing recurring OOM kills (~every 2-3 days) that crashed Frigate and made recordings unloadable. Do not drop below 6GB while continuous recording is enabled.
 
 ### ct-media (LXC — VMID 105 on proxmoxmain)
 - **IP:** 192.168.3.8
