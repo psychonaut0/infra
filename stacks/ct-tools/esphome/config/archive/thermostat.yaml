@@ -1,0 +1,30 @@
+esphome:
+  name: thermostat
+  friendly_name: Thermostat
+
+bk72xx:
+  board: generic-bk7252
+
+# Enable logging
+logger:
+
+# Enable Home Assistant API
+api:
+  encryption:
+    key: !secret thermostat_api_key
+
+ota:
+  - platform: esphome
+    password: !secret thermostat_ota_password
+
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+
+  # Enable fallback hotspot (captive portal) in case wifi connection fails
+  ap:
+    ssid: "Thermostat Fallback Hotspot"
+    password: !secret thermostat_ap_password
+
+captive_portal:
+    

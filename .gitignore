@@ -5,7 +5,11 @@ stacks/ct-ha/config/
 stacks/ct-ha/mosquitto/data/
 stacks/ct-ha/mosquitto/log/
 stacks/ct-ha/mosquitto/config/passwd
-stacks/ct-tools/esphome/config/
+# ESPHome: track sanitized device YAMLs; keep secrets + build cache out (ESPHome convention)
+stacks/ct-tools/esphome/config/secrets.yaml
+stacks/ct-tools/esphome/config/.esphome/
+stacks/ct-tools/esphome/config/*.bak
+stacks/ct-tools/esphome/config/**/*.bak
 
 # Git worktrees
 .worktrees/
