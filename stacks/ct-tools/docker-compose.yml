@@ -9,6 +9,9 @@ services:
       - /etc/localtime:/etc/localtime:ro
     environment:
       TZ: Europe/Rome
+      # Devices live on the IoT VLAN; the dashboard's default mDNS status can't
+      # cross subnets, so use ICMP-ping status (respects each node's use_address).
+      ESPHOME_DASHBOARD_USE_PING: "true"
 
   portainer-agent:
     image: portainer/agent:latest

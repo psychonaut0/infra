@@ -14,6 +14,32 @@ survive a CT loss even though they're not in git.
 If you add a new device, keep secrets in `secrets.yaml` and reference them with `!secret` —
 never inline them, or they'll be published on push.
 
+## Reaching devices on the IoT VLAN
+
+The ESPHome devices live on the IoT VLAN (`192.168.2.0/24`); ct-tools is on
+`192.168.3.15`. Making the dashboard see and manage them across that boundary needs four
+things, all in place as of 2026-07-07:
+
+1. **Firewall** — ct-tools is in the UniFi allow-exception into `192.168.2.0/24` (mirrors
+   ct-ha). See the ct-tools note in the top-level `CLAUDE.md`.
+2. **`use_address:` per device** — mDNS (`<name>.local`) can't cross the VLAN, so each
+   device's `wifi:` block pins the IP (e.g. `use_address: 192.168.2.128`). This is what the
+   CLI/dashboard use to connect for logs/OTA.
+3. **Ping-based dashboard status** — `ESPHOME_DASHBOARD_USE_PING=true` in
+   `../docker-compose.yml` (the default mDNS status can't cross the VLAN).
+4. **Unprivileged ICMP in the LXC** — the dashboard pings via `icmplib`, which needs
+   `net.ipv4.ping_group_range` to allow the container's GID. Set on the ct-tools host in
+   `/etc/sysctl.d/99-esphome-ping.conf` as `0 65534` (upper bound must stay within the
+   unprivileged-LXC user-namespace gid map — `2147483647` is rejected with `Invalid
+   argument`).
+
+Notes:
+- The dashboard's online dot only refreshes **while the dashboard is open in a browser**
+  (it pings on demand for active subscribers) — that's normal ESPHome behavior, not a fault.
+- The dashboard's stored ping address (`config/.esphome/storage/<name>.yaml.json`) is
+  written from `use_address` **on compile**. If you add `use_address` to an existing device,
+  recompile it once (or the dot stays offline until you do).
+
 ## Tracked devices
 
 | File | Device | Hardware | Status |
