@@ -24,6 +24,10 @@ ota:
 wifi:
   ssid: !secret wifi_ssid
   password: !secret wifi_password
+  # Dashboard/CLI connect here directly — device is on the IoT VLAN and mDNS
+  # (presence-sensor.local) doesn't cross from ct-tools' subnet. Compile-time
+  # hint only; no reflash needed for the dashboard to pick it up.
+  use_address: 192.168.2.128
   ap:
     ssid: "Presence-Sensor Fallback Hotspot"
     password: !secret presence_ap_password
