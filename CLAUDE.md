@@ -141,7 +141,7 @@
 - **Role:** Utility services. Runs ESPHome dashboard for IoT device firmware management.
 - **Stack:** `/opt/stacks/ct-tools/docker-compose.yml` (local copy: `stacks/ct-tools/`)
 - **Ports:** 6052 (ESPHome HTTP UI)
-- **Config notes:** AppArmor unconfined + proc/sys rw mount for Docker compatibility. ESPHome uses `network_mode: host` for mDNS device discovery.
+- **Config notes:** AppArmor unconfined + proc/sys rw mount for Docker compatibility. ESPHome uses `network_mode: host` for mDNS device discovery. **IoT VLAN access (2026-07-07):** ct-tools (`192.168.3.15`) was added to the UniFi gateway allow-exception that grants access into the IoT VLAN (`192.168.2.0/24`), mirroring ct-ha's grant — so the ESPHome dashboard can reach/OTA the ESPHome devices there (8 thermostats + presence sensor `192.168.2.128`). Verified: ct-tools reaches all live devices on API port 6053. Note: mDNS auto-discovery still won't cross the VLAN (UniFi mDNS reflector is off) — manage devices by IP, and if OTA can't resolve a device by name add `use_address:`/`manual_ip` to its config. Device YAMLs + situation documented in `stacks/ct-tools/esphome/README.md`.
 
 ### ct-portfolio (LXC — VMID 113 on proxmoxmain)
 - **IP:** 192.168.3.16
