@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"unicode/utf8"
 
 	"gopkg.in/yaml.v3"
 )
@@ -42,8 +43,11 @@ func normaliseDomain(publicDomain string) string {
 // onDomain reports whether hostname is normalisedDomain itself, or a subdomain
 // of it (e.g. "*.example.test" or "foo.example.test" for domain
 // "example.test"), compared case-insensitively because DNS names are not
-// case-sensitive. normalisedDomain must already be the output of
-// normaliseDomain.
+// case-sensitive. A single trailing dot on hostname — the notation for an
+// absolute FQDN, e.g. "portfolio.example.test." — is ignored for this
+// comparison, since it is the same name either way; a leading dot is never
+// valid here and is deliberately NOT stripped, so it keeps failing to match.
+// normalisedDomain must already be the output of normaliseDomain.
 //
 // This is the single predicate substituteDomain and UnexpectedDomains both
 // call. Do not re-implement this check anywhere else — a second copy that
@@ -53,7 +57,7 @@ func onDomain(hostname, normalisedDomain string) bool {
 	if normalisedDomain == "" || hostname == "" {
 		return false
 	}
-	h := strings.ToLower(hostname)
+	h := strings.ToLower(strings.TrimSuffix(hostname, "."))
 	return h == normalisedDomain || strings.HasSuffix(h, "."+normalisedDomain)
 }
 
@@ -64,12 +68,22 @@ func onDomain(hostname, normalisedDomain string) bool {
 // here shows up as phantom drift. Struct field order fixes key order, and
 // yaml.v3 sorts map keys, which covers originRequest and warp-routing.
 //
-// Hostname substitution is not the last word: after marshalling, the output
-// is scanned byte-for-byte for the domain and the render is rejected if it is
-// still present anywhere (see the guard below). That closes the gap left by
-// fields substituteDomain deliberately does not touch — Service, Path, and
-// OriginRequest values — and by any hostname substitution failed to fully
-// strip.
+// Hostname substitution is not the last word: after marshalling, the
+// marshalled config body — never the header we author ourselves, which
+// legitimately contains words like "infra" and "public" — is scanned
+// byte-for-byte for the domain, and the render is rejected if it is still
+// present anywhere. That closes the gap left by fields substituteDomain
+// deliberately does not touch — Service, Path, and OriginRequest values —
+// and by any hostname substitution that failed to fully strip the domain. If
+// the domain does survive, the error names the specific field and value that
+// carries it rather than a generic list, so the operator isn't sent hunting
+// in the wrong place.
+//
+// Every hostname, and the marshalled body as a whole, must also be valid
+// UTF-8: yaml.v3 encodes a non-UTF-8 string as base64 "!!binary", which
+// decodes back to the real value while the byte guard above — a literal
+// byte search — sees nothing. Both checks fail closed rather than let that
+// through.
 func Render(cfg *TunnelConfig, publicDomain string) ([]byte, error) {
 	domain := normaliseDomain(publicDomain)
 	if domain == "" {
@@ -91,6 +105,11 @@ func Render(cfg *TunnelConfig, publicDomain string) ([]byte, error) {
 	// needed.
 	sanitised.Ingress = make([]Ingress, len(cfg.Ingress))
 	for i, in := range cfg.Ingress {
+		if !utf8.ValidString(in.Hostname) {
+			return nil, fmt.Errorf(
+				"ingress %d: hostname is not valid UTF-8 — refusing to render (yaml.v3 would encode it as base64, which decodes back to the real value and bypasses the byte guard)",
+				i)
+		}
 		in.Hostname = substituteDomain(in.Hostname, domain)
 		sanitised.Ingress[i] = in
 	}
@@ -98,46 +117,115 @@ func Render(cfg *TunnelConfig, publicDomain string) ([]byte, error) {
 	if err != nil {
 		return nil, fmt.Errorf("marshal tunnel config: %w", err)
 	}
-	out := append([]byte(renderHeader+"\n"), body...)
 
-	// Fail closed: if the real domain is still in the rendered bytes anywhere
-	// — case-insensitively — after hostname substitution, do not return them.
-	// substituteDomain only ever touches Ingress.Hostname; it deliberately
-	// does not attempt to rewrite Service, Path, or OriginRequest values,
-	// since guessing at their structure risks corrupting a config we can't
-	// see live. This is the last line of defence against all of that, plus
-	// any hostname substitution that failed to fully strip the domain.
-	if bytes.Contains(bytes.ToLower(out), []byte(domain)) {
-		return nil, fmt.Errorf(
-			"refusing to write output: domain %q is still present in the rendered bytes after hostname substitution — "+
-				"check service, path, and originRequest fields (per-ingress and top-level) for a literal hostname on this domain",
-			domain)
+	// Fail closed on non-UTF-8 output: the per-hostname check above closes the
+	// only reachable path today (json.Unmarshal coerces bad bytes to U+FFFD
+	// before a TunnelConfig is ever built), but this is a backstop for any
+	// other field, and for any future yaml-decoded producer of TunnelConfig.
+	if !utf8.Valid(body) {
+		return nil, errors.New(
+			"refusing to write output: rendered YAML is not valid UTF-8 — a field may contain bytes that yaml.v3 encoded as base64, which the domain byte guard cannot see through")
 	}
+
+	// Fail closed: if the real domain is still in the rendered body anywhere
+	// — case-insensitively — after hostname substitution, do not return any
+	// bytes. Deliberately scoped to body, not the header: the header is
+	// authored by us and can legitimately contain words like "infra" or
+	// "public" that would otherwise collide with a short configured domain.
+	if bytes.Contains(bytes.ToLower(body), []byte(domain)) {
+		return nil, fmt.Errorf(
+			"refusing to write output: domain %q is still present after hostname substitution — found in %s",
+			domain, locateDomain(&sanitised, domain))
+	}
+	out := append([]byte(renderHeader+"\n"), body...)
 	return out, nil
 }
 
-// substituteDomain replaces a trailing normalisedDomain match — the domain
-// itself, or any subdomain of it — with DomainPlaceholder, matching
-// case-insensitively but preserving the caller's casing of any leading
-// subdomain labels that are kept. A hostname on any other domain is returned
-// unchanged; UnexpectedDomains is what reports those, so an unknown domain is
-// surfaced rather than mangled. normalisedDomain must already be the output
-// of normaliseDomain.
+// locateDomain reports which field of cfg — expected to be the sanitised,
+// post-substitution copy — still carries a case-insensitive occurrence of
+// domain, so Render's byte-guard error can name the right place instead of a
+// generic list. It walks Ingress in order, checking Hostname, then Service,
+// then Path on each entry, and returns as soon as it finds a match together
+// with the offending value.
+//
+// domain must already be lowercase (the output of normaliseDomain). If none
+// of those three fields carry it, the domain must be surviving in a field
+// this function doesn't have visibility into the structure of — a per-ingress
+// or top-level OriginRequest value, or WarpRouting — so it falls back to
+// naming those as the remaining possibilities.
+func locateDomain(cfg *TunnelConfig, domain string) string {
+	for i, in := range cfg.Ingress {
+		if strings.Contains(strings.ToLower(in.Hostname), domain) {
+			return fmt.Sprintf("hostname of ingress[%d]: %q", i, in.Hostname)
+		}
+	}
+	for i, in := range cfg.Ingress {
+		if strings.Contains(strings.ToLower(in.Service), domain) {
+			return fmt.Sprintf("service of ingress[%d]: %q", i, in.Service)
+		}
+	}
+	for i, in := range cfg.Ingress {
+		if strings.Contains(strings.ToLower(in.Path), domain) {
+			return fmt.Sprintf("path of ingress[%d]: %q", i, in.Path)
+		}
+	}
+	return "originRequest or warp-routing (per-ingress or top-level) — not inspected field-by-field"
+}
+
+// substituteDomain replaces the trailing normalisedDomain label(s) — the
+// domain itself, or any subdomain of it — with DomainPlaceholder, matching
+// case-insensitively (via onDomain) but preserving the caller's casing on any
+// leading subdomain labels that are kept. A single trailing dot (the
+// absolute-FQDN notation, e.g. "portfolio.example.test.") is stripped before
+// matching and restored on the result; a leading dot is never valid here and
+// is left alone, so it keeps failing to match, same as onDomain. A hostname
+// on any other domain is returned unchanged — UnexpectedDomains is what
+// reports those, so an unknown domain is surfaced rather than mangled.
+// normalisedDomain must already be the output of normaliseDomain.
 func substituteDomain(hostname, normalisedDomain string) string {
 	if hostname == "" {
 		return ""
 	}
-	if !onDomain(hostname, normalisedDomain) {
+	h := hostname
+	trailingDot := ""
+	if strings.HasSuffix(h, ".") {
+		h = h[:len(h)-1]
+		trailingDot = "."
+	}
+	if !onDomain(h, normalisedDomain) {
 		return hostname
 	}
-	if len(hostname) == len(normalisedDomain) {
-		// Case-insensitive exact match against the apex domain itself.
-		return DomainPlaceholder
+	// Find the cut point by walking back across normalisedDomain's own
+	// dot-separated label count from literal '.' bytes in h, rather than
+	// subtracting byte lengths: lowercasing does not preserve byte length for
+	// every rune (U+0130 and U+212A are the two relevant exceptions — e.g. the
+	// Kelvin sign U+212A is 3 bytes but lowercases to 1-byte 'k'), so a
+	// length-based cut can land inside a multi-byte rune and hand back
+	// invalid UTF-8. A literal '.' is always a safe cut point: byte 0x2E can
+	// never appear as a continuation byte inside a multi-byte UTF-8 sequence.
+	labels := strings.Count(normalisedDomain, ".") + 1
+	prefix := trimTrailingLabels(h, labels)
+	if prefix == "" {
+		return DomainPlaceholder + trailingDot
 	}
-	// onDomain confirmed hostname ends with "."+normalisedDomain
-	// (case-insensitively); casing never changes byte length, so slicing by
-	// length is safe and keeps the caller's casing on the retained prefix.
-	return hostname[:len(hostname)-len(normalisedDomain)] + DomainPlaceholder
+	return prefix + "." + DomainPlaceholder + trailingDot
+}
+
+// trimTrailingLabels removes the last n dot-separated labels from s (each
+// preceded by its separating '.') and returns what remains, with no
+// separator on the end. It walks back using literal '.' bytes, which are
+// always safe UTF-8 cut points, so it never lands inside a multi-byte rune.
+// Returns "" if s has n or fewer labels — i.e. the whole of s was consumed.
+func trimTrailingLabels(s string, n int) string {
+	rest := s
+	for i := 0; i < n; i++ {
+		idx := strings.LastIndexByte(rest, '.')
+		if idx < 0 {
+			return ""
+		}
+		rest = rest[:idx]
+	}
+	return rest
 }
 
 // UnexpectedDomains returns hostnames that are not on publicDomain (matched
