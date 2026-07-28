@@ -107,3 +107,20 @@ http://workout.lan {
 http://workout-sync.lan {
 	reverse_proxy http://192.168.3.17:8090
 }
+
+# copyparty trusts this host (192.168.3.12) as an xff-src, so it believes the
+# CF-Connecting-IP header we send. Overwrite it with the real peer address —
+# otherwise any LAN host could forge the header to evade an IP ban or ban an
+# arbitrary third party. Public traffic does NOT pass through Caddy; cloudflared
+# proxies straight to copyparty so the Cloudflare edge's value survives intact.
+http://drive.lan {
+	reverse_proxy http://192.168.3.11:3923 {
+		header_up CF-Connecting-IP {remote_host}
+	}
+}
+
+http://family.lan {
+	reverse_proxy http://192.168.3.11:3924 {
+		header_up CF-Connecting-IP {remote_host}
+	}
+}
