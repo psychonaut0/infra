@@ -1,7 +1,7 @@
 # `infra tunnel` — Design
 
 **Status:** Spec — 2026-07-28
-**Goal:** Bring the Cloudflare Tunnel's ingress configuration under version control and into backup, so the fleet's public routing is diffable, reviewable and recoverable — without migrating away from the remotely-managed tunnel model Cloudflare recommends.
+**Goal:** Bring the Cloudflare Tunnel's ingress configuration under version control, so the fleet's public routing is diffable, reviewable and recoverable — without migrating away from the remotely-managed tunnel model Cloudflare recommends.
 
 ## Background
 
@@ -15,7 +15,7 @@ Three public hostnames route through it, all live:
 | `drive.<PERSONAL_DOMAIN>` | `http://192.168.3.11:3923` |
 | `family.<PERSONAL_DOMAIN>` | `http://192.168.3.11:3924` |
 
-Because the tunnel is remotely managed, those hostname→origin mappings exist **only in Cloudflare's Zero Trust dashboard**. They are absent from this repo and from the nightly restic backup. Adding a public endpoint produces no diff — which is how `drive` and `family` were added on 2026-07-28 with nothing to show for it in git. If that dashboard state were lost or altered, there is no local record to compare against or restore from.
+Because the tunnel is remotely managed, those hostname→origin mappings exist **only in Cloudflare's Zero Trust dashboard**. They are absent from this repo, and therefore from any durable record — the nightly restic backup covers the CTs and Proxmox nodes, not a workstation checkout, so git and GitHub are the relevant durable copy for a text config like this. Adding a public endpoint produces no diff — which is how `drive` and `family` were added on 2026-07-28 with nothing to show for it in git. If that dashboard state were lost or altered, there is no local record to compare against or restore from.
 
 ### Why not convert to a locally-managed tunnel
 
@@ -30,7 +30,7 @@ Converting would therefore require a **new tunnel UUID and repointing all three 
 - Cloudflare documents locally-managed tunnels as *"intended for specific scenarios such as local development, testing, or legacy configurations"*.
 - It would not even achieve drift-prevention: the dashboard's Configure action remains available for locally-managed tunnels, so out-of-band edits stay possible.
 
-Export achieves the stated goal — a version-controlled, backed-up, diffable record — with no new tunnel, no DNS changes, no secret on ct-tunnel, and no downtime risk.
+Export achieves the stated goal — a version-controlled, diffable, recoverable record — with no new tunnel, no DNS changes, no secret on ct-tunnel, and no downtime risk.
 
 ## Requirements
 
@@ -97,7 +97,7 @@ mode is not 0600, warn.
 This is the **first** `infra` subcommand to need an API token — every existing one
 works over SSH. Consequences handled as part of the work:
 
-- `.gitignore` gains `*.token` and `**/*.credentials.json` **before any code is
+- `.gitignore` gains `*.token` and `**/credentials.json` **before any code is
   written**. The repo currently has no rule that would catch either; it covers
   `**/.env`, `*.pem`, `id_ed25519`, `**/secrets/` and `*.local.md`.
 - Nothing tunnel-identifying is committed at all — no `tunnel.yml` in the repo.
@@ -168,7 +168,7 @@ Because rendering is deterministic, `diff` can compare bytes. Any difference is 
 
 **Modify:**
 - `cli/internal/cmd/root.go` — register `newTunnelCmd()`.
-- `.gitignore` — `*.token`, `**/*.credentials.json`.
+- `.gitignore` — `*.token`, `**/credentials.json`.
 - `CLAUDE.md` — `infra` task table row; note that tunnel ingress is now mirrored in the repo.
 - `CLAUDE.local.md` — where the API token lives.
 - `stacks/ct-tunnel/README.md` — new: what this is, how to regenerate, why the tunnel stays remotely managed.
@@ -190,7 +190,7 @@ Unit tests only; no live Cloudflare calls in the suite.
 1. Build and test locally (`cd cli && make install`), verify against the live tunnel read-only.
 2. Create the API token in the Cloudflare dashboard with scope `Account → Cloudflare Tunnel → Read`, store at `~/.config/infra/cloudflare.token` (0600).
 3. `infra tunnel ls` — confirm it reports the three known hostnames and `source: cloudflare`.
-4. `infra tunnel export` — inspect the rendered file, confirm it shows `<PERSONAL_DOMAIN>` and no real values, then commit `ingress.yml`. **This is the moment the goal is met:** public routing is now in git and therefore in restic.
+4. `infra tunnel export` — inspect the rendered file, confirm it shows `<PERSONAL_DOMAIN>` and no real values, then commit `ingress.yml`. **This is the moment the goal is met:** public routing is now in git history, and on GitHub once pushed.
 5. `infra tunnel diff` — expect exit 0.
 6. Tag and release, then `infra update -y` across the fleet per the existing CI/CD flow.
 
@@ -211,7 +211,7 @@ Unit tests only; no live Cloudflare calls in the suite.
 | No secret committed | `git check-ignore` the local-config path | Outside the repo tree entirely |
 | **No domain leak** | `git grep` the real domain across tracked files after `export` | **Zero occurrences**; `ingress.yml` shows `<PERSONAL_DOMAIN>` |
 | No ID leak | `git grep` the account and tunnel IDs | Zero occurrences |
-| Backup coverage | Confirm `ingress.yml` is in the repo | Covered by existing repo backup; ct-tunnel needs no new backup entry |
+| Durability | Confirm `ingress.yml` is committed and pushed | In git history and on GitHub. ct-tunnel needs no new ct-backup entry, because no secret or config file is added on that host. |
 
 ## Known limitations
 
