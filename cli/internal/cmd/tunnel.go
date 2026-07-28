@@ -42,7 +42,7 @@ func loadTunnel() (*tunnel.Client, *tunnel.Config, error) {
 	}
 	// LoadConfig is a pure loader and does not print; presentation is ours.
 	if w := tunnel.PermissionWarning(path); w != "" {
-		fmt.Fprintf(os.Stderr, "warning: %s\n", w)
+		fmt.Fprintln(os.Stderr, w)
 	}
 	return tunnel.NewClient(cfg), cfg, nil
 }
@@ -78,6 +78,13 @@ func newTunnelLsCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
+			// Print warnings before table so operator sees them before data they undermine
+			if live.Source != "cloudflare" {
+				fmt.Fprintf(os.Stderr,
+					"warning: source is %q, not \"cloudflare\" — this tunnel's management mode changed\n",
+					live.Source)
+			}
+			warnUnexpected(live, cfg.PublicDomain)
 			t := table.NewWriter()
 			t.SetOutputMirror(cmd.OutOrStdout())
 			t.AppendHeader(table.Row{"#", "HOSTNAME", "PATH", "SERVICE"})
@@ -91,12 +98,6 @@ func newTunnelLsCmd() *cobra.Command {
 			t.Render()
 			fmt.Fprintf(cmd.OutOrStdout(), "\nsource: %s   version: %d   rules: %d\n",
 				live.Source, live.Version, len(live.Ingress))
-			if live.Source != "cloudflare" {
-				fmt.Fprintf(os.Stderr,
-					"warning: source is %q, not \"cloudflare\" — this tunnel's management mode changed\n",
-					live.Source)
-			}
-			warnUnexpected(live, cfg.PublicDomain)
 			return nil
 		},
 	}
