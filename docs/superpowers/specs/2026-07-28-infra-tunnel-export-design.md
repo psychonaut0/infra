@@ -143,6 +143,10 @@ Consequence to accept: `ingress.yml` is no longer directly usable as a cloudflar
 config without substituting the domain back in. That trade is deliberate — the
 repo is public.
 
+**Failing closed is the actual guarantee.** Hostname substitution alone is not sufficient — it was proven to leak three ways (a repeated domain suffix that `TrimSuffix` half-stripped and `UnexpectedDomains` did not report; the domain carried in `service`/`path`/`originRequest`, which are never substituted; and case-sensitive matching). So after marshalling, `Render` checks case-insensitively whether the domain survives in the output bytes and returns an error rather than the bytes.
+
+Substituting inside `service`, `path` and `originRequest` is deliberately **not** attempted: those fields are absent from the current live config, and guessing at their structure risks corrupting a config that cannot be inspected first. A loud, actionable failure is preferred to either a silent leak or a wrong rewrite. If the guard ever fires, that is the signal to extend substitution deliberately.
+
 Rendering rules, all load-bearing for `diff` to be meaningful:
 
 - **Ingress order is preserved exactly.** Cloudflare evaluates rules first-match-wins, so order is semantic, not cosmetic. Never sort it.
