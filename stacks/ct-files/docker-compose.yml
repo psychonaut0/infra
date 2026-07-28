@@ -68,19 +68,6 @@ services:
       TZ: Europe/Rome
       PYTHONUNBUFFERED: "1"
 
-  filebrowser:
-    image: filebrowser/filebrowser:latest
-    container_name: filebrowser
-    restart: unless-stopped
-    ports:
-      - "8080:80"
-    volumes:
-      - /mnt/cloud:/srv
-      - filebrowser-db:/database
-    environment:
-      FB_DATABASE: /database/filebrowser.db
-      FB_ROOT: /srv
-
   portainer-agent:
     image: portainer/agent:latest
     container_name: portainer-agent
@@ -92,4 +79,7 @@ services:
       - /var/lib/docker/volumes:/var/lib/docker/volumes
 
 volumes:
+  # FileBrowser was replaced by copyparty on 2026-07-28. The volume is retained
+  # deliberately as the rollback path — it holds FileBrowser's user/settings db.
+  # Safe to delete once copyparty has proven itself over a grace period.
   filebrowser-db:
