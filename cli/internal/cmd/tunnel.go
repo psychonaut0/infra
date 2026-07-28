@@ -153,10 +153,11 @@ func newTunnelExportCmd() *cobra.Command {
 			prev, readErr := os.ReadFile(path)
 			unchanged := readErr == nil && string(prev) == string(out)
 
-			if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-				return fmt.Errorf("create %s: %w", filepath.Dir(path), err)
+			dir := filepath.Dir(path)
+			if err := os.MkdirAll(dir, 0o755); err != nil {
+				return fmt.Errorf("create %s: %w", dir, err)
 			}
-			if err := os.WriteFile(path, out, 0o644); err != nil {
+			if err := writeFileAtomic(path, out, 0o644); err != nil {
 				return fmt.Errorf("write %s: %w", path, err)
 			}
 			if unchanged {
@@ -167,6 +168,47 @@ func newTunnelExportCmd() *cobra.Command {
 			return nil
 		},
 	}
+}
+
+// writeFileAtomic writes data to a temporary file in the same directory as
+// path, then renames it into place, so that a failure partway through the
+// write (e.g. a full disk) never leaves path holding truncated or partial
+// content — the visible file is always either the previous complete content
+// or the new complete content, never a fragment. The temp file is created in
+// the same directory as path (not the OS default temp dir) so the rename is
+// same-filesystem and therefore atomic. On any failure before the rename, the
+// temp file is removed.
+func writeFileAtomic(path string, data []byte, mode os.FileMode) error {
+	dir := filepath.Dir(path)
+	tmp, err := os.CreateTemp(dir, filepath.Base(path)+".tmp-*")
+	if err != nil {
+		return err
+	}
+	tmpPath := tmp.Name()
+	// If we return before the rename succeeds, clean up the temp file rather
+	// than leaving it behind.
+	succeeded := false
+	defer func() {
+		if !succeeded {
+			os.Remove(tmpPath)
+		}
+	}()
+
+	if _, err := tmp.Write(data); err != nil {
+		tmp.Close()
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		return err
+	}
+	if err := os.Chmod(tmpPath, mode); err != nil {
+		return err
+	}
+	if err := os.Rename(tmpPath, path); err != nil {
+		return err
+	}
+	succeeded = true
+	return nil
 }
 
 func newTunnelDiffCmd() *cobra.Command {
