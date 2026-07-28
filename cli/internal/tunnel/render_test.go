@@ -166,3 +166,215 @@ func TestRender_UnexpectedDomainIsNotSubstituted(t *testing.T) {
 		t.Errorf("unexpected domain should pass through unchanged:\n%s", out)
 	}
 }
+
+// --- Security-hardening tests: byte guard, case-insensitivity, domain
+// normalisation, and nil-safety. See task-3-report.md "Fix pass" section for
+// the findings these close.
+
+func TestRender_RepeatedDomainSuffixTriggersByteGuard(t *testing.T) {
+	// C1: strings.TrimSuffix used to strip only the trailing occurrence, so
+	// "foo.example.test.example.test" rendered as
+	// "foo.example.test.<PERSONAL_DOMAIN>" — the domain survived in the
+	// retained prefix, and UnexpectedDomains reported nothing because the
+	// hostname *did* match the domain suffix. The byte guard must now refuse
+	// to return bytes at all.
+	cfg := sample()
+	cfg.Ingress = append(cfg.Ingress, Ingress{Hostname: "foo.example.test.example.test", Service: "http://x"})
+	out, err := Render(cfg, "example.test")
+	if err == nil {
+		t.Fatalf("expected an error, got bytes:\n%s", out)
+	}
+	if out != nil {
+		t.Errorf("expected no bytes on error, got:\n%s", out)
+	}
+	if !strings.Contains(err.Error(), "example.test") {
+		t.Errorf("error should name the domain, got: %v", err)
+	}
+}
+
+func TestRender_SubstitutionIsCaseInsensitive(t *testing.T) {
+	// C3: DNS is not case-sensitive, so matching must not be either.
+	cfg := &TunnelConfig{
+		Source: "cloudflare",
+		Ingress: []Ingress{
+			{Hostname: "Portfolio.EXAMPLE.test", Service: "http://x"},
+		},
+	}
+	out, err := Render(cfg, "example.test")
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	s := string(out)
+	if strings.Contains(strings.ToLower(s), "example.test") {
+		t.Errorf("real domain leaked into output:\n%s", s)
+	}
+	if !strings.Contains(s, "hostname: Portfolio."+DomainPlaceholder) {
+		t.Errorf("expected substituted hostname preserving prefix case, got:\n%s", s)
+	}
+}
+
+func TestRender_ConfiguredDomainUppercaseStillMatchesLowercaseHostname(t *testing.T) {
+	cfg := &TunnelConfig{
+		Source: "cloudflare",
+		Ingress: []Ingress{
+			{Hostname: "portfolio.example.test", Service: "http://x"},
+		},
+	}
+	out, err := Render(cfg, "EXAMPLE.test")
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	s := string(out)
+	if !strings.Contains(s, "hostname: portfolio."+DomainPlaceholder) {
+		t.Errorf("expected substitution despite uppercase configured domain, got:\n%s", s)
+	}
+}
+
+func TestRender_ApexHostnameEqualToDomain(t *testing.T) {
+	// Zero coverage previously: the exact-match branch (hostname == domain,
+	// no leading subdomain label to preserve).
+	cfg := &TunnelConfig{
+		Source: "cloudflare",
+		Ingress: []Ingress{
+			{Hostname: "example.test", Service: "http://x"},
+		},
+	}
+	out, err := Render(cfg, "example.test")
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	s := string(out)
+	if !strings.Contains(s, "hostname: "+DomainPlaceholder) {
+		t.Errorf("expected bare apex hostname substituted, got:\n%s", s)
+	}
+	if strings.Contains(s, "hostname: example.test") {
+		t.Errorf("real apex hostname leaked:\n%s", s)
+	}
+}
+
+func TestRender_WildcardHostname(t *testing.T) {
+	cfg := &TunnelConfig{
+		Source: "cloudflare",
+		Ingress: []Ingress{
+			{Hostname: "*.example.test", Service: "http://x"},
+		},
+	}
+	out, err := Render(cfg, "example.test")
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	s := string(out)
+	// yaml.v3 quotes a scalar starting with '*' (YAML alias syntax), so match
+	// loosely on the substituted value rather than the exact "hostname: " form.
+	if !strings.Contains(s, "*."+DomainPlaceholder) {
+		t.Errorf("expected wildcard hostname substituted, got:\n%s", s)
+	}
+	if strings.Contains(strings.ToLower(s), "example.test") {
+		t.Errorf("real domain leaked into output:\n%s", s)
+	}
+}
+
+func TestRender_DomainWithLeadingDotIsNormalised(t *testing.T) {
+	cfg := &TunnelConfig{
+		Source: "cloudflare",
+		Ingress: []Ingress{
+			{Hostname: "portfolio.example.test", Service: "http://x"},
+		},
+	}
+	out, err := Render(cfg, ".example.test")
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	s := string(out)
+	if !strings.Contains(s, "hostname: portfolio."+DomainPlaceholder) {
+		t.Errorf("leading-dot domain should behave like example.test, got:\n%s", s)
+	}
+}
+
+func TestRender_DomainWithSurroundingWhitespaceIsNormalised(t *testing.T) {
+	cfg := &TunnelConfig{
+		Source: "cloudflare",
+		Ingress: []Ingress{
+			{Hostname: "portfolio.example.test", Service: "http://x"},
+		},
+	}
+	out, err := Render(cfg, " example.test ")
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	s := string(out)
+	if !strings.Contains(s, "hostname: portfolio."+DomainPlaceholder) {
+		t.Errorf("whitespace-padded domain should behave like example.test, got:\n%s", s)
+	}
+}
+
+func TestRender_DomainOnlyInServiceTriggersByteGuard(t *testing.T) {
+	// C2: the domain can hide in Service even when Hostname is clean.
+	cfg := &TunnelConfig{
+		Source: "cloudflare",
+		Ingress: []Ingress{
+			{Hostname: "portfolio." + "example.test", Service: "http://origin.example.test:3000"},
+		},
+	}
+	out, err := Render(cfg, "example.test")
+	if err == nil {
+		t.Fatalf("expected an error, got bytes:\n%s", out)
+	}
+	if out != nil {
+		t.Errorf("expected no bytes on error, got:\n%s", out)
+	}
+}
+
+func TestRender_DomainOnlyInPathTriggersByteGuard(t *testing.T) {
+	cfg := &TunnelConfig{
+		Source: "cloudflare",
+		Ingress: []Ingress{
+			{Hostname: "portfolio.example.test", Path: "/example.test/api", Service: "http://x"},
+		},
+	}
+	out, err := Render(cfg, "example.test")
+	if err == nil {
+		t.Fatalf("expected an error, got bytes:\n%s", out)
+	}
+	if out != nil {
+		t.Errorf("expected no bytes on error, got:\n%s", out)
+	}
+}
+
+func TestRender_DomainOnlyInOriginRequestTriggersByteGuard(t *testing.T) {
+	cfg := &TunnelConfig{
+		Source: "cloudflare",
+		Ingress: []Ingress{
+			{
+				Hostname: "portfolio.example.test",
+				Service:  "http://x",
+				OriginRequest: map[string]any{
+					"httpHostHeader": "origin.example.test",
+				},
+			},
+		},
+	}
+	out, err := Render(cfg, "example.test")
+	if err == nil {
+		t.Fatalf("expected an error, got bytes:\n%s", out)
+	}
+	if out != nil {
+		t.Errorf("expected no bytes on error, got:\n%s", out)
+	}
+}
+
+func TestRender_NilConfigDoesNotPanic(t *testing.T) {
+	out, err := Render(nil, "example.test")
+	if err == nil {
+		t.Fatal("expected an error for a nil config")
+	}
+	if out != nil {
+		t.Errorf("expected no bytes, got:\n%s", out)
+	}
+}
+
+func TestUnexpectedDomains_NilConfigDoesNotPanic(t *testing.T) {
+	if got := UnexpectedDomains(nil, "example.test"); got != nil {
+		t.Errorf("got %v, want nil", got)
+	}
+}
