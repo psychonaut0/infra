@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"strings"
 	"testing"
+	"unicode/utf8"
 )
 
 func sample() *TunnelConfig {
@@ -376,5 +377,111 @@ func TestRender_NilConfigDoesNotPanic(t *testing.T) {
 func TestUnexpectedDomains_NilConfigDoesNotPanic(t *testing.T) {
 	if got := UnexpectedDomains(nil, "example.test"); got != nil {
 		t.Errorf("got %v, want nil", got)
+	}
+}
+
+// --- Hardening pass: header exclusion, field-naming errors, hostname dot
+// normalisation, and non-UTF-8 rejection. See task-3-report.md "Hardening
+// pass" section for the findings these close.
+
+func TestRender_DomainMatchingHeaderWordRendersSuccessfully(t *testing.T) {
+	// Fix 1: the header we author ourselves ("infra tunnel export",
+	// "DO NOT EDIT", "public", "CLAUDE.local.md") must never trip the byte
+	// guard just because it happens to share a word with a short configured
+	// domain. The guard must scan only the marshalled body.
+	cfg := &TunnelConfig{
+		Source: "cloudflare",
+		Ingress: []Ingress{
+			{Hostname: "portfolio.example.test", Service: "http://x"},
+		},
+	}
+	out, err := Render(cfg, "infra")
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	// "infra" is not this hostname's domain, so it's left untouched and
+	// reported separately by UnexpectedDomains — Render succeeding at all is
+	// the point of this test.
+	if !strings.Contains(string(out), "hostname: portfolio.example.test") {
+		t.Errorf("hostname on an unrelated domain should pass through unchanged:\n%s", out)
+	}
+}
+
+func TestRender_RepeatedDomainSuffixErrorNamesHostnameField(t *testing.T) {
+	// Fix 2: this is the case where the domain survives inside a *hostname*
+	// (substituteDomain only strips the trailing occurrence), so the error
+	// must say "hostname", not "service, path, and originRequest" — the one
+	// place the reviewer actually found it in.
+	cfg := sample()
+	cfg.Ingress = append(cfg.Ingress, Ingress{Hostname: "foo.example.test.example.test", Service: "http://x"})
+	_, err := Render(cfg, "example.test")
+	if err == nil {
+		t.Fatal("expected an error")
+	}
+	if !strings.Contains(err.Error(), "hostname") {
+		t.Errorf("error should name the hostname field, got: %v", err)
+	}
+	if !strings.Contains(err.Error(), "foo.example.test."+DomainPlaceholder) {
+		t.Errorf("error should show the offending (post-substitution) value, got: %v", err)
+	}
+}
+
+func TestRender_TrailingDotHostnameSubstitutesCorrectly(t *testing.T) {
+	// Fix 3: a trailing dot marks an absolute FQDN, a realistic Cloudflare
+	// value. It must match and substitute like the non-absolute form, not
+	// trip the guard.
+	cfg := &TunnelConfig{
+		Source: "cloudflare",
+		Ingress: []Ingress{
+			{Hostname: "portfolio.example.test.", Service: "http://x"},
+		},
+	}
+	out, err := Render(cfg, "example.test")
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	s := string(out)
+	if strings.Contains(strings.ToLower(s), "example.test") {
+		t.Errorf("real domain leaked into output:\n%s", s)
+	}
+	if !strings.Contains(s, "hostname: portfolio."+DomainPlaceholder) {
+		t.Errorf("expected trailing-dot hostname substituted, got:\n%s", s)
+	}
+}
+
+func TestRender_InvalidUTF8HostnameIsAnError(t *testing.T) {
+	// Fix 4a: yaml.v3 encodes a non-UTF-8 string as base64 "!!binary", which
+	// decodes back to the real value while a literal byte search sees
+	// nothing. Not reachable via json.Unmarshal today, but reachable the
+	// moment anything yaml-decodes into a TunnelConfig — must fail loudly
+	// rather than silently succeed.
+	cfg := &TunnelConfig{
+		Source: "cloudflare",
+		Ingress: []Ingress{
+			{Hostname: "portfolio.example.test\xff", Service: "http://x"},
+		},
+	}
+	out, err := Render(cfg, "example.test")
+	if err == nil {
+		t.Fatalf("expected an error for a non-UTF-8 hostname, got bytes:\n%s", out)
+	}
+	if out != nil {
+		t.Errorf("expected no bytes on error, got:\n%s", out)
+	}
+}
+
+func TestSubstituteDomain_KelvinSignDoesNotProduceInvalidUTF8(t *testing.T) {
+	// Fix 4b: substituteDomain used to slice by byte length, assuming
+	// lowercasing never changes it. U+212A (KELVIN SIGN) lowercases to
+	// 1-byte 'k' but is itself 3 bytes, so a hostname built from it broke
+	// that assumption and could produce invalid UTF-8, which in turn is
+	// invisible to the byte guard (see Fix 4a).
+	domain := normaliseDomain("k.test")
+	got := substituteDomain("K.test", domain)
+	if !utf8.ValidString(got) {
+		t.Errorf("substituteDomain produced invalid UTF-8: %q", got)
+	}
+	if got != DomainPlaceholder {
+		t.Errorf("got %q, want %q (fold-exact match on the apex domain)", got, DomainPlaceholder)
 	}
 }
