@@ -10,6 +10,9 @@
   - `mc.<PERSONAL_DOMAIN>:25565/tcp` → `192.168.3.14:25565` (mc-vanilla on ct-games)
 - **Public endpoints currently exposed via Cloudflare Tunnel (ct-tunnel):**
   - `portfolio.<PERSONAL_DOMAIN>` (HTTPS) → `192.168.3.16:3000` (portfolio on ct-portfolio)
+  - `drive.<PERSONAL_DOMAIN>` (HTTPS) → `192.168.3.11:3923` (copyparty psy on ct-files)
+  - `family.<PERSONAL_DOMAIN>` (HTTPS) → `192.168.3.11:3924` (copyparty family on ct-files)
+- **Tunnel ingress is NOT version-controlled.** ct-tunnel runs `cloudflared tunnel run` with a `TUNNEL_TOKEN`, i.e. a *remotely-managed* tunnel: hostname→origin rules live only in the Cloudflare Zero Trust dashboard, not in this repo and not in restic. Adding or changing a public endpoint is a dashboard action that produces no diff. Converting to a locally-managed tunnel (`config.yml` + `credentials.json`) would close that gap.
 
 ## Network & Devices
 
@@ -89,11 +92,11 @@
 - **User:** root
 - **OS:** Debian 13 (Trixie), privileged LXC
 - **SSH:** Port 22, key-based auth (no password)
-- **Resources:** 1 vCPU, 1024MB RAM, 512MB swap, 4GB disk
-- **Role:** File server. Runs Samba for SMB shares and FileBrowser for web-based file management.
+- **Resources:** 2 vCPU, 2048MB RAM, 512MB swap, 16GB disk
+- **Role:** File server. Runs Samba for SMB shares plus two copyparty instances providing a Drive-like web UI over the same trees.
 - **Stack:** `/opt/stacks/ct-files/docker-compose.yml` (local copy: `stacks/ct-files/`)
-- **Ports:** 139/445 (Samba SMB), 8080 (FileBrowser HTTP)
-- **Config notes:** Privileged CT for clean UID mapping on shared storage. Full mergerfs pool (`/mnt/cloud`) bind-mounted into CT. AppArmor unconfined for Docker compatibility. Samba config/data/users from `/mnt/cloud/volumes/samba/`.
+- **Ports:** 139/445 (Samba SMB), 3923 (copyparty psy), 3924 (copyparty family)
+- **Config notes:** Privileged CT for clean UID mapping on shared storage. Full mergerfs pool (`/mnt/cloud`) bind-mounted into CT. AppArmor unconfined for Docker compatibility. Samba config/data/users from `/mnt/cloud/volumes/samba/`. **copyparty (2026-07-28):** replaced FileBrowser, which exposed the *entire* pool. Two containers, one per uid — `copyparty-psy` (uid 1000, :3923, `drive.lan` / `drive.ncsp.dev`) and `copyparty-family` (uid 1001, :3924, `family.lan` / `family.ncsp.dev`). Each serves one Samba tree at its webroot with one account and no root volume, so neither can reach the other or the wider pool. Never run as root — the `uid` volflag would require it and this is a privileged CT. **The argon2 salt at `/opt/stacks/ct-files/copyparty/<name>/copyparty/ah-salt.txt` is load-bearing: changing a container's `user:` or losing that file silently invalidates every password hash.** Public path is cloudflared → copyparty *directly* (not via Caddy) so `CF-Connecting-IP` survives (verified: real public client IP reaches copyparty); Caddy serves only the `.lan` names and overwrites that header so a LAN client cannot forge it. Note that clients reaching ct-files **through the Tailscale subnet router** (`Main-Gateway`, which advertises both `192.168.1.0/24` and `192.168.3.0/24`) all arrive as `192.168.3.1` and therefore share one IP-ban bucket; same-subnet hosts log their real address. **WebDAV/PUT through the tunnel is capped at 100MB/file by Cloudflare's free plan** — the web UI's chunked up2k uploader is not. Regenerable index/thumbnail cache at `/var/lib/copyparty/` — deliberately outside `/opt/stacks` so ct-backup does not ship it. Web deletes are permanent and bypass Samba's recycle. Runbook: `stacks/ct-files/README.md`.
 
 ### ct-games (LXC — VMID 112 on proxmoxmain)
 - **IP:** 192.168.3.14
@@ -224,7 +227,7 @@ Portainer CE runs on ct-mgmt (https://portainer.lan or https://192.168.3.12:9443
 Gatus uptime monitoring runs on ct-mgmt (http://status.lan or http://192.168.3.12:8080) with 3-tier service checks and Telegram alerts via @blvckhomelab_bot.
 Frigate NVR runs on ct-nvr (https://nvr.lan or https://192.168.3.7:8971) with iGPU-accelerated video decoding.
 Jellyfin media server runs on ct-media (https://jellyfin.lan or http://192.168.3.8:8096) with iGPU hardware transcoding, alongside Sonarr, Radarr, Deluge, Prowlarr, and FlareSolverr.
-Samba + FileBrowser run on ct-files (https://files.lan or http://192.168.3.11:8080) for SMB file shares and web-based file management.
+Samba runs on ct-files for SMB shares (`psy`, `family`). copyparty provides the web drive over the *same* trees — http://drive.lan / https://drive.<PERSONAL_DOMAIN> (psy) and http://family.lan / https://family.<PERSONAL_DOMAIN> (family), each jailed to one tree. Access-only, no sync client; no native mobile app (responsive web UI + WebDAV). Web deletes are permanent and bypass Samba's recycle.
 Home Assistant Container runs on ct-ha (https://homeassistant.lan or http://192.168.3.10:8123) for home automation, alongside Mosquitto MQTT broker on the same host.
 ESPHome dashboard runs on ct-tools (http://esphome.lan or http://192.168.3.15:6052) for IoT device firmware builds and OTA updates.
 Proxmox VE runs on proxmoxmain (https://proxmox.lan or https://192.168.3.2:8006) and proxmoxnode (https://proxmox-node.lan or https://192.168.3.3:8006).

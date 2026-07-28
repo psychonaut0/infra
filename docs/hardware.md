@@ -35,7 +35,7 @@ Post-decomposition state (blvckserver VM retired 2026-04-12). All storage is now
 | 104 | ct-nvr | vm-104-disk-0 | 24GB | 37% |
 | 105 | ct-media | vm-105-disk-0 | 16GB | 37% |
 | 106 | ct-photos | vm-106-disk-0 | 16GB | 51% |
-| 107 | ct-files | vm-107-disk-0 | 4GB | 46% |
+| 107 | ct-files | vm-107-disk-0 | 16GB | 13% |
 | 108 | ct-mgmt | vm-108-disk-0 | 4GB | 91% |
 | 109 | ct-backup | vm-109-disk-0 | 8GB | 12% |
 | 110 | ct-tools | vm-110-disk-0 | 8GB | 35% |
@@ -83,7 +83,7 @@ The `/mnt/cloud` pool is exposed to Proxmox as a `dir` storage pool (`cloud`) an
 
 | CT | Bind from host | Mount in CT | Purpose |
 |----|---------------|-------------|---------|
-| ct-files | `/mnt/cloud` | `/mnt/cloud` | Samba + FileBrowser, full pool |
+| ct-files | `/mnt/cloud` | `/mnt/cloud` | Samba + copyparty (2 instances), full pool |
 | ct-media | `/mnt/cloud/volumes/mediaserver` | `/mnt/mediaserver` | Jellyfin libraries + *arr configs |
 | ct-photos | `/mnt/cloud/volumes/mediaserver/immich` | `/mnt/immich` | Immich data, ML cache, Postgres |
 
