@@ -34,3 +34,6 @@ scripts/immich-raw-pairs.csv
 
 # subagent-driven-development scratch (progress ledger)
 .superpowers/
+
+# Per-area private notes (sensitive operational detail kept out of the public repo)
+*.local.md
