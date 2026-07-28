@@ -144,6 +144,44 @@ comparison, a direct write into the psy tree from inside ct-files does
 **210 MB/s**, and ct-files sat at 95% idle throughout. Benchmark from a host with
 a real route before concluding anything about upload speed.
 
+## Share links
+
+**`shr` must be set or the feature does not exist.** `--shr` defaults to empty,
+which disables sharing entirely and leaves the UI with nothing to render — the
+button is simply absent, with no error anywhere. This was missed on first deploy.
+Confirm it is on by checking the capability the server sends to a *browser*
+(curl gets a plain-text view, not the web app):
+
+```bash
+curl -s -A "Mozilla/5.0" -H "PW: <password>" http://192.168.3.11:3923/ \
+  | grep -o '"have_shr":[^,]*'
+# expect: "have_shr": "/share/"
+```
+
+`shr-site` is set to the public URL per instance. Without it, a link created
+while browsing `drive.lan` embeds that hostname and is useless to anyone outside
+the LAN.
+
+Shares live in `/cfg/copyparty/shares.db`, inside the backed-up `/cfg`, so they
+survive restarts and restores.
+
+### Creating one in the UI
+
+1. Optionally select files. Selecting nothing shares **the folder you're in**.
+2. Click **📨 share** in the file-manager toolbar.
+3. Fill in the dialog: **name** (random if blank), **passwd** (optional),
+   **expiry** with units of min / hours / days, or *eternal*.
+4. **✅ create share** — then Enter/OK copies the link to your clipboard.
+
+Limitation, straight from the UI's own text: *"you cannot select more than one
+folder, or mix files and folders in one selection."* Share a parent folder
+instead.
+
+Note this is the feature with the worst security record in copyparty — two
+advisories (CVE-2025-58753, CVE-2026-32108) were single-file shares leaking
+access to sibling files or the source folder. Both are fixed in v1.20.19, but it
+is the reason `vc-url` is enabled.
+
 ## Gotchas
 
 - **No trash.** Web deletes are a real `unlink` and **bypass Samba's `recycle`
