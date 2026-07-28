@@ -167,12 +167,26 @@ The proxy chain spans three hosts: cloudflared (ct-tunnel, `.6`) → Caddy (ct-m
 - **This is load-bearing.** The default ban rules (`--ban-pw 9,60,1440`, `--ban-403 9,2,1440`, `--ban-422 9,2,1440`, `--ban-404`, `--loris 60`) all key on client IP. Misconfigured, every request looks like the proxy and the first exploit scan bans the proxy for 24 hours, locking out the entire internet.
 - **`ah-alg: argon2`.** The default is `none` — plaintext passwords in `copyparty.conf`. `py3-argon2-cffi` is baked into the `ac` image. The flow is two-step: run with `--ah-cli`, then paste the resulting hashes into the config.
 - **`/cfg` must be a persistent named volume** — it holds the argon2 salt and `sessions.db`.
-- `usernames: true` — the default is password-only login with no username, which would prevent the two accounts from being distinguished in logs.
-- `pw-urlp: A` — rejects `?pw=hunter2` in URLs, which would otherwise put credentials into access logs and `Referer` headers. Noted risk: this breaks some clients; if a WebDAV client misbehaves this is the first thing to test.
 - `vc-url: https://api.copyparty.eu/advisories` — the built-in advisory feed, default-disabled. With 45 releases in 12 months and same-day security fixes this is the cheapest way to meet the patch-promptly obligation.
 - **FTP stays off** (default). The advisory dated 2026-07-27 is an FTP volume-jail escape.
 - **`dk`/dirkeys stay off.** Enabling them adds child volumes to `virt_vis` *regardless of permissions* in `VFS._ls`, and that code path is where GHSA-x5pq-m9p8-f4vx (2026-07-06) lived.
 - **No 2FA in this phase.** Defence is argon2 + the IP ban system + correct real-IP. Cloudflare Access is explicitly **not** used — it breaks WebDAV and non-browser clients, which are the mobile story.
+
+#### Deliberately minimal, by decision
+
+The owner's instruction is to start simple on copyparty security and add Authelia later. The following are therefore left at their **defaults**, as an explicit choice rather than an oversight:
+
+| Left at default | Effect | Why it's acceptable now |
+|---|---|---|
+| `usernames` (off) | Login is password-only, no username field | Each container has exactly **one** account, so there is nothing to disambiguate. Simpler for the family member, and logs are unambiguous anyway. |
+| `pw-urlp` (accepts `?pw=`) | Credentials can appear in access logs and `Referer` headers | Avoids breaking WebDAV clients, which are the mobile story. Revisit if logs are ever shipped off-box. |
+| Ban rules | Stock `ban-pw`/`ban-403`/`ban-422`/`ban-404`/`loris` | The stock values are already strict (9 bad passwords/hour → 24 h ban) and need no tuning. |
+
+The three items that are **not** negotiable down to defaults, because omitting them is actively harmful rather than merely less-hardened — and each is a single line:
+
+1. **`ah-alg: argon2`** — the alternative is literal plaintext passwords in a config file on an internet-facing host.
+2. **`xff-hdr`/`xff-src`/`rproxy`** — this is *correctness*, not hardening. Wrong, and the stock ban rules ban the proxy and lock out the internet for 24 h.
+3. **`vc-url`** — the only early warning about new advisories during the window before Authelia exists.
 
 ### Resources
 
@@ -248,12 +262,27 @@ Accepted, documented so they are not rediscovered as surprises:
 5. **PDF has no built-in viewer.** Files are served with correct content types so the browser's native viewer handles them; to be confirmed during verification.
 6. **Two hostnames, two logins.** A consequence of the chosen ownership model.
 7. **Aesthetics.** The UI is functional and dense, not a polished Drive clone.
+8. **Web deletes are permanent and, on the `family` tree, currently unrecoverable.** Accepted by explicit decision — both accounts get `rwmd`, delete included.
+
+   copyparty has **no trash**. The maintainer declined the feature on purpose (discussion #1059), arguing a recycle bin creates false confidence where snapshots and backups are the real protection, and that deleted-but-retained files are a privacy problem. A copyparty delete is a real `unlink`, so it **bypasses Samba's `recycle` vfs** — SMB deletes land in `.deleted` and are recoverable, web deletes are not.
+
+   For the `psy` tree the fallback is the nightly restic backup to B2 (`mp1` → `/backup-sources/samba-psy`). **For the `family` tree there is no fallback at all:** ct-backup has no mount for `samba/data/family`, so those 281 GB / 91,212 files have no off-site copy, on a pool that `docs/hardware.md:106` already flags as "single-point-of-failure on two non-RAID HDDs". The 21 GB `.deleted` recycle bin is the only safety net, and web deletes skip it.
+
+   This exposure pre-dates copyparty — drive failure is the larger risk and is unaddressed either way. Granting web delete rights adds one more route to the same loss. Recorded as accepted; the fix is in *Follow-up work* and was deliberately kept out of this project's scope.
 
 ## Follow-up work
 
 Out of scope here, recorded so the decisions are not lost:
 
-- **Authelia in front of both containers** for real TOTP 2FA. copyparty supports header-trust IdP integration with official compose examples for Authelia and authentik. This is the intended hardening step and should be treated as a separate, well-scoped project.
+- **Add the `family` tree to ct-backup.** *Recommended, and the highest-value item on this list.* One read-only mount mirroring the existing `samba-psy` pattern:
+
+  ```
+  pct set 109 -mp10 /mnt/cloud/volumes/samba/data/family,mp=/backup-sources/samba-family,ro=1
+  ```
+
+  281 GB in Backblaze B2 is roughly **$1.50–2/month** at $6/TB. This closes the gap described in *Known limitations* item 8, and would make web deletes recoverable from restic as a side effect. Explicitly deferred to keep this project scoped — not because it isn't worth doing.
+- **Authelia in front of both containers** for real TOTP 2FA. copyparty supports header-trust IdP integration with official compose examples for Authelia and authentik. Planned by the owner as a later step; this spec deliberately ships without it (see *Deliberately minimal, by decision*).
+- **An `xbd` before-delete trash hook**, if a recycle bin is ever wanted without relying on backups. Confirmed viable: most hook types, `xbd` included, abort the action when the hook exits non-zero **provided the `c` flag is given**. A hook could copy into the existing `.deleted` tree — which this design already excludes from indexing — making web deletes behave like SMB deletes. Caveats: nobody has built one (the maintainer's suggestion in discussion #1059 remains unimplemented), the copy doubles I/O on delete, and getting the abort-vs-succeed semantics right so the UI does not report a spurious failure needs care. Strictly optional once backups exist.
 - **Retire the `filebrowser-db` volume** after the grace period.
-- **Revisit `pw-urlp: A`** if a WebDAV client misbehaves.
+- **Revisit `pw-urlp`** if credentials-in-logs ever matters — e.g. if access logs are shipped off-box.
 - OpenCloud remains the better *product* if the requirements ever change — specifically, if Samba write access to that data becomes expendable. Its blocking constraint is architectural (it must own its storage root and stamps xattrs onto every file), not a bug that will be fixed.
