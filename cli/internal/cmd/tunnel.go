@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -58,14 +59,18 @@ func fetch(c *tunnel.Client) (*tunnel.TunnelConfig, error) {
 	return c.FetchConfig(ctx)
 }
 
-// warnUnexpected prints a warning for hostnames outside the configured domain,
-// which Render passes through verbatim.
-func warnUnexpected(live *tunnel.TunnelConfig, domain string) {
-	if stray := tunnel.UnexpectedDomains(live, domain); len(stray) > 0 {
+// warnUnexpected prints a warning for hostnames outside the configured
+// domain, which Render passes through verbatim, and returns that same list so
+// a caller that needs to act on it (currently only export, which gates on it
+// — see newTunnelExportCmd) doesn't have to recompute it.
+func warnUnexpected(live *tunnel.TunnelConfig, domain string) []string {
+	stray := tunnel.UnexpectedDomains(live, domain)
+	if len(stray) > 0 {
 		fmt.Fprintf(os.Stderr,
 			"warning: %d hostname(s) are not on the configured public_domain and will be written verbatim: %v\n",
 			len(stray), stray)
 	}
+	return stray
 }
 
 func newTunnelLsCmd() *cobra.Command {
@@ -117,38 +122,82 @@ func newTunnelLsCmd() *cobra.Command {
 // contains no os.Exit by design.
 var ErrDrift = errors.New("drift detected between the repo and the live tunnel config")
 
-// renderLive fetches the live config and renders it to the bytes that belong in
-// the repo. Shared by export and diff so the two can never disagree.
-func renderLive() (rendered []byte, path string, err error) {
+// renderLive fetches the live config and renders it to the bytes that belong
+// in the repo. Shared by export and diff so the two can never disagree.
+//
+// It also returns the list of hostnames on a domain other than
+// cfg.PublicDomain (see tunnel.UnexpectedDomains, and warnUnexpected which
+// already prints the same warning both commands have always shown). Only
+// export gates on that list — see newTunnelExportCmd; ls and diff keep the
+// existing warn-only behaviour and may ignore the returned slice.
+//
+// renderLive also refuses to return rendered bytes that contain cfg.AccountID
+// or cfg.TunnelID. tunnel.Render only knows about the public domain — it has
+// no way to sanitise these — so a private-network route legitimately shaped
+// like "service: <tunnel-uuid>.cfargotunnel.com" would otherwise write the
+// tunnel ID straight into this public repo. Consistent with Render's own
+// domain guard, this fails closed rather than substituting a placeholder.
+func renderLive() (rendered []byte, path string, unexpected []string, err error) {
 	client, cfg, err := loadTunnel()
 	if err != nil {
-		return nil, "", err
+		return nil, "", nil, err
 	}
 	live, err := fetch(client)
 	if err != nil {
-		return nil, "", err
+		return nil, "", nil, err
 	}
-	warnUnexpected(live, cfg.PublicDomain)
+	unexpected = warnUnexpected(live, cfg.PublicDomain)
 	out, err := tunnel.Render(live, cfg.PublicDomain)
 	if err != nil {
-		return nil, "", err
+		return nil, "", nil, err
+	}
+	if id, value := leakedIdentifier(out, cfg); id != "" {
+		return nil, "", nil, fmt.Errorf(
+			"refusing to render: %s %q appears in the rendered config — this would leak an internal Cloudflare identifier into a public repo",
+			id, value)
 	}
 	root, err := repo.Locate()
 	if err != nil {
-		return nil, "", err
+		return nil, "", nil, err
 	}
-	return out, filepath.Join(root, ingressRelPath), nil
+	return out, filepath.Join(root, ingressRelPath), unexpected, nil
+}
+
+// leakedIdentifier reports whether rendered contains cfg's AccountID or
+// TunnelID verbatim, returning a human-readable name for whichever one was
+// found (and the value itself) or ("", "") if neither is present. These are
+// Cloudflare account-internal identifiers, not secrets the renderer's domain
+// guard has any reason to know about, but they are exactly as unsafe to
+// commit to a public repo.
+func leakedIdentifier(rendered []byte, cfg *tunnel.Config) (name, value string) {
+	if cfg.AccountID != "" && bytes.Contains(rendered, []byte(cfg.AccountID)) {
+		return "account ID", cfg.AccountID
+	}
+	if cfg.TunnelID != "" && bytes.Contains(rendered, []byte(cfg.TunnelID)) {
+		return "tunnel ID", cfg.TunnelID
+	}
+	return "", ""
 }
 
 func newTunnelExportCmd() *cobra.Command {
-	return &cobra.Command{
+	var allowUnexpectedDomains bool
+	c := &cobra.Command{
 		Use:   "export",
 		Short: "Write the live ingress config to stacks/ct-tunnel/ingress.yml",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			out, path, err := renderLive()
+			out, path, unexpected, err := renderLive()
 			if err != nil {
 				return err
+			}
+			// export is the only command that writes a tracked file, so it is
+			// the only one gated on unexpected domains — ls and diff keep the
+			// existing warn-only behaviour (warnUnexpected, called inside
+			// renderLive, already printed the same warning for all three).
+			if len(unexpected) > 0 && !allowUnexpectedDomains {
+				return fmt.Errorf(
+					"refusing to write %s: %d hostname(s) are not on the configured public_domain: %v — pass --allow-unexpected-domains to write anyway",
+					path, len(unexpected), unexpected)
 			}
 			prev, readErr := os.ReadFile(path)
 			unchanged := readErr == nil && string(prev) == string(out)
@@ -168,6 +217,9 @@ func newTunnelExportCmd() *cobra.Command {
 			return nil
 		},
 	}
+	c.Flags().BoolVar(&allowUnexpectedDomains, "allow-unexpected-domains", false,
+		"write ingress.yml even if it contains hostnames on a domain other than public_domain")
+	return c
 }
 
 // writeFileAtomic writes data to a temporary file in the same directory as
@@ -220,7 +272,9 @@ func newTunnelDiffCmd() *cobra.Command {
 			"from a failed check.",
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			out, path, err := renderLive()
+			// diff keeps the warn-only behaviour for unexpected domains — only
+			// export gates on that list — so it's ignored here.
+			out, path, _, err := renderLive()
 			if err != nil {
 				return err
 			}

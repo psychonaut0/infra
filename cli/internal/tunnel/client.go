@@ -82,6 +82,21 @@ type apiEnvelope struct {
 
 const scopeHint = "the token needs scope Account → Cloudflare Tunnel → Read"
 
+// joinAPIErrors formats env.Errors as "code: message" pairs joined by "; ",
+// or "" if there are none. forbiddenError and the success:false path in
+// FetchConfig both need the same joined string built from the same envelope
+// shape; this is the one place that builds it, so the two can't drift apart.
+func joinAPIErrors(env apiEnvelope) string {
+	if len(env.Errors) == 0 {
+		return ""
+	}
+	msgs := make([]string, 0, len(env.Errors))
+	for _, e := range env.Errors {
+		msgs = append(msgs, fmt.Sprintf("%d: %s", e.Code, e.Message))
+	}
+	return strings.Join(msgs, "; ")
+}
+
 // forbiddenError builds the error returned for a 403/401 response. A wrong
 // token scope is the likeliest cause, but not the only one — an expired
 // token, a wrong account ID, or an IP allow-list rule all surface the same
@@ -90,12 +105,10 @@ const scopeHint = "the token needs scope Account → Cloudflare Tunnel → Read"
 // operator isn't sent chasing the wrong fix. If the body didn't parse or
 // carries no error detail, this falls back to the hint-only message.
 func forbiddenError(status int, parseErr error, env apiEnvelope) error {
-	if parseErr == nil && len(env.Errors) > 0 {
-		msgs := make([]string, 0, len(env.Errors))
-		for _, e := range env.Errors {
-			msgs = append(msgs, fmt.Sprintf("%d: %s", e.Code, e.Message))
+	if parseErr == nil {
+		if joined := joinAPIErrors(env); joined != "" {
+			return fmt.Errorf("Cloudflare returned %d: %s — %s", status, joined, scopeHint)
 		}
-		return fmt.Errorf("Cloudflare returned %d: %s — %s", status, strings.Join(msgs, "; "), scopeHint)
 	}
 	return fmt.Errorf("Cloudflare returned %d — %s", status, scopeHint)
 }
@@ -132,14 +145,11 @@ func (c *Client) FetchConfig(ctx context.Context) (*TunnelConfig, error) {
 		return nil, fmt.Errorf("parse response (HTTP %d): %w", resp.StatusCode, parseErr)
 	}
 	if !env.Success {
-		msgs := make([]string, 0, len(env.Errors))
-		for _, e := range env.Errors {
-			msgs = append(msgs, fmt.Sprintf("%d: %s", e.Code, e.Message))
+		joined := joinAPIErrors(env)
+		if joined == "" {
+			joined = fmt.Sprintf("HTTP %d with no error detail", resp.StatusCode)
 		}
-		if len(msgs) == 0 {
-			msgs = append(msgs, fmt.Sprintf("HTTP %d with no error detail", resp.StatusCode))
-		}
-		return nil, fmt.Errorf("Cloudflare API error: %s", strings.Join(msgs, "; "))
+		return nil, fmt.Errorf("Cloudflare API error: %s", joined)
 	}
 
 	out := &TunnelConfig{
