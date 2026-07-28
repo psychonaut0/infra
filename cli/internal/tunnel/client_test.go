@@ -112,6 +112,29 @@ func TestFetchConfig_Forbidden(t *testing.T) {
 	if !strings.Contains(err.Error(), "Cloudflare Tunnel") || !strings.Contains(err.Error(), "Read") {
 		t.Errorf("403 message must name the required scope, got: %v", err)
 	}
+	// A 403 doesn't only mean a wrong-scope token — it can also mean an expired
+	// token, a wrong account ID, or an IP allow-list rule. Cloudflare's own
+	// error detail must survive alongside the scope hint so the operator isn't
+	// steered toward the wrong fix.
+	if !strings.Contains(err.Error(), "10000") || !strings.Contains(err.Error(), "Authentication error") {
+		t.Errorf("403 message must also surface Cloudflare's own error detail, got: %v", err)
+	}
+}
+
+func TestFetchConfig_ForbiddenWithoutParseableBody(t *testing.T) {
+	c, _ := testClient(t, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusForbidden)
+		_, _ = w.Write([]byte(`not json at all`))
+	}))
+	_, err := c.FetchConfig(context.Background())
+	if err == nil {
+		t.Fatal("expected an error on 403")
+	}
+	// No parseable error detail in the body: fall back to the hint-only
+	// message so this path is never worse than before.
+	if !strings.Contains(err.Error(), "Cloudflare Tunnel") || !strings.Contains(err.Error(), "Read") {
+		t.Errorf("403 message must still name the required scope, got: %v", err)
+	}
 }
 
 func TestFetchConfig_MalformedJSON(t *testing.T) {
