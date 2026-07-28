@@ -76,6 +76,18 @@
   # server down on a warning instead of just displaying it.
   vc-url: https://api.copyparty.eu/advisories
 
+  # --- share links ---
+  # REQUIRED to enable sharing at all: --shr defaults to empty, which disables
+  # the feature and hides the UI control entirely.
+  # shr-db defaults to /cfg/copyparty/shares.db, i.e. inside the backed-up /cfg,
+  # so shares survive restarts and restores.
+  # shr-who defaults to `auth` (any authenticated user) — one account per
+  # instance, so that is just the owner.
+  # shr-site is important: without it a link created while browsing the .lan
+  # hostname embeds that hostname and is useless to anyone outside the LAN.
+  shr: /share
+  shr-site: https://family.ncsp.dev/
+
   # --- ui ---
   grid
 
