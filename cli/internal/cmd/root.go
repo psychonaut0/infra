@@ -64,6 +64,7 @@ func Execute(info BuildInfo) error {
 	root.AddCommand(newDeployCmd())
 	root.AddCommand(newCtCmd())
 	root.AddCommand(newDnsCmd())
+	root.AddCommand(newTunnelCmd())
 	root.AddCommand(newUpdateCmd())
 	return root.Execute()
 }
