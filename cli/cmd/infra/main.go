@@ -2,6 +2,7 @@
 package main
 
 import (
+	"errors"
 	"os"
 
 	"github.com/psychonaut0/infra/cli/internal/cmd"
@@ -14,7 +15,14 @@ var (
 )
 
 func main() {
-	if err := cmd.Execute(cmd.BuildInfo{Version: Version, Commit: Commit}); err != nil {
-		os.Exit(1)
+	err := cmd.Execute(cmd.BuildInfo{Version: Version, Commit: Commit})
+	if err == nil {
+		return
 	}
+	// `infra tunnel diff` signals drift with a distinct exit code so a
+	// scheduled caller can tell "drifted" from "the check itself failed".
+	if errors.Is(err, cmd.ErrDrift) {
+		os.Exit(2)
+	}
+	os.Exit(1)
 }
