@@ -59,7 +59,7 @@ Responsibilities are separable: `config` knows nothing about HTTP, `client` know
 - Test: `cli/internal/tunnel/config_test.go`
 
 **Interfaces:**
-- Produces: `tunnel.Config` struct with fields `AccountID, TunnelID, PublicDomain, APIToken string`; `tunnel.DefaultConfigPath() (string, error)`; `tunnel.LoadConfig(path string) (*Config, error)`.
+- Produces: `tunnel.Config` struct with fields `AccountID, TunnelID, PublicDomain, APIToken string`; `tunnel.DefaultConfigPath() (string, error)`; `tunnel.LoadConfig(path string) (*Config, error)`; `tunnel.PermissionWarning(path string) string` (returns "" when the mode is fine — returned rather than printed so callers own presentation and it is testable).
 
 - [ ] **Step 1: Add the gitignore rules**
 
@@ -993,7 +993,7 @@ UnexpectedDomains rather than mangled, so a surprise domain surfaces."
 - Modify: `cli/internal/cmd/root.go`
 
 **Interfaces:**
-- Consumes: `tunnel.LoadConfig`, `tunnel.DefaultConfigPath`, `tunnel.NewClient`, `(*Client).FetchConfig`, `tunnel.UnexpectedDomains`.
+- Consumes: `tunnel.LoadConfig`, `tunnel.DefaultConfigPath`, `tunnel.PermissionWarning`, `tunnel.NewClient`, `(*Client).FetchConfig`, `tunnel.UnexpectedDomains`.
 - Produces: `newTunnelCmd() *cobra.Command`, registered on root.
 
 - [ ] **Step 1: Write the command**
@@ -1042,6 +1042,10 @@ func loadTunnel() (*tunnel.Client, *tunnel.Config, error) {
 	cfg, err := tunnel.LoadConfig(path)
 	if err != nil {
 		return nil, nil, err
+	}
+	// LoadConfig is a pure loader and does not print; presentation is ours.
+	if w := tunnel.PermissionWarning(path); w != "" {
+		fmt.Fprintf(os.Stderr, "warning: %s\n", w)
 	}
 	return tunnel.NewClient(cfg), cfg, nil
 }
