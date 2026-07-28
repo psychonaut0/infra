@@ -1,0 +1,109 @@
+# copyparty — family instance. Runs as uid 1001, serves the family Samba tree.
+# Deployed to /opt/stacks/ct-files/copyparty/family/copyparty.conf on ct-files.
+#
+# This directory is ALSO the container's /cfg, so it receives the argon2 salt
+# and sessions.db at runtime. Do NOT change the container's `user:` after
+# accounts exist — the salt is uid-sensitive and every hash silently breaks.
+# Runbook: stacks/ct-files/README.md
+
+[global]
+  # --- listen ---
+  p: 3923
+
+  # --- indexing ---
+  # e2dsa = filesystem scan + index; e2ts = media tags.
+  # Directory LISTINGS do not come from this index — they are a live
+  # os.scandir per request — so Samba writes appear instantly regardless.
+  # The index only backs search.
+  e2dsa
+  e2ts
+  # Index name/size/mtime only, never file contents. This tree is 281 GB /
+  # 91,212 files; content-hashing it through FUSE on one core would take
+  # many hours. Full search still works; only search-by-content-hash and
+  # dedup are lost, and neither is wanted here.
+  no-hash: .
+  # Never index Samba's recycle bin (21 GB here) or our own cache dir.
+  no-idx: (^|/)\.(deleted|hist)/
+  # Re-scan hourly to keep search fresh. copyparty has NO inotify anywhere,
+  # which is precisely why mergerfs's unreliable FUSE inotify is a non-issue.
+  re-maxage: 3600
+
+  # --- index + thumbnail cache locations ---
+  # dbpath MUST stay off the mergerfs pool: SQLite on FUSE corrupts
+  # (upstream issue #919). Both live on the CT rootfs via a bind mount, and
+  # deliberately outside /opt/stacks so ct-backup does not ship thumbnails.
+  dbpath: /var/copyparty/db
+  hist: /var/copyparty/hist
+
+  # --- thumbnails ---
+  # One thumbnail thread. ct-files has 2 vCPU and runs TWO copyparty
+  # containers, so the per-container default of CORES would put 4 threads on
+  # 2 cores with smbd competing.
+  th-mt: 1
+  th-maxage: 604800
+  th-clean: 43200
+  # Media-tag readers also default to CORES and spawn ffprobe. Two containers
+  # x 2 workers = 4 ffprobe processes on 2 cores, competing with smbd. Pin to
+  # 1, per the maintainer's guidance for constrained hosts (issue #1332).
+  # hash-mt is deliberately not set: `no-hash: .` above makes it moot.
+  mtag-mt: 1
+  # psd removed from both decoder lists: layered Photoshop files decode to
+  # well over 1 GB and would OOM-kill the container inside its 640m
+  # mem_limit. Lists copied verbatim from `--help` on copyparty v1.20.19,
+  # minus psd. RE-CHECK AFTER A MAJOR IMAGE UPGRADE — new extensions added
+  # upstream are silently omitted until these are refreshed.
+  th-r-pil: avif,avifs,blp,bmp,cbz,dcx,dds,dib,emf,eps,epub,fits,flc,fli,fpx,gif,heic,heics,heif,heifs,icns,ico,im,j2p,j2k,jp2,jpeg,jpg,jpx,jxl,pbm,pcx,pgm,png,pnm,ppm,qoi,sgi,spi,tga,tif,tiff,webp,wmf,xbm,xpm
+  th-r-ffi: apng,avif,avifs,bmp,cbz,dds,dib,epub,fit,fits,fts,gif,hdr,heic,heics,heif,heifs,icns,ico,jp2,jpeg,jpg,jpx,jxl,pbm,pcx,pfm,pgm,png,pnm,ppm,qoi,sgi,tga,tif,tiff,webp,xbm,xpm
+
+  # --- auth ---
+  # MANDATORY. The default is `none`, i.e. plaintext passwords in this file.
+  ah-alg: argon2
+
+  # --- reverse-proxy real IP ---
+  # LOAD-BEARING: every ban rule keys on client IP. Trusted upstreams are
+  # cloudflared (.6, public path) and Caddy (.12, LAN path) ONLY.
+  # Never `lan` — copyparty is directly reachable on the LAN, so a lan-wide
+  # trust would let any host forge this header to evade a ban or ban a third
+  # party. copyparty's own code warns about this (httpcli.py:499).
+  xff-hdr: cf-connecting-ip
+  xff-src: 192.168.3.6, 192.168.3.12
+  # Defaults to 9999999 (deliberately out of bounds) — must be set.
+  rproxy: 1
+
+  # --- advisory feed ---
+  # Default-disabled. This is the early-warning channel for new CVEs.
+  # Do NOT add `vc-exit` (present in upstream's sample config) — it shuts the
+  # server down on a warning instead of just displaying it.
+  vc-url: https://api.copyparty.eu/advisories
+
+  # --- ui ---
+  grid
+
+  # Deliberately NOT set, per the decision to start simple and add Authelia
+  # later (see spec "Deliberately minimal, by decision"):
+  #   usernames  — login is password-only; one account per instance, so there
+  #                is nothing to disambiguate.
+  #   pw-urlp    — ?pw= in URLs stays accepted; disabling it breaks some
+  #                WebDAV clients, which are the mobile story.
+  # Deliberately NOT enabled, ever: ftp, dk (dirkeys), dedup/hardlink/reflink,
+  # th-bwrap, vc-exit. Recent advisories hit ftp and dk specifically.
+
+[accounts]
+  # Generate with the runbook in stacks/ct-files/README.md. The hash is only
+  # valid against the salt in THIS directory, generated as THIS uid.
+  family: REPLACE_WITH_ARGON2_HASH
+
+[/]
+  /w
+  accs:
+    # Delete included, by explicit decision. copyparty has NO trash and a
+    # web delete is a real unlink that BYPASSES Samba's recycle vfs, so it
+    # is permanent. This tree also has no off-site backup — see spec
+    # "Known limitations" #8 and "Follow-up work".
+    rwmd: family
+  flags:
+    # Dirs match the tree exactly (770). Files use 660 rather than the
+    # tree's mixed 770/764: identical effective access, without marking
+    # 66k photos executable. No world bits on this tree.
+    chmod_f: 660
+    chmod_d: 770
