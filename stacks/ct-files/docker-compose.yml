@@ -18,6 +18,50 @@ services:
       -u "psy;${PSY_PASSWORD};1000;psy;1000"
       -u "family;${FAMILY_PASSWORD};1001;family;1001"
 
+  # Two instances, one per uid. Each runs AS the uid that owns its tree, so
+  # uploads land correctly by nature — no chown, and no root. copyparty's `uid`
+  # volflag would require running as root, and this is a privileged CT where
+  # container uid 0 is host uid 0.
+  #
+  # Do NOT change `user:` after accounts exist: the argon2 salt in each /cfg is
+  # uid-sensitive and every password hash silently breaks. See README.md.
+  copyparty-psy:
+    image: copyparty/ac:latest
+    container_name: copyparty-psy
+    restart: unless-stopped
+    user: "1000:1000"
+    mem_limit: 640m
+    security_opt:
+      - no-new-privileges:true
+    ports:
+      - "3923:3923"
+    volumes:
+      - /mnt/cloud/volumes/samba/data/psy:/w
+      # Doubles as /cfg: holds copyparty.conf, the argon2 salt and sessions.db.
+      - /opt/stacks/ct-files/copyparty/psy:/cfg
+      # Index + thumbnail cache. Outside /opt/stacks on purpose so ct-backup
+      # does not ship regenerable thumbnails to B2 nightly.
+      - /var/lib/copyparty/psy:/var/copyparty
+    environment:
+      TZ: Europe/Rome
+
+  copyparty-family:
+    image: copyparty/ac:latest
+    container_name: copyparty-family
+    restart: unless-stopped
+    user: "1001:1001"
+    mem_limit: 640m
+    security_opt:
+      - no-new-privileges:true
+    ports:
+      - "3924:3923"
+    volumes:
+      - /mnt/cloud/volumes/samba/data/family:/w
+      - /opt/stacks/ct-files/copyparty/family:/cfg
+      - /var/lib/copyparty/family:/var/copyparty
+    environment:
+      TZ: Europe/Rome
+
   filebrowser:
     image: filebrowser/filebrowser:latest
     container_name: filebrowser
