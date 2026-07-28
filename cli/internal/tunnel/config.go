@@ -36,7 +36,10 @@ func DefaultConfigPath() (string, error) {
 	return filepath.Join(home, ".config", "infra", "cloudflare.yml"), nil
 }
 
-const configHelp = `expected %s to contain:
+// configHelp returns the operator-facing hint shown when the local config is
+// missing or incomplete.
+func configHelp(path string) string {
+	return fmt.Sprintf(`expected %s to contain:
 
   account_id: <cloudflare account id>
   tunnel_id: <tunnel id>
@@ -44,14 +47,15 @@ const configHelp = `expected %s to contain:
   api_token: <token>        # or set CF_API_TOKEN instead
 
 Create the token at Cloudflare dashboard → My Profile → API Tokens with scope
-exactly: Account → Cloudflare Tunnel → Read. No other permission is needed.`
+exactly: Account → Cloudflare Tunnel → Read. No other permission is needed.`, path)
+}
 
 // LoadConfig reads and validates the operator-local config. CF_API_TOKEN, when
 // set, overrides api_token from the file.
 func LoadConfig(path string) (*Config, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
-		return nil, fmt.Errorf("read %s: %w\n\n"+configHelp, path, err, path)
+		return nil, fmt.Errorf("read %s: %w\n\n%s", path, err, configHelp(path))
 	}
 	var cfg Config
 	if err := yaml.Unmarshal(data, &cfg); err != nil {
@@ -81,12 +85,24 @@ func LoadConfig(path string) (*Config, error) {
 		missing = append(missing, "api_token (or CF_API_TOKEN)")
 	}
 	if len(missing) > 0 {
-		return nil, fmt.Errorf("%s is missing: %s\n\n"+configHelp,
-			path, strings.Join(missing, ", "), path)
+		return nil, fmt.Errorf("%s is missing: %s\n\n%s",
+			path, strings.Join(missing, ", "), configHelp(path))
 	}
 
-	if info, err := os.Stat(path); err == nil && info.Mode().Perm() != 0o600 {
-		fmt.Fprintf(os.Stderr, "warning: %s has mode %#o, want 0600\n", path, info.Mode().Perm())
-	}
 	return &cfg, nil
+}
+
+// PermissionWarning returns a human-readable warning if path's mode is more
+// permissive than 0600, or "" when it is fine or cannot be determined.
+// Returned rather than printed so that callers own presentation and this is
+// testable.
+func PermissionWarning(path string) string {
+	info, err := os.Stat(path)
+	if err != nil {
+		return ""
+	}
+	if mode := info.Mode().Perm(); mode != 0o600 {
+		return fmt.Sprintf("warning: %s has mode %#o, want 0600", path, mode)
+	}
+	return ""
 }
