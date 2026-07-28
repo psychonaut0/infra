@@ -33,7 +33,7 @@ declare -A CT_IPS=(
 # keys, ct-workout's JWT signing key in secrets/) inside their /opt/stacks
 # subdir — bind-mounted into the Docker containers — so the full tree is what
 # matters.
-FULL_STACK_CTS=(ct-ha ct-tools ct-games ct-workout)
+FULL_STACK_CTS=(ct-ha ct-tools ct-games ct-workout ct-files)
 PROXMOXMAIN_IP=192.168.3.2
 PROXMOXNODE_IP=192.168.3.3
 
@@ -64,6 +64,13 @@ done
 # ct-ha and ct-tools bind-mount their service state (HA config, Mosquitto,
 # ESPHome per-device keys) directly from /opt/stacks subdirs into containers,
 # so a full rsync is the only way to capture it.
+#
+# ct-files is here for copyparty: its two copyparty.conf files are gitignored
+# (they hold argon2 password hashes), and each instance's /cfg holds an
+# ah-salt.txt that the hashes are computed against. Restore without that salt
+# and every password silently stops working. The regenerable index/thumbnail
+# cache deliberately lives at /var/lib/copyparty, outside /opt/stacks, so it is
+# NOT swept up here.
 #
 # Excludes skip regenerable MC-server derivatives (BlueMap tile cache,
 # server logs, crash reports, downloaded libraries/versions). Only MC
