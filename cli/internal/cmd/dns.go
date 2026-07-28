@@ -39,15 +39,15 @@ func newDnsCmd() *cobra.Command {
 // dnsCtx loads everything `infra dns` commands need: repo paths, parsed
 // repo state, ssh targets, and an ssh runner.
 type dnsCtx struct {
-	root          string
-	caddyfile     []byte
-	caddyBlocks   []dns.Block
-	extras        []dns.ExtraEntry
-	desired       []dns.Record
-	ctMgmtTarget  string
-	ctMgmtIP      string
-	ctDnsTarget   string
-	runner        *ssh.Runner
+	root         string
+	caddyfile    []byte
+	caddyBlocks  []dns.Block
+	extras       []dns.ExtraEntry
+	desired      []dns.Record
+	ctMgmtTarget string
+	ctMgmtIP     string
+	ctDnsTarget  string
+	runner       *ssh.Runner
 }
 
 func loadDnsCtx() (*dnsCtx, error) {
