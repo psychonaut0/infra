@@ -126,13 +126,29 @@ endpoints:
     alerts:
       - type: telegram
 
-  - name: FileBrowser
+  # copyparty returns 200 with "howdy stranger (you're not logged in)" for an
+  # unauthenticated request — not 401. So [STATUS] alone proves nothing: it
+  # would still pass if the ACL broke and the webroot became publicly listable.
+  # The body match is what asserts auth is actually being enforced.
+  - name: Drive (psy)
     group: important
-    url: "http://192.168.3.11:8080"
+    url: "http://192.168.3.11:3923"
     interval: 60s
     conditions:
       - "[CONNECTED] == true"
-      - "[STATUS] < 400"
+      - "[STATUS] == 200"
+      - "[BODY] == pat(*not logged in*)"
+    alerts:
+      - type: telegram
+
+  - name: Drive (family)
+    group: important
+    url: "http://192.168.3.11:3924"
+    interval: 60s
+    conditions:
+      - "[CONNECTED] == true"
+      - "[STATUS] == 200"
+      - "[BODY] == pat(*not logged in*)"
     alerts:
       - type: telegram
 

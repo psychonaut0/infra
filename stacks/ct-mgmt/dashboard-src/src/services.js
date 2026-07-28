@@ -23,7 +23,8 @@ export const sections = [
     services: [
       { name: 'Pi-hole', desc: 'DNS & ad blocking', href: 'http://dns.lan', ping: 'http://192.168.3.5', icon: `${I}/pi-hole.svg` },
       { name: 'Proxmox Node', desc: 'Secondary node', href: 'https://proxmox-node.lan', ping: 'https://192.168.3.3:8006', icon: `${I}/proxmox.svg` },
-      { name: 'FileBrowser', desc: 'File management', href: 'http://files.lan', ping: 'http://192.168.3.11:8080', icon: `${I}/filebrowser.svg` },
+      { name: 'Drive', desc: 'Personal files', href: 'http://drive.lan', ping: 'http://192.168.3.11:3923', icon: `${I}/drive.svg` },
+      { name: 'Drive (family)', desc: 'Family files', href: 'http://family.lan', ping: 'http://192.168.3.11:3924', icon: `${I}/drive.svg` },
       { name: 'Gatus', desc: 'Uptime monitoring', href: 'http://status.lan', ping: 'http://192.168.3.12:8080', icon: `${I}/gatus.svg` },
       { name: 'ESPHome', desc: 'IoT firmware', href: 'http://esphome.lan', ping: 'http://192.168.3.15:6052', icon: `${I}/esphome.svg` },
       { name: 'Backup', desc: 'Restic status', href: 'http://backup.lan', ping: 'http://192.168.3.13', icon: `${I}/backup.svg` },
