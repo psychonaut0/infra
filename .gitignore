@@ -37,3 +37,7 @@ scripts/immich-raw-pairs.csv
 
 # Per-area private notes (sensitive operational detail kept out of the public repo)
 *.local.md
+
+# API tokens and tunnel credentials (never committed — this repo is public)
+*.token
+**/credentials.json
