@@ -159,10 +159,22 @@ Nothing is written into the data trees except files the user uploads. No xattrs 
 
 ### Exposure, auth and real-IP
 
-The proxy chain spans three hosts: cloudflared (ct-tunnel, `.6`) → Caddy (ct-mgmt, `.12`) → copyparty (ct-files, `.11`).
+**Two independent paths, deliberately not chained.** Public traffic bypasses Caddy entirely — matching the existing `portfolio.ncsp.dev` precedent, where cloudflared proxies straight to the app:
+
+```
+public: client → CF edge → cloudflared (.6) ────────────→ copyparty (.11)
+LAN:    client ─────────→ Caddy (.12) ──────────────────→ copyparty (.11)
+direct: LAN client ─────────────────────────────────────→ copyparty (.11:3923)
+```
+
+This matters. A chained `cloudflared → Caddy → copyparty` design is *broken* for real-IP: Caddy would have to either preserve `CF-Connecting-IP` (making it forgeable by any LAN host that can reach the public vhost with a spoofed `Host` header) or overwrite it with `{remote_host}` (destroying the real client IP, replacing it with cloudflared's `.6`). Splitting the paths gives each trusted upstream exactly one well-defined behaviour:
 
 - `xff-hdr: cf-connecting-ip`, `xff-src: 192.168.3.6, 192.168.3.12`. **Never `lan`** — copyparty stays directly reachable on the LAN at its port, so a `lan`-wide trust would let any LAN host forge `cf-connecting-ip` to evade a ban or ban an arbitrary third party. copyparty's own code warns about exactly this (httpcli.py:499-500, `docs/xff.md`).
-- Each Caddy vhost sets `header_up CF-Connecting-IP {remote_host}`, overwriting any client-supplied value so trusting `.12` cannot be abused.
+- **From `.6` (cloudflared):** `CF-Connecting-IP` is set by the Cloudflare edge and cannot be forged by the client. Preserved as-is → real public client IP.
+- **From `.12` (Caddy, LAN vhosts only):** Caddy **overwrites** with `header_up CF-Connecting-IP {remote_host}`, so a LAN client's forged header is discarded and the real LAN IP is used.
+- **Direct to `:3923`:** the peer is neither trusted IP, so copyparty ignores the header and uses the socket peer. Safe by default.
+
+Caddy therefore only ever serves the `.lan` hostnames; the public hostnames exist solely as tunnel ingress rules. When Authelia lands it will likely restructure this — noted in *Follow-up work*.
 - `--rproxy` defaults to `9999999`, deliberately out of bounds, so real-IP detection fails behind *any* proxy until configured. The startup log prints the recommended flags for the detected topology (httpcli.py:463-472) and must be read during deployment.
 - **This is load-bearing.** The default ban rules (`--ban-pw 9,60,1440`, `--ban-403 9,2,1440`, `--ban-422 9,2,1440`, `--ban-404`, `--loris 60`) all key on client IP. Misconfigured, every request looks like the proxy and the first exploit scan bans the proxy for 24 hours, locking out the entire internet.
 - **`ah-alg: argon2`.** The default is `none` — plaintext passwords in `copyparty.conf`. `py3-argon2-cffi` is baked into the `ac` image. The flow is two-step: run with `--ah-cli`, then paste the resulting hashes into the config.
