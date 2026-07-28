@@ -188,9 +188,12 @@ is the reason `vc-url` is enabled.
   vfs**. SMB deletes land in `.deleted` and are recoverable; web deletes are not.
   The maintainer declined a recycle bin on purpose (discussion #1059), arguing it
   creates false confidence where snapshots and backups are the real protection.
-  **The `family` tree currently has no off-site backup at all** — ct-backup has
-  no mount for `samba/data/family`. Both accounts have delete rights by explicit
-  decision; see the spec's *Known limitations* #8 and *Follow-up work*.
+  **The `family` tree has no off-site backup, by explicit decision** (owner,
+  2026-07-28 — declined twice with the cost and consequence stated). ct-backup has
+  no mount for `samba/data/family`, the pool is two non-RAID HDDs, and the web UI
+  can delete. A mis-click there is **unrecoverable**. Both accounts have delete
+  rights, also by decision. This is accepted risk — do not re-propose the backup;
+  see the spec's *Known limitations* #8 and *Follow-up work*.
 - **`PYTHONUNBUFFERED=1` is load-bearing for diagnostics.** copyparty logs to
   stdout and Python block-buffers it when stdout is a pipe; without this,
   `docker logs` sat at 0 bytes for minutes and then flushed 105 KB at once. That
