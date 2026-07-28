@@ -1532,6 +1532,7 @@ cd /home/psy/Documents/personal/infra
 D=$(python3 -c "import yaml;print(yaml.safe_load(open('$HOME/.config/infra/cloudflare.yml'))['public_domain'])")
 grep -c "$D" stacks/ct-tunnel/ingress.yml
 A=$(python3 -c "import yaml;print(yaml.safe_load(open('$HOME/.config/infra/cloudflare.yml'))['account_id'])")
+T=$(python3 -c "import yaml;print(yaml.safe_load(open('$HOME/.config/infra/cloudflare.yml'))['tunnel_id'])")
 grep -c "$A\|$T" stacks/ct-tunnel/ingress.yml
 sha256sum stacks/ct-tunnel/ingress.yml
 infra tunnel export
