@@ -118,7 +118,7 @@ What was actually measured (2026-07-28):
 | proxmoxmain `192.168.3.2` (same subnet) | `192.168.3.2` — real address |
 | ct-mgmt `192.168.3.12` (same subnet) | `192.168.3.12` — real address |
 | A workstation on `192.168.1.0/24` reaching ct-files **via the Tailscale subnet router** | `192.168.3.1` — the router, not the client |
-| Public, through cloudflared | the true public client IP (verified `93.38.52.48`) |
+| Public, through cloudflared | the true public client IP (verified against the real WAN address) |
 
 The third row matters: `BLVCKSmall` (192.168.1.178, WiFi) has **no direct route**
 to `192.168.3.0/24` — binding to its LAN address fails outright. Its only path is
