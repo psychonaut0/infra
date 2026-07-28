@@ -2,12 +2,14 @@ package cmd
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	"time"
 
 	"github.com/jedib0t/go-pretty/v6/table"
+	"github.com/psychonaut0/infra/cli/internal/repo"
 	"github.com/psychonaut0/infra/cli/internal/tunnel"
 	"github.com/spf13/cobra"
 )
@@ -27,6 +29,8 @@ func newTunnelCmd() *cobra.Command {
 			"scoped to Account → Cloudflare Tunnel → Read.",
 	}
 	c.AddCommand(newTunnelLsCmd())
+	c.AddCommand(newTunnelExportCmd())
+	c.AddCommand(newTunnelDiffCmd())
 	return c
 }
 
@@ -99,6 +103,97 @@ func newTunnelLsCmd() *cobra.Command {
 			fmt.Fprintf(cmd.OutOrStdout(), "\nsource: %s   version: %d   rules: %d\n",
 				live.Source, live.Version, len(live.Ingress))
 			return nil
+		},
+	}
+}
+
+// ErrDrift is returned by `infra tunnel diff` when the repo file and the live
+// config differ. main() maps it to exit code 2, which is distinct from 1
+// (error) so a scheduled caller can tell drift from a failed check — treating
+// an API outage as drift would cry wolf.
+//
+// Returned as a sentinel rather than calling os.Exit here, so that cobra's
+// PersistentPostRun still runs and the command stays testable. internal/cmd
+// contains no os.Exit by design.
+var ErrDrift = errors.New("drift detected between the repo and the live tunnel config")
+
+// renderLive fetches the live config and renders it to the bytes that belong in
+// the repo. Shared by export and diff so the two can never disagree.
+func renderLive() (rendered []byte, path string, err error) {
+	client, cfg, err := loadTunnel()
+	if err != nil {
+		return nil, "", err
+	}
+	live, err := fetch(client)
+	if err != nil {
+		return nil, "", err
+	}
+	warnUnexpected(live, cfg.PublicDomain)
+	out, err := tunnel.Render(live, cfg.PublicDomain)
+	if err != nil {
+		return nil, "", err
+	}
+	root, err := repo.Locate()
+	if err != nil {
+		return nil, "", err
+	}
+	return out, filepath.Join(root, ingressRelPath), nil
+}
+
+func newTunnelExportCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "export",
+		Short: "Write the live ingress config to stacks/ct-tunnel/ingress.yml",
+		Args:  cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			out, path, err := renderLive()
+			if err != nil {
+				return err
+			}
+			prev, readErr := os.ReadFile(path)
+			unchanged := readErr == nil && string(prev) == string(out)
+
+			if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+				return fmt.Errorf("create %s: %w", filepath.Dir(path), err)
+			}
+			if err := os.WriteFile(path, out, 0o644); err != nil {
+				return fmt.Errorf("write %s: %w", path, err)
+			}
+			if unchanged {
+				fmt.Fprintf(cmd.OutOrStdout(), "%s (no change)\n", path)
+			} else {
+				fmt.Fprintf(cmd.OutOrStdout(), "%s (updated — review and commit)\n", path)
+			}
+			return nil
+		},
+	}
+}
+
+func newTunnelDiffCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "diff",
+		Short: "Report drift between the committed ingress.yml and live config",
+		Long: "diff exits 0 when the repo matches live, 2 when they differ, and 1 on\n" +
+			"error. The distinct drift code lets a scheduled caller tell real drift\n" +
+			"from a failed check.",
+		Args: cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			out, path, err := renderLive()
+			if err != nil {
+				return err
+			}
+			repoBytes, err := os.ReadFile(path)
+			if err != nil && !errors.Is(err, os.ErrNotExist) {
+				return fmt.Errorf("read %s: %w", path, err)
+			}
+			d := tunnel.UnifiedDiff(repoBytes, out, path+" (repo)", "live")
+			if d == "" {
+				fmt.Fprintf(cmd.OutOrStdout(), "in sync: %s matches live\n", path)
+				return nil
+			}
+			fmt.Fprint(cmd.OutOrStdout(), d)
+			fmt.Fprintf(cmd.OutOrStdout(), "\nrun `infra tunnel export` to update the repo\n")
+			return ErrDrift
 		},
 	}
 }
