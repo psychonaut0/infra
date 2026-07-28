@@ -70,10 +70,6 @@ http://esphome.lan {
 	reverse_proxy 192.168.3.15:6052
 }
 
-http://files.lan {
-	reverse_proxy 192.168.3.11:8080
-}
-
 http://home.lan {
 	reverse_proxy dashboard:3000
 }
