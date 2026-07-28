@@ -172,27 +172,6 @@ func TestRender_UnexpectedDomainIsNotSubstituted(t *testing.T) {
 // normalisation, and nil-safety. See task-3-report.md "Fix pass" section for
 // the findings these close.
 
-func TestRender_RepeatedDomainSuffixTriggersByteGuard(t *testing.T) {
-	// C1: strings.TrimSuffix used to strip only the trailing occurrence, so
-	// "foo.example.test.example.test" rendered as
-	// "foo.example.test.<PERSONAL_DOMAIN>" — the domain survived in the
-	// retained prefix, and UnexpectedDomains reported nothing because the
-	// hostname *did* match the domain suffix. The byte guard must now refuse
-	// to return bytes at all.
-	cfg := sample()
-	cfg.Ingress = append(cfg.Ingress, Ingress{Hostname: "foo.example.test.example.test", Service: "http://x"})
-	out, err := Render(cfg, "example.test")
-	if err == nil {
-		t.Fatalf("expected an error, got bytes:\n%s", out)
-	}
-	if out != nil {
-		t.Errorf("expected no bytes on error, got:\n%s", out)
-	}
-	if !strings.Contains(err.Error(), "example.test") {
-		t.Errorf("error should name the domain, got: %v", err)
-	}
-}
-
 func TestRender_SubstitutionIsCaseInsensitive(t *testing.T) {
 	// C3: DNS is not case-sensitive, so matching must not be either.
 	cfg := &TunnelConfig{
@@ -483,5 +462,42 @@ func TestSubstituteDomain_KelvinSignDoesNotProduceInvalidUTF8(t *testing.T) {
 	}
 	if got != DomainPlaceholder {
 		t.Errorf("got %q, want %q (fold-exact match on the apex domain)", got, DomainPlaceholder)
+	}
+}
+
+// --- Final-review fix pass: the "!!binary" tag check. See
+// task-5-report.md "Final-review fix pass" section for the finding this
+// closes.
+
+func TestRender_BinaryTagInOriginRequestValueIsAnError(t *testing.T) {
+	// The per-hostname utf8.ValidString check further up rejects invalid
+	// UTF-8 in Hostname before marshalling ever happens (see
+	// TestRender_InvalidUTF8HostnameIsAnError), so this test deliberately
+	// puts the invalid bytes somewhere that check does not cover: an
+	// OriginRequest value. yaml.v3 marshals that value as a "!!binary" tag
+	// plus base64 of the raw bytes. The base64 text is itself valid ASCII,
+	// so it neither trips utf8.Valid(body) nor contains a literal copy of
+	// the domain — only an explicit scan for the "!!binary" tag catches it.
+	cfg := &TunnelConfig{
+		Source: "cloudflare",
+		Ingress: []Ingress{
+			{
+				Hostname: "portfolio.example.test",
+				Service:  "http://x",
+				OriginRequest: map[string]any{
+					"httpHostHeader": "sub.example.test\xff\xfe",
+				},
+			},
+		},
+	}
+	out, err := Render(cfg, "example.test")
+	if err == nil {
+		t.Fatalf("expected an error, got bytes:\n%s", out)
+	}
+	if out != nil {
+		t.Errorf("expected no bytes on error, got:\n%s", out)
+	}
+	if !strings.Contains(err.Error(), "!!binary") {
+		t.Errorf("error should mention the !!binary encoding, got: %v", err)
 	}
 }

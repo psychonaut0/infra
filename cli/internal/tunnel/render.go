@@ -79,11 +79,23 @@ func onDomain(hostname, normalisedDomain string) bool {
 // carries it rather than a generic list, so the operator isn't sent hunting
 // in the wrong place.
 //
-// Every hostname, and the marshalled body as a whole, must also be valid
-// UTF-8: yaml.v3 encodes a non-UTF-8 string as base64 "!!binary", which
-// decodes back to the real value while the byte guard above — a literal
-// byte search — sees nothing. Both checks fail closed rather than let that
-// through.
+// That literal byte search only works when yaml.v3 emits the domain as a
+// plain scalar. If any field's value is not valid UTF-8, yaml.v3 instead
+// emits a "!!binary" tag followed by base64 of the raw bytes — e.g.
+// `hdr: !!binary c3ViLmV4YW1wbGUudGVzdP/+` — and that base64 text is itself
+// ordinary ASCII, so it contains no literal copy of the domain and passes
+// utf8.Valid, while yaml.Unmarshal decodes it straight back to the real
+// value on the next read. utf8.Valid(body) below does NOT catch this: the
+// bytes it inspects are the base64 text, which is valid UTF-8 by
+// construction, so that check can only ever fire on marshalled output that
+// is invalid UTF-8 outright — not reachable today, since the per-hostname
+// check further below already rejects an invalid-UTF-8 Hostname before
+// marshalling ever happens, but kept as a backstop for any other field or a
+// future producer of TunnelConfig. Closing the "!!binary" smuggling path
+// itself requires a separate, explicit scan for that literal tag: its
+// presence means some value could not be represented as text, so Render has
+// no safe way to inspect what it hides and refuses to publish rather than
+// guess.
 func Render(cfg *TunnelConfig, publicDomain string) ([]byte, error) {
 	domain := normaliseDomain(publicDomain)
 	if domain == "" {
@@ -125,6 +137,18 @@ func Render(cfg *TunnelConfig, publicDomain string) ([]byte, error) {
 	if !utf8.Valid(body) {
 		return nil, errors.New(
 			"refusing to write output: rendered YAML is not valid UTF-8 — a field may contain bytes that yaml.v3 encoded as base64, which the domain byte guard cannot see through")
+	}
+
+	// Fail closed if yaml.v3 fell back to a non-literal ("!!binary") encoding
+	// for any value. This is the check the comment above explains utf8.Valid
+	// cannot do: the base64 payload a "!!binary" tag introduces is valid
+	// UTF-8 by construction, so it neither trips the check above nor contains
+	// a literal copy of the domain, yet it decodes straight back to the real
+	// bytes on the next yaml.Unmarshal. Render cannot know whether the value
+	// hidden behind the tag is safe, so it refuses to publish it at all.
+	if bytes.Contains(body, []byte("!!binary")) {
+		return nil, errors.New(
+			"refusing to write output: a value could not be represented as text and was encoded as YAML binary (!!binary) — it cannot be safely checked for a leaked domain, so it cannot be published")
 	}
 
 	// Fail closed: if the real domain is still in the rendered body anywhere
