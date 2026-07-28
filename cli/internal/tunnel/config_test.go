@@ -3,6 +3,7 @@ package tunnel
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -89,11 +90,42 @@ func TestDefaultConfigPath(t *testing.T) {
 	if err != nil {
 		t.Fatalf("DefaultConfigPath: %v", err)
 	}
-	want := filepath.Join(".config", "infra", "cloudflare.yml")
 	if !filepath.IsAbs(p) {
 		t.Errorf("path not absolute: %q", p)
 	}
-	if filepath.Join(filepath.Base(filepath.Dir(filepath.Dir(p))), filepath.Base(filepath.Dir(p)), filepath.Base(p)) != want {
+	want := filepath.Join(".config", "infra", "cloudflare.yml")
+	if !strings.HasSuffix(p, want) {
 		t.Errorf("path = %q, want it to end in %q", p, want)
+	}
+}
+
+func TestPermissionWarning_OKMode(t *testing.T) {
+	p := writeCfg(t, fullCfg)
+	if err := os.Chmod(p, 0o600); err != nil {
+		t.Fatalf("chmod: %v", err)
+	}
+	if got := PermissionWarning(p); got != "" {
+		t.Errorf("PermissionWarning(0600 file) = %q, want empty", got)
+	}
+}
+
+func TestPermissionWarning_LooseMode(t *testing.T) {
+	p := writeCfg(t, fullCfg)
+	if err := os.Chmod(p, 0o644); err != nil {
+		t.Fatalf("chmod: %v", err)
+	}
+	got := PermissionWarning(p)
+	if got == "" {
+		t.Fatal("PermissionWarning(0644 file) = \"\", want a non-empty warning")
+	}
+	if !strings.Contains(got, "644") {
+		t.Errorf("PermissionWarning = %q, want it to mention the mode", got)
+	}
+}
+
+func TestPermissionWarning_MissingFile(t *testing.T) {
+	p := filepath.Join(t.TempDir(), "absent.yml")
+	if got := PermissionWarning(p); got != "" {
+		t.Errorf("PermissionWarning(missing file) = %q, want empty", got)
 	}
 }
