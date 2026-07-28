@@ -17,7 +17,7 @@
 - **`.gitignore` rules land before any code is written** (Task 1). The repo has no `*.token` or `*.json` credential rule today.
 - **Operator-local config lives outside the repo tree** at `~/.config/infra/cloudflare.yml`, mode 0600.
 - **Rendering must be deterministic.** `diff` compares bytes; any nondeterminism produces phantom drift. Verified prerequisite: `gopkg.in/yaml.v3` sorts `map[string]any` keys and is stable across runs.
-- **Exit codes are a contract:** `diff` returns `0` identical, `2` drifted, `1` error. A scheduled caller must be able to distinguish drift from failure.
+- **Exit codes are a contract:** `diff` yields `0` identical, `2` drifted, `1` error. A scheduled caller must be able to distinguish drift from failure. Implemented as an exported `cmd.ErrDrift` sentinel mapped to `2` in `main()` — **not** `os.Exit` inside `RunE`, which would skip `PersistentPostRun` and make the command untestable. `internal/cmd` contains no `os.Exit`; keep it that way.
 - **No new dependencies.** Everything needed is already in `go.mod`.
 - Module path is `github.com/psychonaut0/infra/cli`. Package files carry doc comments on exported identifiers, matching `internal/dns/`.
 - Tests use stdlib `testing` with `t.TempDir()` and `httptest` — **no live Cloudflare calls in the suite.**
@@ -1156,10 +1156,11 @@ public_domain, since the renderer passes those through verbatim."
 - Create: `cli/internal/tunnel/diff.go`
 - Test: `cli/internal/tunnel/diff_test.go`
 - Modify: `cli/internal/cmd/tunnel.go`
+- Modify: `cli/cmd/infra/main.go` — map the drift sentinel to exit 2
 
 **Interfaces:**
 - Consumes: `tunnel.Render`, `tunnel.UnexpectedDomains`, `repo.Locate`.
-- Produces: `tunnel.UnifiedDiff(want, got []byte, wantName, gotName string) string`; cobra subcommands `export` and `diff`.
+- Produces: `tunnel.UnifiedDiff(want, got []byte, wantName, gotName string) string`; `cmd.ErrDrift` (exported sentinel); cobra subcommands `export` and `diff`.
 
 - [ ] **Step 1: Write the failing diff test**
 
@@ -1304,10 +1305,15 @@ In `cli/internal/cmd/tunnel.go`, add two imports that Task 4 did not need — `"
 Then append:
 
 ```go
-// driftExitCode is returned by `diff` when the repo file and live config differ.
-// It is distinct from 1 (error) so a scheduled caller can tell drift from a
-// failed check — treating an API outage as drift would cry wolf.
-const driftExitCode = 2
+// ErrDrift is returned by `infra tunnel diff` when the repo file and the live
+// config differ. main() maps it to exit code 2, which is distinct from 1
+// (error) so a scheduled caller can tell drift from a failed check — treating
+// an API outage as drift would cry wolf.
+//
+// Returned as a sentinel rather than calling os.Exit here, so that cobra's
+// PersistentPostRun still runs and the command stays testable. internal/cmd
+// contains no os.Exit by design.
+var ErrDrift = errors.New("drift detected between the repo and the live tunnel config")
 
 // renderLive fetches the live config and renders it to the bytes that belong in
 // the repo. Shared by export and diff so the two can never disagree.
@@ -1368,8 +1374,7 @@ func newTunnelDiffCmd() *cobra.Command {
 		Long: "diff exits 0 when the repo matches live, 2 when they differ, and 1 on\n" +
 			"error. The distinct drift code lets a scheduled caller tell real drift\n" +
 			"from a failed check.",
-		Args:          cobra.NoArgs,
-		SilenceErrors: true,
+		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			out, path, err := renderLive()
 			if err != nil {
@@ -1385,13 +1390,43 @@ func newTunnelDiffCmd() *cobra.Command {
 				return nil
 			}
 			fmt.Fprint(cmd.OutOrStdout(), d)
-			fmt.Fprintf(cmd.OutOrStdout(), "\ndrift detected — run `infra tunnel export` to update\n")
-			os.Exit(driftExitCode)
-			return nil
+			fmt.Fprintf(cmd.OutOrStdout(), "\nrun `infra tunnel export` to update the repo\n")
+			return ErrDrift
 		},
 	}
 }
 ```
+
+- [ ] **Step 5a: Map the drift sentinel to exit code 2**
+
+Replace the body of `main()` in `cli/cmd/infra/main.go`:
+
+```go
+func main() {
+	err := cmd.Execute(cmd.BuildInfo{Version: Version, Commit: Commit})
+	if err == nil {
+		return
+	}
+	// `infra tunnel diff` signals drift with a distinct exit code so a
+	// scheduled caller can tell "drifted" from "the check itself failed".
+	if errors.Is(err, cmd.ErrDrift) {
+		os.Exit(2)
+	}
+	os.Exit(1)
+}
+```
+
+Add `"errors"` to that file's imports.
+
+- [ ] **Step 5b: Confirm the mapping compiles and the sentinel is reachable**
+
+```bash
+cd /home/psy/Documents/personal/infra/cli
+go build ./... && go vet ./...
+grep -n "ErrDrift" internal/cmd/tunnel.go cmd/infra/main.go
+```
+Expected: builds and vets clean; `ErrDrift` appears as a declaration in
+`internal/cmd/tunnel.go` and in an `errors.Is` check in `cmd/infra/main.go`.
 
 - [ ] **Step 6: Build, vet, and run the full suite**
 
@@ -1406,14 +1441,17 @@ Expected: builds clean, vet clean, all tests PASS.
 ```bash
 cd /home/psy/Documents/personal/infra
 gofmt -w cli/
-git add cli/internal/tunnel/diff.go cli/internal/tunnel/diff_test.go cli/internal/cmd/tunnel.go
+git add cli/internal/tunnel/diff.go cli/internal/tunnel/diff_test.go cli/internal/cmd/tunnel.go cli/cmd/infra/main.go
 git commit -m "feat(cli): add infra tunnel export and diff
 
 export and diff share one renderLive() helper so they can never disagree about
 what belongs in the repo.
 
-diff exits 2 on drift and 1 on error. The distinction matters for a future
-scheduled check: treating an API outage as drift would cry wolf.
+diff signals drift with an exported ErrDrift sentinel that main() maps to exit
+2, leaving 1 for real errors. The distinction matters for a future scheduled
+check: treating an API outage as drift would cry wolf. A sentinel rather than
+os.Exit keeps PersistentPostRun running and the command testable — internal/cmd
+has no os.Exit by design.
 
 UnifiedDiff is a deliberately simple positional line diff — both sides are
 renderings of the same deterministic template, and it avoids a new dependency."
