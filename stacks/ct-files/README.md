@@ -6,19 +6,19 @@ front-end that reads the filesystem live on every request.
 
 | Instance | uid | Host port | LAN | Public | Tree |
 |---|---|---|---|---|---|
-| `copyparty-psy` | 1000 | 3923 | `drive.lan` | `drive.ncsp.dev` | `/mnt/cloud/volumes/samba/data/psy` |
-| `copyparty-family` | 1001 | 3924 | `family.lan` | `family.ncsp.dev` | `/mnt/cloud/volumes/samba/data/family` |
+| `copyparty-psy` | 1000 | 3923 | `drive.lan` | `drive.<PERSONAL_DOMAIN>` | `/mnt/cloud/volumes/samba/data/psy` |
+| `copyparty-family` | 1001 | 3924 | `family.lan` | `family.<PERSONAL_DOMAIN>` | `/mnt/cloud/volumes/samba/data/family` |
 
 - Design: `docs/superpowers/specs/2026-07-28-ct-files-web-drive-design.md`
 - Build log: `docs/superpowers/plans/2026-07-28-ct-files-web-drive.md`
-- Credentials: `/root/copyparty-credentials.txt` on ct-files (0600). Move these
-  into your password manager and delete the file.
+- **Private notes** (credentials location, defence posture, accepted risks,
+  internal routing): `README.local.md` — gitignored, because this repo is public.
 
 ## Why two containers
 
 copyparty's `uid` volflag only works when the process runs as root, and this is
 a **privileged** LXC where container uid 0 is host uid 0 — not acceptable for an
-internet-facing service with an active advisory history. Instead each container
+internet-facing service. Instead each container
 simply *runs as* the uid that owns its tree, so uploads land correctly by nature.
 
 Verified in place: psy uploads land `1000:1000 644` (dirs `755`), family uploads
@@ -51,13 +51,9 @@ hashes are computed against it.
 - Hashes are **not portable** between the two instances — separate salts.
 - A restore that omits `/cfg` leaves every password broken.
 
-This is demonstrable, not theoretical. The same password hashed against two
-different `/cfg` directories yields different hashes:
-
-```
-/cfg A → +1gaXXMWLFu6Jm7ah3q5RsW-hGIIdjcw5
-/cfg B → +l46xkBJrglP-Ev5g4TrPfPHC0qcUprgX
-```
+This is demonstrable, not theoretical: the same password hashed against two
+different `/cfg` directories yields different hashes. Evidence in
+`README.local.md`.
 
 ## Regenerating a password
 
@@ -109,31 +105,7 @@ either preserve a forgeable header or overwrite the real client IP with `.6`.
 Verified: a forged `CF-Connecting-IP` through Caddy is discarded, and a forged
 header sent directly to the port is ignored.
 
-### Some clients share one ban bucket
-
-What was actually measured (2026-07-28):
-
-| Client | copyparty logs |
-|---|---|
-| proxmoxmain `192.168.3.2` (same subnet) | `192.168.3.2` — real address |
-| ct-mgmt `192.168.3.12` (same subnet) | `192.168.3.12` — real address |
-| A workstation on `192.168.1.0/24` reaching ct-files **via the Tailscale subnet router** | `192.168.3.1` — the router, not the client |
-| Public, through cloudflared | the true public client IP (verified against the real WAN address) |
-
-The third row matters: `BLVCKSmall` (192.168.1.178, WiFi) has **no direct route**
-to `192.168.3.0/24` — binding to its LAN address fails outright. Its only path is
-the `Main-Gateway` Tailscale node, which advertises both `192.168.1.0/24` and
-`192.168.3.0/24`. Traffic therefore arrives as `192.168.3.1`.
-
-Consequence: **every client reaching copyparty through that subnet router shares
-one ban bucket.** One such user failing 9 logins bans `192.168.3.1` and locks out
-all of them for 24 h. Clear it with `docker restart copyparty-psy`.
-
-Not verified: whether a *wired* host on `192.168.1.0/24` with a direct route logs
-its own address. No such client was available to test. Do not assume either way.
-
-The **public** path is unaffected — cloudflared is same-subnet and `CF-Connecting-IP`
-carries the true client IP, so internet-facing bans hit real offenders.
+Per-client detail, and which clients share a ban bucket, is in `README.local.md`.
 
 ### Upload throughput
 
@@ -177,23 +149,15 @@ Limitation, straight from the UI's own text: *"you cannot select more than one
 folder, or mix files and folders in one selection."* Share a parent folder
 instead.
 
-Note this is the feature with the worst security record in copyparty — two
-advisories (CVE-2025-58753, CVE-2026-32108) were single-file shares leaking
-access to sibling files or the source folder. Both are fixed in v1.20.19, but it
-is the reason `vc-url` is enabled.
+Sharing is the feature with the weakest upstream track record, which is why the
+advisory feed is enabled. Details in `README.local.md`.
 
 ## Gotchas
 
 - **No trash.** Web deletes are a real `unlink` and **bypass Samba's `recycle`
   vfs**. SMB deletes land in `.deleted` and are recoverable; web deletes are not.
-  The maintainer declined a recycle bin on purpose (discussion #1059), arguing it
-  creates false confidence where snapshots and backups are the real protection.
-  **The `family` tree has no off-site backup, by explicit decision** (owner,
-  2026-07-28 — declined twice with the cost and consequence stated). ct-backup has
-  no mount for `samba/data/family`, the pool is two non-RAID HDDs, and the web UI
-  can delete. A mis-click there is **unrecoverable**. Both accounts have delete
-  rights, also by decision. This is accepted risk — do not re-propose the backup;
-  see the spec's *Known limitations* #8 and *Follow-up work*.
+  The maintainer declined a recycle bin on purpose (discussion #1059). Backup
+  coverage and the accepted risks are in `README.local.md`.
 - **`PYTHONUNBUFFERED=1` is load-bearing for diagnostics.** copyparty logs to
   stdout and Python block-buffers it when stdout is a pipe; without this,
   `docker logs` sat at 0 bytes for minutes and then flushed 105 KB at once. That
@@ -204,8 +168,8 @@ is the reason `vc-url` is enabled.
   condition of `[STATUS] < 400` proves nothing; Gatus asserts the body instead.
 - **Do not add `vc-exit`** from upstream's sample config — it shuts the server
   down on an advisory warning instead of just displaying it.
-- **Keep FTP and `dk`/dirkeys off.** Both default off; recent advisories hit
-  exactly those paths. `dk` also bypasses sibling-volume permission filtering.
+- **Keep FTP and `dk`/dirkeys off.** Both default off. `dk` also bypasses
+  sibling-volume permission filtering, which this design relies on.
 - **Keep dedup off.** Hardlinks across mergerfs branches are unsafe, and editing
   a deduplicated file edits every copy.
 - **`dbpath` must stay off the mergerfs pool** — SQLite on FUSE corrupts
@@ -218,17 +182,17 @@ is the reason `vc-url` is enabled.
   `--help` on v1.20.19, so **re-check after a major image upgrade**; newly added
   extensions are silently omitted until refreshed. 122 CR2 raws are in neither
   list and will not thumbnail (cosmetic, accepted).
-- **`usernames` and `pw-urlp` are deliberately at defaults**, per the decision to
-  start simple and add Authelia later. Login is password-only (one account per
-  instance, nothing to disambiguate) and `?pw=` in URLs stays accepted (disabling
-  it breaks some WebDAV clients). Do not "fix" these without reading the spec's
-  *Deliberately minimal, by decision*.
-- **No 2FA.** copyparty has none natively. Authelia is the planned follow-up.
+- **Some auth options are deliberately left at their defaults.** Do not change
+  them without reading `README.local.md` and the spec's *Deliberately minimal, by
+  decision* — the choices are intentional, not oversights.
 - **Patch promptly.** `vc-url` is enabled and surfaces new advisories in the
   control panel; upstream ships fixes same-day.
-- **Reloading a bind-mounted config needs `restart`, not `up -d`.** For Caddy and
-  Gatus, `docker compose up -d <svc>` reports `Running` and does not reload,
-  because the service definition is unchanged. Use `docker compose restart <svc>`.
+- **Two opposite compose traps, learned the hard way.** A changed *bind-mounted
+  config file* needs `docker compose restart <svc>` — `up -d` reports `Running`
+  and does not reload, because the service definition is unchanged. A changed
+  *`.env` / `env_file`* needs `docker compose up -d <svc>` — `restart` reuses the
+  existing container along with its baked-in environment, so the new variable
+  never arrives. Using the wrong one fails silently in both directions.
 
 ## Mobile
 
@@ -247,7 +211,7 @@ Measured, not inferred:
 
 | Path | 120 MB file |
 |---|---|
-| `PUT https://drive.ncsp.dev/...` (WebDAV / rclone / curl) | **413** after 1.9 MB, in 0.6 s |
+| `PUT https://drive.<PERSONAL_DOMAIN>/...` (WebDAV / rclone / curl) | **413** after 1.9 MB, in 0.6 s |
 | `PUT http://192.168.3.11:3923/...` (LAN, bypassing Cloudflare) | **201**, all 120,000,000 bytes |
 
 Cloudflare's free plan caps request bodies at 100 MB and rejects at the edge. A

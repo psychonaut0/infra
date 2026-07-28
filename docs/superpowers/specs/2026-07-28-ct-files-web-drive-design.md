@@ -114,7 +114,7 @@ Each container serves exactly one volume with exactly one account and no root vo
 | Account | `psy`, `accs: {rwmd: psy}` | `family`, `accs: {rwmd: family}` |
 | `chmod_f` / `chmod_d` | `644` / `755` | `660` / `770` |
 | LAN hostname | `drive.lan` | `family.lan` |
-| Public hostname | `drive.ncsp.dev` | `family.ncsp.dev` |
+| Public hostname | `drive.<PERSONAL_DOMAIN>` | `family.<PERSONAL_DOMAIN>` |
 | `/cfg` volume | `copyparty-psy-cfg` | `copyparty-family-cfg` |
 
 Bridge networking with explicit port mapping — copyparty needs no mDNS, so `network_mode: host` is unnecessary and avoided.
@@ -159,7 +159,7 @@ Nothing is written into the data trees except files the user uploads. No xattrs 
 
 ### Exposure, auth and real-IP
 
-**Two independent paths, deliberately not chained.** Public traffic bypasses Caddy entirely — matching the existing `portfolio.ncsp.dev` precedent, where cloudflared proxies straight to the app:
+**Two independent paths, deliberately not chained.** Public traffic bypasses Caddy entirely — matching the existing `portfolio.<PERSONAL_DOMAIN>` precedent, where cloudflared proxies straight to the app:
 
 ```
 public: client → CF edge → cloudflared (.6) ────────────→ copyparty (.11)
@@ -221,7 +221,7 @@ Parallel run, then cut over:
 2. Deploy both copyparty containers on :3923/:3924 with FileBrowser still running on :8080.
 3. Create accounts, capture argon2 hashes, verify locally by IP.
 4. Add `drive.lan` / `family.lan` via `infra dns add`.
-5. Add `drive.ncsp.dev` / `family.ncsp.dev` in the **Cloudflare dashboard** — the tunnel is token-managed, so this step produces **no repo diff** and is easy to lose. It is called out as a manual step in the plan.
+5. Add `drive.<PERSONAL_DOMAIN>` / `family.<PERSONAL_DOMAIN>` in the **Cloudflare dashboard** — the tunnel is token-managed, so this step produces **no repo diff** and is easy to lose. It is called out as a manual step in the plan.
 6. Run the full verification matrix below.
 7. Remove the `filebrowser` service and retire `files.lan`. Keep the `filebrowser-db` volume for a grace period before deleting.
 
@@ -253,7 +253,7 @@ ct-files already has `ALLOW_EXPORT_VOLUMES=1` in `pre-backup.sh`, so the volume 
 | Jail, psy | Attempt to reach the family tree and `/mnt/cloud` as `psy` | 403/422, no traversal |
 | Jail, family | Same, inverted | 403/422 |
 | Recycle bins hidden | Browse and search both trees | No `.deleted` content visible |
-| **Large upload through tunnel** | Push a **>100 MB video from the phone** via `drive.ncsp.dev` | Completes — this is the test that eliminated SFTPGo |
+| **Large upload through tunnel** | Push a **>100 MB video from the phone** via `drive.<PERSONAL_DOMAIN>` | Completes — this is the test that eliminated SFTPGo |
 | Upload resume | Interrupt a large upload, resume | Resumes rather than restarting |
 | Real-IP / ban isolation | Fail 9 logins from one device | That device banned; a second device on a different IP unaffected |
 | Ban table independence | Fail 9 logins on the family instance | psy instance unaffected |

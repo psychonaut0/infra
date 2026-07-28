@@ -292,7 +292,7 @@ endpoints:
 
   - name: Portfolio (public)
     group: background
-    url: "https://portfolio.ncsp.dev/"
+    url: "https://portfolio.${PERSONAL_DOMAIN}/"
     interval: 5m
     conditions:
       - "[CONNECTED] == true"

@@ -86,7 +86,7 @@
   # shr-site is important: without it a link created while browsing the .lan
   # hostname embeds that hostname and is useless to anyone outside the LAN.
   shr: /share
-  shr-site: https://drive.ncsp.dev/
+  shr-site: https://drive.<PERSONAL_DOMAIN>/
 
   # --- ui ---
   grid

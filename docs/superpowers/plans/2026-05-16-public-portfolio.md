@@ -720,7 +720,7 @@ Visit <https://one.dash.cloudflare.com/> → **Networks** → **Tunnels** → cl
 
 In the tunnel's **Public Hostname** tab → **Add a public hostname**:
 - **Subdomain:** `portfolio`
-- **Domain:** `<PERSONAL_DOMAIN>` (i.e. `ncsp.dev`)
+- **Domain:** `<PERSONAL_DOMAIN>` (i.e. `<PERSONAL_DOMAIN>`)
 - **Path:** *(empty)*
 - **Service:** **Type** = `HTTP`, **URL** = `192.168.3.16:3000`
 - **Additional application settings → HTTP Settings → HTTP Host Header:** leave empty (Next.js doesn't care; the standalone server binds 0.0.0.0:3000).

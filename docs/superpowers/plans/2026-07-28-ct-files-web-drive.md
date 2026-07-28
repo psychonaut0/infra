@@ -897,9 +897,9 @@ the header to evade a ban or ban an arbitrary third party."
 
 ## Task 11: Public exposure via Cloudflare Tunnel
 
-**Goal:** `drive.ncsp.dev` and `family.ncsp.dev` reachable from the internet, with the real public client IP visible to copyparty.
+**Goal:** `drive.<PERSONAL_DOMAIN>` and `family.<PERSONAL_DOMAIN>` reachable from the internet, with the real public client IP visible to copyparty.
 
-Public traffic goes cloudflared → copyparty **directly**, bypassing Caddy — matching the existing `portfolio.ncsp.dev` pattern. This is deliberate: chaining through Caddy would force it to either preserve a forgeable `CF-Connecting-IP` or overwrite the real client IP with cloudflared's own address.
+Public traffic goes cloudflared → copyparty **directly**, bypassing Caddy — matching the existing `portfolio.<PERSONAL_DOMAIN>` pattern. This is deliberate: chaining through Caddy would force it to either preserve a forgeable `CF-Connecting-IP` or overwrite the real client IP with cloudflared's own address.
 
 **Files:** None in repo — **this task produces no diff.** The tunnel is token-managed, so ingress rules live only in the Cloudflare dashboard.
 
@@ -909,30 +909,30 @@ Navigate to **Zero Trust → Networks → Tunnels → (the existing tunnel) → 
 
 | Subdomain | Domain | Type | URL |
 |---|---|---|---|
-| `drive` | `ncsp.dev` | HTTP | `192.168.3.11:3923` |
-| `family` | `ncsp.dev` | HTTP | `192.168.3.11:3924` |
+| `drive` | `<PERSONAL_DOMAIN>` | HTTP | `192.168.3.11:3923` |
+| `family` | `<PERSONAL_DOMAIN>` | HTTP | `192.168.3.11:3924` |
 
 Leave TLS settings at their defaults (origin is plain HTTP inside the LAN).
 
 - [ ] **Step 2: Confirm DNS records were created**
 
 ```bash
-dig +short drive.ncsp.dev
-dig +short family.ncsp.dev
+dig +short drive.<PERSONAL_DOMAIN>
+dig +short family.<PERSONAL_DOMAIN>
 ```
 Expected: Cloudflare proxy IPs (Cloudflare creates proxied CNAMEs automatically for tunnel hostnames). Unlike the Minecraft endpoint, these **should** be proxied (orange cloud) — this is HTTPS, which the free-tier proxy supports.
 
 - [ ] **Step 3: Verify both are reachable from the internet**
 
 ```bash
-curl -s -o /dev/null -w "drive  %{http_code}\n" https://drive.ncsp.dev/
-curl -s -o /dev/null -w "family %{http_code}\n" https://family.ncsp.dev/
+curl -s -o /dev/null -w "drive  %{http_code}\n" https://drive.<PERSONAL_DOMAIN>/
+curl -s -o /dev/null -w "family %{http_code}\n" https://family.<PERSONAL_DOMAIN>/
 ```
 Expected: the same auth-required status as on the LAN. If you get 502/530, check `ssh ct-tunnel 'docker logs cloudflared 2>&1 | tail -20'`.
 
 - [ ] **Step 4: Verify the real public client IP reaches copyparty — critical**
 
-Load `https://drive.ncsp.dev/` from a phone on mobile data (not WiFi), then:
+Load `https://drive.<PERSONAL_DOMAIN>/` from a phone on mobile data (not WiFi), then:
 ```bash
 ssh ct-files 'docker logs copyparty-psy 2>&1 | tail -5'
 ```
@@ -954,7 +954,7 @@ From the phone on mobile data, log in to both hostnames. Expected: each shows on
 
 - [ ] **Step 1: Upload a file over 100 MB from the phone through the tunnel**
 
-From the phone on mobile data, via `https://drive.ncsp.dev/`, upload a video **larger than 100 MB**.
+From the phone on mobile data, via `https://drive.<PERSONAL_DOMAIN>/`, upload a video **larger than 100 MB**.
 
 Expected: completes successfully. This is the check that eliminated SFTPGo — Cloudflare's free plan caps request bodies at 100 MB and returns 413 at the edge. copyparty's chunked uploader (`--u2sz` defaults to 96 MiB chunks, sized for exactly this) stays under the cap.
 
@@ -973,11 +973,11 @@ Start another large upload from the phone, kill the browser tab mid-transfer, th
 
 - [ ] **Step 4: Verify the ban system bans the right IP**
 
-From one device, fail the login **9 times** at `https://drive.ncsp.dev/`. Expected: that device is then blocked (stock rule: `ban-pw 9,60,1440` = 9 wrong passwords per hour → 24 h ban).
+From one device, fail the login **9 times** at `https://drive.<PERSONAL_DOMAIN>/`. Expected: that device is then blocked (stock rule: `ban-pw 9,60,1440` = 9 wrong passwords per hour → 24 h ban).
 
 - [ ] **Step 5: Verify a second device on a different IP is unaffected — critical**
 
-Immediately from a *different* device on a *different* network, load `https://drive.ncsp.dev/`. Expected: **reachable and able to log in**.
+Immediately from a *different* device on a *different* network, load `https://drive.<PERSONAL_DOMAIN>/`. Expected: **reachable and able to log in**.
 
 If the second device is also blocked, real-IP detection is broken — copyparty banned the proxy rather than the offender. Fix `xff-hdr`/`xff-src`/`rproxy`, then clear the ban:
 ```bash
@@ -986,7 +986,7 @@ ssh ct-files 'docker restart copyparty-psy'
 
 - [ ] **Step 6: Verify the ban tables are independent**
 
-While the psy instance still has a ban active, log in normally at `https://family.ncsp.dev/`. Expected: unaffected — separate containers, separate ban state.
+While the psy instance still has a ban active, log in normally at `https://family.<PERSONAL_DOMAIN>/`. Expected: unaffected — separate containers, separate ban state.
 
 - [ ] **Step 7: Clear the test ban**
 
@@ -1266,7 +1266,7 @@ Expected: `8080 closed`, the `filebrowser-db` volume still listed, and `files.la
 ```bash
 curl -s -o /dev/null -w "drive.lan  %{http_code}\n" http://drive.lan/
 curl -s -o /dev/null -w "family.lan %{http_code}\n" http://family.lan/
-curl -s -o /dev/null -w "public     %{http_code}\n" https://drive.ncsp.dev/
+curl -s -o /dev/null -w "public     %{http_code}\n" https://drive.<PERSONAL_DOMAIN>/
 ```
 Expected: the auth-required status for all three.
 
@@ -1304,7 +1304,7 @@ Replace the ct-files block's `Resources`, `Role`, `Ports`, and `Config notes` wi
 - **Role:** File server. Runs Samba for SMB shares and two copyparty instances providing a Drive-like web UI over the same trees.
 - **Stack:** `/opt/stacks/ct-files/docker-compose.yml` (local copy: `stacks/ct-files/`)
 - **Ports:** 139/445 (Samba SMB), 3923 (copyparty psy), 3924 (copyparty family)
-- **Config notes:** Privileged CT for clean UID mapping on shared storage. Full mergerfs pool (`/mnt/cloud`) bind-mounted into CT. AppArmor unconfined for Docker compatibility. Samba config/data/users from `/mnt/cloud/volumes/samba/`. **copyparty (2026-07-28):** two containers, one per uid — `copyparty-psy` (uid 1000, :3923, `drive.lan` / `drive.ncsp.dev`) and `copyparty-family` (uid 1001, :3924, `family.lan` / `family.ncsp.dev`). Each serves exactly one Samba tree at its webroot with one account and no root volume, so neither can reach the other or the wider pool. Never run as root — the `uid` volflag would require it and this is a privileged CT. **The argon2 salt in each `/cfg` (`/opt/stacks/ct-files/copyparty/<name>/`) is load-bearing: changing a container's `user:` silently invalidates every password hash.** Public path is cloudflared → copyparty directly (not via Caddy) so `CF-Connecting-IP` survives; Caddy serves only the `.lan` names and overwrites that header. Regenerable index/thumbnail cache lives at `/var/lib/copyparty/` — deliberately outside `/opt/stacks` so it is not backed up. Runbook: `stacks/ct-files/README.md`.
+- **Config notes:** Privileged CT for clean UID mapping on shared storage. Full mergerfs pool (`/mnt/cloud`) bind-mounted into CT. AppArmor unconfined for Docker compatibility. Samba config/data/users from `/mnt/cloud/volumes/samba/`. **copyparty (2026-07-28):** two containers, one per uid — `copyparty-psy` (uid 1000, :3923, `drive.lan` / `drive.<PERSONAL_DOMAIN>`) and `copyparty-family` (uid 1001, :3924, `family.lan` / `family.<PERSONAL_DOMAIN>`). Each serves exactly one Samba tree at its webroot with one account and no root volume, so neither can reach the other or the wider pool. Never run as root — the `uid` volflag would require it and this is a privileged CT. **The argon2 salt in each `/cfg` (`/opt/stacks/ct-files/copyparty/<name>/`) is load-bearing: changing a container's `user:` silently invalidates every password hash.** Public path is cloudflared → copyparty directly (not via Caddy) so `CF-Connecting-IP` survives; Caddy serves only the `.lan` names and overwrites that header. Regenerable index/thumbnail cache lives at `/var/lib/copyparty/` — deliberately outside `/opt/stacks` so it is not backed up. Runbook: `stacks/ct-files/README.md`.
 ```
 
 - [ ] **Step 2: Update the Services section in `CLAUDE.md`**
@@ -1312,7 +1312,7 @@ Replace the ct-files block's `Resources`, `Role`, `Ports`, and `Config notes` wi
 Replace the `Samba + FileBrowser run on ct-files...` line with:
 
 ```markdown
-Samba runs on ct-files (SMB shares `psy` and `family`). copyparty provides the web drive over the same trees — http://drive.lan / https://drive.ncsp.dev (psy) and http://family.lan / https://family.ncsp.dev (family), each jailed to one tree. Access-only; no sync client. Web deletes are permanent and bypass Samba's recycle.
+Samba runs on ct-files (SMB shares `psy` and `family`). copyparty provides the web drive over the same trees — http://drive.lan / https://drive.<PERSONAL_DOMAIN> (psy) and http://family.lan / https://family.<PERSONAL_DOMAIN> (family), each jailed to one tree. Access-only; no sync client. Web deletes are permanent and bypass Samba's recycle.
 ```
 
 - [ ] **Step 3: Update `docs/hardware.md`**
@@ -1330,8 +1330,8 @@ Samba (SMB) plus two copyparty instances giving a web drive over the *same* file
 
 | Instance | uid | Host port | LAN | Public | Tree |
 |---|---|---|---|---|---|
-| `copyparty-psy` | 1000 | 3923 | `drive.lan` | `drive.ncsp.dev` | `/mnt/cloud/volumes/samba/data/psy` |
-| `copyparty-family` | 1001 | 3924 | `family.lan` | `family.ncsp.dev` | `/mnt/cloud/volumes/samba/data/family` |
+| `copyparty-psy` | 1000 | 3923 | `drive.lan` | `drive.<PERSONAL_DOMAIN>` | `/mnt/cloud/volumes/samba/data/psy` |
+| `copyparty-family` | 1001 | 3924 | `family.lan` | `family.<PERSONAL_DOMAIN>` | `/mnt/cloud/volumes/samba/data/family` |
 
 Design: `docs/superpowers/specs/2026-07-28-ct-files-web-drive-design.md`
 
@@ -1455,7 +1455,7 @@ accepted no-trash risk on a family tree that has no off-site backup."
 - [ ] Web uploads land `1000:1000 644` (psy) and `1001:1001 660` (family).
 - [ ] Samba writes appear in the web UI with no rescan; web uploads are modifiable in place over SMB.
 - [ ] Neither account can reach the other's tree or anything above its webroot.
-- [ ] `drive.lan`, `family.lan`, `drive.ncsp.dev`, `family.ncsp.dev` all serve and require auth.
+- [ ] `drive.lan`, `family.lan`, `drive.<PERSONAL_DOMAIN>`, `family.<PERSONAL_DOMAIN>` all serve and require auth.
 - [ ] copyparty logs show real client IPs — the phone's public IP over the tunnel, the workstation's LAN IP via Caddy, and a forged header is discarded.
 - [ ] A >100 MB upload from a phone through the tunnel succeeds.
 - [ ] Failing 9 logins bans only that IP; a second device on another IP still works; the two instances ban independently.
