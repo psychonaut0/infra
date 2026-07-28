@@ -286,13 +286,13 @@ Accepted, documented so they are not rediscovered as surprises:
 
 Out of scope here, recorded so the decisions are not lost:
 
-- **Add the `family` tree to ct-backup.** *Recommended, and the highest-value item on this list.* One read-only mount mirroring the existing `samba-psy` pattern:
+- ~~**Add the `family` tree to ct-backup.**~~ **DECIDED AGAINST by the owner, 2026-07-28.** Do not re-propose this.
+
+  The option was raised twice with the cost (~$1.50–2/month for 281 GB in B2) and the consequence stated plainly, and declined both times. The `family` tree therefore has **no off-site copy**, sits on two non-RAID HDDs, and its web UI has working delete rights with no trash — so a mis-click there is unrecoverable. This is an accepted risk, not an oversight. For reference, the fix would have been one line:
 
   ```
   pct set 109 -mp10 /mnt/cloud/volumes/samba/data/family,mp=/backup-sources/samba-family,ro=1
   ```
-
-  281 GB in Backblaze B2 is roughly **$1.50–2/month** at $6/TB. This closes the gap described in *Known limitations* item 8, and would make web deletes recoverable from restic as a side effect. Explicitly deferred to keep this project scoped — not because it isn't worth doing.
 - **Authelia in front of both containers** for real TOTP 2FA. copyparty supports header-trust IdP integration with official compose examples for Authelia and authentik. Planned by the owner as a later step; this spec deliberately ships without it (see *Deliberately minimal, by decision*).
 - **An `xbd` before-delete trash hook**, if a recycle bin is ever wanted without relying on backups. Confirmed viable: most hook types, `xbd` included, abort the action when the hook exits non-zero **provided the `c` flag is given**. A hook could copy into the existing `.deleted` tree — which this design already excludes from indexing — making web deletes behave like SMB deletes. Caveats: nobody has built one (the maintainer's suggestion in discussion #1059 remains unimplemented), the copy doubles I/O on delete, and getting the abort-vs-succeed semantics right so the UI does not report a spurious failure needs care. Strictly optional once backups exist.
 - **Retire the `filebrowser-db` volume** after the grace period.
