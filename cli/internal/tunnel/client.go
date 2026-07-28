@@ -65,10 +65,9 @@ type apiEnvelope struct {
 		Message string `json:"message"`
 	} `json:"errors"`
 	Result struct {
-		TunnelID string `json:"tunnel_id"`
-		Version  int    `json:"version"`
-		Source   string `json:"source"`
-		Config   struct {
+		Version int    `json:"version"`
+		Source  string `json:"source"`
+		Config  struct {
 			Ingress []struct {
 				Hostname      string         `json:"hostname"`
 				Path          string         `json:"path"`
@@ -82,6 +81,24 @@ type apiEnvelope struct {
 }
 
 const scopeHint = "the token needs scope Account → Cloudflare Tunnel → Read"
+
+// forbiddenError builds the error returned for a 403/401 response. A wrong
+// token scope is the likeliest cause, but not the only one — an expired
+// token, a wrong account ID, or an IP allow-list rule all surface the same
+// status. When the response body parsed successfully and carries Cloudflare's
+// own error detail, that detail is included alongside scopeHint so the
+// operator isn't sent chasing the wrong fix. If the body didn't parse or
+// carries no error detail, this falls back to the hint-only message.
+func forbiddenError(status int, parseErr error, env apiEnvelope) error {
+	if parseErr == nil && len(env.Errors) > 0 {
+		msgs := make([]string, 0, len(env.Errors))
+		for _, e := range env.Errors {
+			msgs = append(msgs, fmt.Sprintf("%d: %s", e.Code, e.Message))
+		}
+		return fmt.Errorf("Cloudflare returned %d: %s — %s", status, strings.Join(msgs, "; "), scopeHint)
+	}
+	return fmt.Errorf("Cloudflare returned %d — %s", status, scopeHint)
+}
 
 // FetchConfig retrieves the tunnel's current configuration.
 func (c *Client) FetchConfig(ctx context.Context) (*TunnelConfig, error) {
@@ -104,13 +121,15 @@ func (c *Client) FetchConfig(ctx context.Context) (*TunnelConfig, error) {
 		return nil, fmt.Errorf("read response: %w", err)
 	}
 
+	var env apiEnvelope
+	parseErr := json.Unmarshal(body, &env)
+
 	if resp.StatusCode == http.StatusForbidden || resp.StatusCode == http.StatusUnauthorized {
-		return nil, fmt.Errorf("Cloudflare returned %d — %s", resp.StatusCode, scopeHint)
+		return nil, forbiddenError(resp.StatusCode, parseErr, env)
 	}
 
-	var env apiEnvelope
-	if err := json.Unmarshal(body, &env); err != nil {
-		return nil, fmt.Errorf("parse response (HTTP %d): %w", resp.StatusCode, err)
+	if parseErr != nil {
+		return nil, fmt.Errorf("parse response (HTTP %d): %w", resp.StatusCode, parseErr)
 	}
 	if !env.Success {
 		msgs := make([]string, 0, len(env.Errors))
