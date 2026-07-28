@@ -1,0 +1,3 @@
+# Real copyparty configs hold argon2 password hashes. This repo is sanitized
+# for public release; only the .example templates are committed.
+copyparty/*/copyparty.conf
