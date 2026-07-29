@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net"
 	"net/url"
 	"os"
@@ -90,6 +91,27 @@ func loadDnsCtx() (*dnsCtx, error) {
 	}, nil
 }
 
+// readShadowRecords returns any records sitting in pihole.toml's dns.hosts
+// array. `infra dns` manages the dnsmasq file, not that array, so anything here
+// resolves on the network while being invisible to this tool — it is drift by
+// definition. See dns.ShadowRecord.
+func readShadowRecords(ctx context.Context, d *dnsCtx) ([]dns.ShadowRecord, error) {
+	lines, err := dns.ReadPiholeHostsArray(ctx, d.runner, d.ctDnsTarget)
+	if err != nil {
+		return nil, err
+	}
+	return dns.ParseShadowHosts(lines), nil
+}
+
+// printShadowRecords reports shadow records and the manual remediation.
+func printShadowRecords(w io.Writer, recs []dns.ShadowRecord) {
+	fmt.Fprintf(w, "\n%d unmanaged record(s) in pihole.toml dns.hosts:\n", len(recs))
+	for _, r := range recs {
+		fmt.Fprintf(w, "  ! %-30s %s\n", r.Hostname, r.IP)
+	}
+	fmt.Fprintf(w, "\n%s\n", dns.ShadowRemediation)
+}
+
 func newDnsLsCmd() *cobra.Command {
 	var asJSON bool
 	c := &cobra.Command{
@@ -116,6 +138,10 @@ func newDnsLsCmd() *cobra.Command {
 				enc.SetIndent("", "  ")
 				return enc.Encode(rows)
 			}
+			shadow, err := readShadowRecords(ctx, d)
+			if err != nil {
+				return err
+			}
 			t := table.NewWriter()
 			t.SetOutputMirror(os.Stdout)
 			t.AppendHeader(table.Row{"HOSTNAME", "MODE", "UPSTREAM", "DNS", "STATUS"})
@@ -123,10 +149,16 @@ func newDnsLsCmd() *cobra.Command {
 				t.AppendRow(table.Row{r.Hostname, r.Mode, r.Upstream, r.DNS, r.Status})
 			}
 			t.Render()
+			if len(shadow) > 0 {
+				printShadowRecords(os.Stdout, shadow)
+			}
 			for _, r := range rows {
 				if r.Status != "ok" && r.Status != "(raw)" {
 					return fmt.Errorf("drift detected")
 				}
+			}
+			if len(shadow) > 0 {
+				return fmt.Errorf("%d unmanaged record(s) in pihole.toml dns.hosts", len(shadow))
 			}
 			return nil
 		},
@@ -455,23 +487,23 @@ func newDnsSyncCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
+			// pihole.toml's dns.hosts is not managed here, so anything in it is
+			// drift this command cannot fix — see printShadowRecords.
+			shadow, err := readShadowRecords(ctx, d)
+			if err != nil {
+				return err
+			}
 			if bootstrap {
-				piholeLines, err := dns.ReadPiholeHostsArray(ctx, d.runner, d.ctDnsTarget)
-				if err != nil {
-					return err
-				}
-				// Each line is "<ip> <hostname>".
+				// Shares the parser with the drift report, but stays stricter: that
+				// report is deliberately permissive so a record with a malformed IP
+				// is still surfaced, whereas migrating one would write garbage.
 				type pihRec struct{ ip, host string }
 				var legacy []pihRec
-				for _, l := range piholeLines {
-					parts := strings.Fields(l)
-					if len(parts) != 2 {
+				for _, r := range shadow {
+					if net.ParseIP(r.IP) == nil {
 						continue
 					}
-					if net.ParseIP(parts[0]) == nil {
-						continue
-					}
-					legacy = append(legacy, pihRec{ip: parts[0], host: parts[1]})
+					legacy = append(legacy, pihRec{ip: r.IP, host: r.Hostname})
 				}
 				known := map[string]struct{}{}
 				for _, r := range d.desired {
@@ -498,8 +530,12 @@ func newDnsSyncCmd() *cobra.Command {
 			}
 			drift := dns.ComputeDrift(d.desired, live)
 			if len(drift.ToAdd)+len(drift.ToRemove)+len(drift.ToChange) == 0 {
-				fmt.Println("In sync.")
-				return nil
+				if len(shadow) == 0 {
+					fmt.Println("In sync.")
+					return nil
+				}
+				printShadowRecords(os.Stdout, shadow)
+				return fmt.Errorf("%d unmanaged record(s) in pihole.toml dns.hosts", len(shadow))
 			}
 			for _, r := range drift.ToAdd {
 				fmt.Printf("+ would add:    %-30s %s\n", r.Hostname, r.IP)
@@ -510,10 +546,22 @@ func newDnsSyncCmd() *cobra.Command {
 			for _, c := range drift.ToChange {
 				fmt.Printf("~ would change: %-30s %s (was %s)\n", c.New.Hostname, c.New.IP, c.Old.IP)
 			}
+			if len(shadow) > 0 {
+				printShadowRecords(os.Stdout, shadow)
+			}
 			if !apply {
 				return fmt.Errorf("drift detected (run with --apply to commit)")
 			}
-			return reloadDnsmasq(ctx, d, d.desired)
+			if err := reloadDnsmasq(ctx, d, d.desired); err != nil {
+				return err
+			}
+			// --apply cannot clear pihole.toml: Pi-hole's web UI owns that file, so
+			// writing it risks clobbering a real change. Report honestly rather than
+			// exiting 0 with drift still present.
+			if len(shadow) > 0 {
+				return fmt.Errorf("%d unmanaged record(s) remain in pihole.toml dns.hosts", len(shadow))
+			}
+			return nil
 		},
 	}
 	c.Flags().BoolVar(&apply, "apply", false, "Actually apply changes (default is dry-run)")
