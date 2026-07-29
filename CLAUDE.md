@@ -12,7 +12,7 @@
   - `portfolio.<PERSONAL_DOMAIN>` (HTTPS) → `192.168.3.16:3000` (portfolio on ct-portfolio)
   - `drive.<PERSONAL_DOMAIN>` (HTTPS) → `192.168.3.11:3923` (copyparty psy on ct-files)
   - `family.<PERSONAL_DOMAIN>` (HTTPS) → `192.168.3.11:3924` (copyparty family on ct-files)
-- **Tunnel ingress is NOT version-controlled.** ct-tunnel runs `cloudflared tunnel run` with a `TUNNEL_TOKEN`, i.e. a *remotely-managed* tunnel: hostname→origin rules live only in the Cloudflare Zero Trust dashboard, not in this repo and not in restic. Adding or changing a public endpoint is a dashboard action that produces no diff. Converting to a locally-managed tunnel (`config.yml` + `credentials.json`) would close that gap.
+- **Tunnel ingress is remotely managed but mirrored.** ct-tunnel runs `cloudflared tunnel run` with a `TUNNEL_TOKEN`, so hostname→origin rules live in the Cloudflare Zero Trust dashboard and a change there produces **no repo diff**. `stacks/ct-tunnel/ingress.yml` mirrors that state via `infra tunnel export`; `infra tunnel diff` audits drift (exit 2 = drifted, 1 = check failed). **Run export after any dashboard change** or the mirror goes stale silently. Converting to a locally-managed tunnel is not possible in place — `config_src` is fixed at creation — and was rejected; see `stacks/ct-tunnel/README.md`.
 
 ## Network & Devices
 
@@ -63,7 +63,7 @@
 - **Resources:** 1 vCPU, 256MB RAM, 128MB swap, 2GB disk
 - **Role:** Cloudflare Tunnel endpoint. Runs cloudflared for selective public access to internal services, replacing the old nginx-proxy-manager + cloudflare-ddns + port forwarding setup.
 - **Stack:** `/opt/stacks/ct-tunnel/docker-compose.yml` (local copy: `stacks/ct-tunnel/`)
-- **Config notes:** AppArmor set to unconfined for Docker compatibility. Uses `network_mode: host` for cloudflared. Tunnel token stored in `/opt/stacks/ct-tunnel/.env`.
+- **Config notes:** AppArmor set to unconfined for Docker compatibility. Uses `network_mode: host` for cloudflared. Tunnel token stored in `/opt/stacks/ct-tunnel/.env`. **Remotely managed (2026-07-29):** ingress rules live in the Cloudflare dashboard, not on disk — there is no `config.yml` or `credentials.json` here. `stacks/ct-tunnel/ingress.yml` is a version-controlled *mirror* written by `infra tunnel export` (read-only against Cloudflare; needs a `Cloudflare Tunnel:Read` token per `CLAUDE.local.md`). Export sanitises the real domain to `<PERSONAL_DOMAIN>` and refuses to write if it survives. Runbook: `stacks/ct-tunnel/README.md`.
 
 ### ct-nvr (LXC — VMID 104 on proxmoxmain)
 - **IP:** 192.168.3.7
@@ -254,6 +254,7 @@ Hardware and storage details in `docs/hardware.md`.
 | Proxmox CT overview (VMID, IP, CPU/RAM/disk) | `infra ct status` |
 | Add/remove a `<name>.lan` service (Caddy + Pi-hole at once) | `infra dns add <name>.lan <upstream-url>` / `infra dns rm <name>.lan` |
 | Audit DNS/Caddy drift                                       | `infra dns ls`, `infra dns sync` |
+| Mirror + audit Cloudflare Tunnel ingress                    | `infra tunnel ls`, `infra tunnel export`, `infra tunnel diff` |
 | Self-update from the LAN mirror | `infra update [-y]` |
 | Build from a repo checkout instead | `infra update --from-source` |
 
