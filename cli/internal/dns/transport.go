@@ -20,6 +20,9 @@ const (
 	CtDnsContainer = "pihole"
 	// CtDnsConfPath is the managed dnsmasq config inside the pihole container.
 	CtDnsConfPath = "/etc/dnsmasq.d/02-infra-dns.conf"
+	// CtDnsPiholeTomlPath is pihole's own config inside the container. Its
+	// [dns] hosts array is NOT managed by infra dns — see ShadowRecord.
+	CtDnsPiholeTomlPath = "/etc/pihole/pihole.toml"
 )
 
 // ReadCaddyfile fetches the live Caddyfile from ct-mgmt.
@@ -93,30 +96,20 @@ func EnsureEtcDnsmasqD(ctx context.Context, runner *ssh.Runner, target string) (
 	return true, nil
 }
 
-// ReadPiholeHostsArray reads the legacy `dns.hosts` array from pihole.toml
-// for the bootstrap migration. Returns the raw lines like
-// "192.168.3.12 jellyfin.lan".
+// ReadPiholeHostsArray returns the raw entries of pihole.toml's `[dns] hosts`
+// array.
+//
+// The whole file is fetched and parsed in Go by ExtractDNSHosts rather than
+// filtered with a remote awk range. The awk approach was not section-aware and,
+// once the array was written in its empty single-line form, mistook `hosts = []`
+// for an opening bracket and returned unrelated config as DNS records.
 func ReadPiholeHostsArray(ctx context.Context, runner *ssh.Runner, target string) ([]string, error) {
 	out, err := runner.Output(ctx, target,
-		`docker exec `+CtDnsContainer+` sh -c "awk '/^  hosts = \\[/,/^  \\]/' /etc/pihole/pihole.toml"`)
+		"docker exec "+CtDnsContainer+" cat "+CtDnsPiholeTomlPath)
 	if err != nil {
 		return nil, fmt.Errorf("read pihole.toml: %w", err)
 	}
-	var lines []string
-	for _, raw := range bytes.Split(out, []byte("\n")) {
-		s := string(bytes.TrimSpace(raw))
-		// Match `"<ip> <host>",`
-		if len(s) < 4 || s[0] != '"' {
-			continue
-		}
-		s = s[1:]
-		end := bytes.IndexByte([]byte(s), '"')
-		if end <= 0 {
-			continue
-		}
-		lines = append(lines, s[:end])
-	}
-	return lines, nil
+	return ExtractDNSHosts(out), nil
 }
 
 // writeRemote pipes content to a temp file then atomically renames it over
