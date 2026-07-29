@@ -59,6 +59,12 @@
     "cloudflared": [
       "ct-tunnel"
     ],
+    "copyparty-family": [
+      "ct-files"
+    ],
+    "copyparty-psy": [
+      "ct-files"
+    ],
     "dashboard": [
       "ct-mgmt"
     ],
@@ -67,9 +73,6 @@
     ],
     "esphome": [
       "ct-tools"
-    ],
-    "filebrowser": [
-      "ct-files"
     ],
     "flaresolverr": [
       "ct-media"
