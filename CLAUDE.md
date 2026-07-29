@@ -253,7 +253,7 @@ Hardware and storage details in `docs/hardware.md`.
 | Pull + redeploy a service / whole CT | `infra deploy <service\|ct>` |
 | Proxmox CT overview (VMID, IP, CPU/RAM/disk) | `infra ct status` |
 | Add/remove a `<name>.lan` service (Caddy + Pi-hole at once) | `infra dns add <name>.lan <upstream-url>` / `infra dns rm <name>.lan` |
-| Audit DNS/Caddy drift                                       | `infra dns ls`, `infra dns sync` |
+| Audit DNS/Caddy drift                                       | `infra dns ls`, `infra dns sync` — both also flag unmanaged records in pihole.toml's `[dns] hosts` array (exit 1) |
 | Mirror + audit Cloudflare Tunnel ingress                    | `infra tunnel ls`, `infra tunnel export`, `infra tunnel diff` |
 | Self-update from the LAN mirror | `infra update [-y]` |
 | Build from a repo checkout instead | `infra update --from-source` |
