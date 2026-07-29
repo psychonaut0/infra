@@ -141,7 +141,7 @@ Expected: `/usr/bin/rrsync` and `/usr/bin/sqlite3` both printed.
 
 ```bash
 ssh root@192.168.3.18 'curl -fsSL https://get.docker.com | sh && docker run --rm hello-world | grep -q "working correctly" && echo DOCKER_OK'
-ssh root@192.168.3.18 'curl -fsSL http://infra-bin.lan/install.sh | sh && infra --version'
+ssh root@192.168.3.18 'curl -fsSL http://infra-bin.lan/install.sh | sh && infra version'
 ```
 
 Expected: `DOCKER_OK`, then a version string from `infra`.
@@ -740,7 +740,7 @@ CI builds the Release, and `infra-mirror.timer` on ct-mgmt syncs within 5 minute
 
 ```bash
 sleep 300
-ssh root@192.168.3.12 'infra update -y && infra --version'
+ssh root@192.168.3.12 'infra update -y && infra version'
 ```
 
 Expected: the new version.
@@ -880,6 +880,8 @@ ssh root@192.168.3.13 'grep -E "ct-chat|WARN" /var/log/backup/pre-backup.log | t
 
 Expected: ct-chat lines present with **no WARN** referring to it.
 
+**Do not judge success by exit code.** `systemctl start` followed by `systemctl is-active` exits 3 on a *finished* oneshot unit — that is normal completion, not failure. Read the log. Also expect occasional transient `unexpected EOF` retries against B2; those are pre-existing storage flakiness and resolve on retry.
+
 - [ ] **Step 10: Confirm the data actually landed in restic**
 
 ```bash
@@ -950,8 +952,11 @@ Insert at the **end of the `important` group block** — immediately before the 
 
 - [ ] **Step 2: Deploy Gatus and confirm both checks are green**
 
+`docker compose up -d gatus` reports "Running" and does **not** reload a bind-mounted config — verified the hard way during the ct-files deployment. A restart is required.
+
 ```bash
-infra deploy gatus
+scp stacks/ct-mgmt/gatus/config.yaml root@192.168.3.12:/opt/stacks/ct-mgmt/gatus/config.yaml
+ssh root@192.168.3.12 'cd /opt/stacks/ct-mgmt && docker compose restart gatus'
 sleep 90
 ```
 
@@ -1107,7 +1112,7 @@ git commit -m "docs(ct-chat): document the Open WebUI deployment and restore pat
 Walk `docs/new-ct-checklist.md` top to bottom against this deployment and confirm every box, especially the live halves:
 
 ```bash
-ssh root@192.168.3.18 'command -v rrsync && command -v sqlite3 && infra --version'
+ssh root@192.168.3.18 'command -v rrsync && command -v sqlite3 && infra version'
 ssh root@192.168.3.12 'infra ls | grep -i chat'
 ssh root@192.168.3.13 'restic ls latest | grep -c ct-chat'
 git status --short
