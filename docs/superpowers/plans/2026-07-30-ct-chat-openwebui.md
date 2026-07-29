@@ -91,7 +91,7 @@ Substitute `<TEMPLATE>` with the filename from Step 2.
 ssh root@proxmoxmain 'pct create 115 local:vztmpl/<TEMPLATE> \
   --hostname ct-chat \
   --cores 2 --memory 2048 --swap 512 \
-  --rootfs local-lvm:16 \
+  --rootfs local-lvm:32 \
   --net0 name=eth0,bridge=vmbr0,ip=192.168.3.18/24,gw=192.168.3.1 \
   --nameserver 192.168.3.5 \
   --unprivileged 1 \
@@ -1055,7 +1055,7 @@ Insert after the `### ct-workout` section, matching the established format exact
 - **User:** root
 - **OS:** Debian 13 (Trixie), unprivileged LXC
 - **SSH:** Port 22, key-based auth (no password)
-- **Resources:** 2 vCPU, 2048MB RAM, 512MB swap, 16GB disk
+- **Resources:** 2 vCPU, 2048MB RAM, 512MB swap, 32GB disk
 - **Role:** AI chat frontend. Runs Open WebUI against a single OpenRouter account, publicly reachable at `chat.<PERSONAL_DOMAIN>` via the existing Cloudflare Tunnel and gated by Cloudflare Access. Native Android/iOS client is Conduit.
 - **Stack:** `/opt/stacks/ct-chat/docker-compose.yml` (local copy: `stacks/ct-chat/`)
 - **Ports:** 8080 (Open WebUI HTTP)
@@ -1083,7 +1083,7 @@ ssh root@proxmoxmain 'lvs --noheadings -o lv_name,lv_size,data_percent /dev/pve/
 Then add to the proxmoxmain **LXC Boot Disk Allocations** table, after the row for 114:
 
 ```markdown
-| 115 | ct-chat | vm-115-disk-0 | 16GB | <measured>% |
+| 115 | ct-chat | vm-115-disk-0 | 32GB | <measured>% |
 ```
 
 - [ ] **Step 4: Write `stacks/ct-chat/README.md`**
