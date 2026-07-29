@@ -169,11 +169,13 @@ The endpoint is public and spends real money, so the blast radius needs a hard s
 
 ## Resources
 
-**2 vCPU / 2048 MB RAM / 512 MB swap / 16 GB disk.**
+**2 vCPU / 2048 MB RAM / 512 MB swap / 32 GB disk.**
 
 2 GB is defensible *only* because both local-model paths are disabled — external embeddings and external STT. With either left at its empty default this is undersized and needs 4 GB. That coupling is the single most important sizing fact in this spec.
 
-Disk is dominated by the container image plus uploads and the vector store. Whether a slim image variant exists that omits the bundled local-model dependencies is unverified and worth checking at implementation; it would reduce image footprint but changes none of the above.
+**Disk was revised from 16 GB to 32 GB during implementation (2026-07-30), measured rather than estimated.** `ghcr.io/open-webui/open-webui:v0.11.0` unpacks to **7.16 GB**, which put a 16 GB rootfs at 54% used with nothing running and no user data. The binding constraint is not steady state but upgrades: `docker compose pull` fetches the new image before releasing the old, so an upgrade needs roughly 14 GB of images simultaneously and would have failed on disk.
+
+A leaner variant was investigated and rejected as a fix. Probing the ghcr manifest API, `v0.11.0-slim`, `-cuda` and `-ollama` all exist (`-lite` does not), but slim's compressed layer total is 1473 MB against the standard image's 1741 MB — a ~270 MB delta, so "slim" is not a no-local-ML build and does not change the arithmetic. Since any tag needs room for two images during an upgrade, capacity was the correct lever. local-lvm had 279 GB free after the resize, so the cost is negligible.
 
 ### Version pairing
 
