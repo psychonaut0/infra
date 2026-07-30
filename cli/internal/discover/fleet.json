@@ -3,6 +3,9 @@
     "ct-backup": {
       "ip": "192.168.3.13"
     },
+    "ct-chat": {
+      "ip": "192.168.3.18"
+    },
     "ct-dns": {
       "ip": "192.168.3.5"
     },
@@ -110,6 +113,9 @@
     "mosquitto": [
       "ct-ha"
     ],
+    "open-webui": [
+      "ct-chat"
+    ],
     "pihole": [
       "ct-dns"
     ],
@@ -120,6 +126,7 @@
       "ct-mgmt"
     ],
     "portainer-agent": [
+      "ct-chat",
       "ct-dns",
       "ct-files",
       "ct-ha",

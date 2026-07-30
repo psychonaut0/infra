@@ -46,3 +46,6 @@ ct-portfolio:
 
 ct-workout:
   ip: 192.168.3.17
+
+ct-chat:
+  ip: 192.168.3.18
