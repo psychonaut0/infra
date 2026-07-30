@@ -8,6 +8,10 @@ export const sections = [
       { name: 'Jellyfin', desc: 'Media server', href: 'http://jellyfin.lan', ping: 'http://192.168.3.8:8096', icon: `${I}/jellyfin.svg` },
       { name: 'Immich', desc: 'Photos', href: 'https://immich.lan', ping: 'http://192.168.3.9:2283', icon: `${I}/immich.svg` },
       { name: 'Workout', desc: 'Workout tracker API', href: 'http://workout.lan', ping: 'http://192.168.3.17:8080', icon: `${I}/workout.svg` },
+      // No .lan hostname by design (public-only via Cloudflare Tunnel), so href
+      // is the direct IP:port — same pattern as the Media Tools entries. Keeps
+      // the real domain out of this public repo.
+      { name: 'Open WebUI', desc: 'AI chat', href: 'http://192.168.3.18:8080', ping: 'http://192.168.3.18:8080/health', icon: `${I}/openwebui.svg` },
     ],
   },
   {

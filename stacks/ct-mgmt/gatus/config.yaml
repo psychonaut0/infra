@@ -225,6 +225,23 @@ endpoints:
     alerts:
       - type: telegram
 
+  - name: Open WebUI (LAN)
+    group: important
+    # /health is intentionally unauthenticated in Open WebUI, so this is a pure
+    # liveness probe. The public hostname gets its own check asserting that
+    # Cloudflare Access is *enforcing* — see that entry for why it must not
+    # assert 200.
+    url: "http://192.168.3.18:8080/health"
+    interval: 60s
+    conditions:
+      - "[CONNECTED] == true"
+      - "[STATUS] == 200"
+    alerts:
+      - type: telegram
+        failure-threshold: 3
+        success-threshold: 2
+        send-on-resolved: true
+
   # --- Tier 3: Background (120s, alert after 3 failures) ---
 
   - name: Sonarr
