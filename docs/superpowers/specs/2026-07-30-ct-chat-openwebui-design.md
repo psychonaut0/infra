@@ -98,15 +98,19 @@ No SearXNG container — Brave was chosen as the search provider.
 
 ### One credential, five slots
 
-Every OpenAI-compatible base URL in Open WebUI defaults to `${OPENAI_API_BASE_URL}` — verified individually for `RAG_OPENAI_API_BASE_URL`, `AUDIO_STT_OPENAI_API_BASE_URL`, `AUDIO_TTS_OPENAI_API_BASE_URL` and `IMAGES_OPENAI_API_BASE_URL`. Setting the root pair therefore propagates to every slot, and the per-slot URLs are left unset on purpose rather than repeated.
+**Corrected during implementation (2026-07-30) — the documented inheritance does not work.** The env reference states each per-slot OpenAI-compatible base URL defaults to `${OPENAI_API_BASE_URL}`, and this spec originally relied on that to justify setting only the root pair. Querying the `config` table after first boot on v0.11.0 showed otherwise: `rag.openai.api_base_url`, `audio.stt.openai.api_base_url`, `audio.tts.openai.api_base_url` and `image_generation.openai.api_base_url` all seeded to the literal `https://api.openai.com/v1` with an **empty** `api_key`. Chat worked; embeddings, STT, TTS and image generation would every one have failed against the wrong host with no credential.
+
+**Every slot is therefore configured explicitly** — base URL *and* key, eight variables in total. The "one credential" property still holds, but it is achieved by repetition, not inheritance. This is exactly the class of defect that only surfaces by inspecting live state, since the documentation asserts the opposite.
 
 | Slot | Configuration |
 |---|---|
-| Chat | `OPENAI_API_BASE_URL=https://openrouter.ai/api/v1`, `OPENAI_API_KEY=<openrouter key>` |
-| Embeddings | `RAG_EMBEDDING_ENGINE=openai`, `RAG_EMBEDDING_MODEL=openai/text-embedding-3-small` |
-| Speech-to-text | `AUDIO_STT_ENGINE=openai`, `AUDIO_STT_MODEL=openai/gpt-4o-mini-transcribe` |
-| Text-to-speech | `AUDIO_TTS_ENGINE=openai`, `AUDIO_TTS_MODEL=hexgrad/kokoro-82m`, `AUDIO_TTS_VOICE=<voice from that model's set>` |
-| Image generation | `ENABLE_IMAGE_GENERATION=true`, `IMAGE_GENERATION_ENGINE=openai` (already the default), `IMAGE_GENERATION_MODEL=google/gemini-2.5-flash-image` |
+| Chat | `OPENAI_API_BASE_URL`, `OPENAI_API_KEY` |
+| Embeddings | `RAG_EMBEDDING_ENGINE=openai`, `RAG_EMBEDDING_MODEL=openai/text-embedding-3-small`, **`RAG_OPENAI_API_BASE_URL`, `RAG_OPENAI_API_KEY`** |
+| Speech-to-text | `AUDIO_STT_ENGINE=openai`, `AUDIO_STT_MODEL=openai/gpt-4o-mini-transcribe`, **`AUDIO_STT_OPENAI_API_BASE_URL`, `AUDIO_STT_OPENAI_API_KEY`** |
+| Text-to-speech | `AUDIO_TTS_ENGINE=openai`, `AUDIO_TTS_MODEL=hexgrad/kokoro-82m`, `AUDIO_TTS_VOICE=af_bella`, **`AUDIO_TTS_OPENAI_API_BASE_URL`, `AUDIO_TTS_OPENAI_API_KEY`** |
+| Image generation | `ENABLE_IMAGE_GENERATION=true`, `IMAGE_GENERATION_ENGINE=openai` (already the default), `IMAGE_GENERATION_MODEL=google/gemini-2.5-flash-image`, **`IMAGES_OPENAI_API_BASE_URL`, `IMAGES_OPENAI_API_KEY`** |
+
+Base URL is `https://openrouter.ai/api/v1` and the key is the OpenRouter key in every row. The bolded per-slot pairs are the ones added by the correction above — omitting any of them silently points that slot at `api.openai.com` with no credential.
 
 Model IDs above were taken from OpenRouter's published collections on 2026-07-30 and are starting points, not constraints — the catalogue moves fast. Cheaper or better-suited swaps within each slot: `openai/whisper-large-v3-turbo` for STT, `deepgram/aura-2` or `microsoft/mai-voice-2-flash` for TTS, `black-forest-labs/flux.2-klein-4b` or `openai/gpt-image-2` for images.
 
