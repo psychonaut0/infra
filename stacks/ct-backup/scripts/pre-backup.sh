@@ -27,13 +27,14 @@ declare -A CT_IPS=(
   [ct-ha]=192.168.3.10
   [ct-tools]=192.168.3.15
   [ct-workout]=192.168.3.17
+  [ct-chat]=192.168.3.18
 )
 # CTs whose full /opt/stacks state must be captured (not just .env). These CTs
 # keep their service data (HA config, Mosquitto passwd/data, ESPHome per-device
 # keys, ct-workout's JWT signing key in secrets/) inside their /opt/stacks
 # subdir — bind-mounted into the Docker containers — so the full tree is what
 # matters.
-FULL_STACK_CTS=(ct-ha ct-tools ct-games ct-workout ct-files)
+FULL_STACK_CTS=(ct-ha ct-tools ct-games ct-workout ct-files ct-chat)
 PROXMOXMAIN_IP=192.168.3.2
 PROXMOXNODE_IP=192.168.3.3
 
@@ -71,6 +72,14 @@ done
 # and every password silently stops working. The regenerable index/thumbnail
 # cache deliberately lives at /var/lib/copyparty, outside /opt/stacks, so it is
 # NOT swept up here.
+#
+# ct-chat is here because Open WebUI keeps ALL of its state in a ./data bind
+# mount under /opt/stacks/ct-chat rather than a Docker named volume, so the
+# volume-export path would capture nothing at all. Its .env also holds the
+# OpenRouter and Brave API keys plus WEBUI_SECRET_KEY — without that key a
+# restored data/ cannot decrypt its own at-rest fields. Note that most Open
+# WebUI settings are persistent ConfigVars living in data/webui.db, so that
+# database is the live *configuration*, not just chat history.
 #
 # Excludes skip regenerable MC-server derivatives (BlueMap tile cache,
 # server logs, crash reports, downloaded libraries/versions). Only MC
@@ -136,6 +145,7 @@ ssh "${SSH_OPTS[@]}" "root@${CT_IPS[ct-workout]}" pg-dump-powersync \
 SQLITE_TARGETS=(
   "ct-ha:ha"
   "ct-nvr:frigate"
+  "ct-chat:openwebui"
 )
 for ENTRY in "${SQLITE_TARGETS[@]}"; do
   CT="${ENTRY%%:*}"
