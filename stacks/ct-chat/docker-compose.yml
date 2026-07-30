@@ -25,32 +25,46 @@ services:
       # Safety net: even a signup leak cannot self-approve.
       DEFAULT_USER_ROLE: pending
 
-      # --- Chat (OpenRouter). Every other OpenAI-compatible base URL in Open
-      # WebUI defaults to ${OPENAI_API_BASE_URL}, so the per-slot URLs are
-      # deliberately NOT set — they inherit this one. ---
+      # --- Chat (OpenRouter) ---
+      #
+      # IMPORTANT: the docs state each per-slot OpenAI-compatible base URL
+      # "defaults to ${OPENAI_API_BASE_URL}". That is NOT what happens at
+      # first-boot seeding — VERIFIED 2026-07-30 on v0.11.0, where rag.*,
+      # audio.stt.*, audio.tts.* and image_generation.* all seeded to the
+      # literal "https://api.openai.com/v1" with an EMPTY key, so every
+      # non-chat slot would have failed. Every slot is therefore set
+      # explicitly below. Do not "simplify" these away.
       OPENAI_API_BASE_URL: https://openrouter.ai/api/v1
       OPENAI_API_KEY: ${OPENROUTER_API_KEY}
 
-      # --- Embeddings. MANDATORY: empty means SentenceTransformers, ~500MB per
-      # worker, which does not fit the 2048MB allocation. ---
+      # --- Embeddings. MANDATORY: empty engine means SentenceTransformers,
+      # ~500MB per worker, which does not fit the 2048MB allocation. ---
       RAG_EMBEDDING_ENGINE: openai
       RAG_EMBEDDING_MODEL: openai/text-embedding-3-small
+      RAG_OPENAI_API_BASE_URL: https://openrouter.ai/api/v1
+      RAG_OPENAI_API_KEY: ${OPENROUTER_API_KEY}
 
-      # --- Speech-to-text. MANDATORY: empty runs a local Whisper instance on
-      # the backend. ---
+      # --- Speech-to-text. MANDATORY: empty engine runs a local Whisper
+      # instance on the backend. ---
       AUDIO_STT_ENGINE: openai
       AUDIO_STT_MODEL: openai/gpt-4o-mini-transcribe
+      AUDIO_STT_OPENAI_API_BASE_URL: https://openrouter.ai/api/v1
+      AUDIO_STT_OPENAI_API_KEY: ${OPENROUTER_API_KEY}
 
       # --- Text-to-speech. AUDIO_TTS_VOICE is specific to AUDIO_TTS_MODEL and
       # cannot be carried across a model swap. ---
       AUDIO_TTS_ENGINE: openai
       AUDIO_TTS_MODEL: hexgrad/kokoro-82m
       AUDIO_TTS_VOICE: ${AUDIO_TTS_VOICE}
+      AUDIO_TTS_OPENAI_API_BASE_URL: https://openrouter.ai/api/v1
+      AUDIO_TTS_OPENAI_API_KEY: ${OPENROUTER_API_KEY}
 
       # --- Image generation ---
       ENABLE_IMAGE_GENERATION: "true"
       IMAGE_GENERATION_ENGINE: openai
       IMAGE_GENERATION_MODEL: google/gemini-2.5-flash-image
+      IMAGES_OPENAI_API_BASE_URL: https://openrouter.ai/api/v1
+      IMAGES_OPENAI_API_KEY: ${OPENROUTER_API_KEY}
 
       # --- Web search (Brave). WEB_SEARCH_RESULT_COUNT is left at its default
       # of 3. CONCURRENT_REQUESTS=1 is the documented setting for Brave's free
