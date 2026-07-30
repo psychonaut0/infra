@@ -100,10 +100,18 @@ Order matters.
 2. **Restore the stack tree**, from the ct-backup full-stack rsync:
    `stacks/ct-chat/` in the restic snapshot.
 3. **Prefer the SQLite dump over the rsynced database.** The online `.backup`
-   snapshot at `sqlite/ct-chat-openwebui.db.gz` is crash-consistent; the rsynced
-   `data/webui.db` is not, because the database runs in **WAL mode** and a file
-   copy without its `-wal` sidecar loses recent transactions. If the two
+   snapshot at `sqlite/ct-chat-openwebui.db.gz` is taken through SQLite's own
+   backup API and is therefore crash-consistent.
+
+   The rsynced copy is *not*. The database runs in **WAL mode**, and while the
+   rsync does capture all three files (`webui.db`, `-wal`, `-shm` — verified in
+   the 2026-07-30 snapshot), it copies them at three different instants with a
+   live writer running, so they can be mutually inconsistent. If the two sources
    disagree, the dump is authoritative.
+
+   Verified end-to-end on 2026-07-30 (snapshot `67de5f4d`): the 20,227-byte
+   gzip restored to a 659,456-byte database, `pragma integrity_check` returned
+   `ok`, and all 341 config rows survived.
 
    ```bash
    restic dump latest /var/backup-staging/sqlite/ct-chat-openwebui.db.gz \
