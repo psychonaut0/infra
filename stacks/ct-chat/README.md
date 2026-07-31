@@ -202,19 +202,34 @@ appear to work while recall silently never happens. It also produced a knock-on
 400 from OWUI's own chat pipeline (`Input required: specify "prompt" or
 "messages"`).
 
-Applied fix — one line, at ~line 2010 of the function body:
+**Four** calls needed `await`, in two rounds — the first pass fixed only the
+`Memories` call and the store path then failed separately with
+`'coroutine' object has no attribute 'role'` (an unawaited `Users` lookup handed
+to `add_memory(user=...)`, which reads `user.role`). Both classes are the same
+underlying cause: OWUI 0.11 made these model-layer APIs async.
 
-```python
-# before
-user_memories = Memories.get_memories_by_user_id(user_id=str(user_id))
-# after
-user_memories = await Memories.get_memories_by_user_id(user_id=str(user_id))
+| Line (approx) | Enclosing function | Call |
+|---|---|---|
+| 2010 | `_get_formatted_memories` | `await Memories.get_memories_by_user_id(...)` |
+| 1130 | `_summarize_old_memories_loop` | `await Users.get_user_by_id(...)` |
+| 2199 | `_process_user_memories` | `await Users.get_user_by_id(...)` |
+| 3753 | `process_memories` | `await Users.get_user_by_id(...)` |
+
+All four sites are inside `async def` bodies, so `await` is valid at each. The
+memory helpers it imports from `open_webui.routers.memories` (`add_memory`,
+`query_memory`, `delete_memory_by_id`) were already awaited correctly.
+
+To confirm the patch is intact:
+
+```bash
+sqlite3 data/webui.db 'select content from function where id="adaptive_memory_v3";' \
+  | grep -c "await Users.get_user_by_id"            # want 3
+sqlite3 data/webui.db 'select content from function where id="adaptive_memory_v3";' \
+  | grep -c "await Memories.get_memories_by_user_id" # want 1
 ```
 
-Every other memory helper it uses (`add_memory`, `delete_memory_by_id`,
-`query_memory`) was already awaited correctly — this was the only defect.
-
-- Unmodified original: **`/root/adaptive_memory_v3.orig.py`** on ct-chat.
+- Unmodified original: **`/root/adaptive_memory_v3.orig.py`** on ct-chat
+  (`/root/adaptive_memory_v3.prepatch2.py` is the intermediate state).
 - The patched body lives in `function.content` in `data/webui.db`, so it **is**
   captured by the nightly SQLite dump and survives a restore.
 - **Re-importing or updating the function from the community site reverts this
