@@ -12,6 +12,7 @@
   - `portfolio.<PERSONAL_DOMAIN>` (HTTPS) → `192.168.3.16:3000` (portfolio on ct-portfolio)
   - `drive.<PERSONAL_DOMAIN>` (HTTPS) → `192.168.3.11:3923` (copyparty psy on ct-files)
   - `family.<PERSONAL_DOMAIN>` (HTTPS) → `192.168.3.11:3924` (copyparty family on ct-files)
+  - `chat.<PERSONAL_DOMAIN>` (HTTPS) → `192.168.3.18:8080` (Open WebUI on ct-chat) — **the only tunnel hostname gated by Cloudflare Access**; unauthenticated requests get a 302 to the Access login page, which Gatus asserts on
 - **Tunnel ingress is remotely managed but mirrored.** ct-tunnel runs `cloudflared tunnel run` with a `TUNNEL_TOKEN`, so hostname→origin rules live in the Cloudflare Zero Trust dashboard and a change there produces **no repo diff**. `stacks/ct-tunnel/ingress.yml` mirrors that state via `infra tunnel export`; `infra tunnel diff` audits drift (exit 2 = drifted, 1 = check failed). **Run export after any dashboard change** or the mirror goes stale silently. Converting to a locally-managed tunnel is not possible in place — `config_src` is fixed at creation — and was rejected; see `stacks/ct-tunnel/README.md`.
 
 ## Network & Devices
@@ -30,7 +31,7 @@
 - **CPU:** Intel i5-10400 @ 2.90GHz (6C/12T)
 - **RAM:** 32GB
 - **Role:** Primary Proxmox hypervisor node. Clustered with proxmoxnode. Authorized keys are shared across the cluster. Hosts all bulk storage — mergerfs pool `/mnt/cloud` (exposed as the `cloud` PVE dir pool) and `nvr-data` LVM thin — bind-mounted into local CTs.
-- **CTs:** ct-tunnel (VMID 103), ct-nvr (VMID 104), ct-media (VMID 105), ct-photos (VMID 106), ct-files (VMID 107), ct-mgmt (VMID 108), ct-backup (VMID 109), ct-tools (VMID 110), ct-games (VMID 112), ct-portfolio (VMID 113), ct-workout (VMID 114)
+- **CTs:** ct-tunnel (VMID 103), ct-nvr (VMID 104), ct-media (VMID 105), ct-photos (VMID 106), ct-files (VMID 107), ct-mgmt (VMID 108), ct-backup (VMID 109), ct-tools (VMID 110), ct-games (VMID 112), ct-portfolio (VMID 113), ct-workout (VMID 114), ct-chat (VMID 115)
 - **Storage:** See `docs/hardware.md` for full disk and storage layout.
 
 ### proxmoxnode
@@ -168,6 +169,17 @@
 - **Ports:** 8080 (Go API, LAN entry via Caddy at http://workout.lan), 8090 (PowerSync, http://workout-sync.lan)
 - **Config notes:** AppArmor unconfined + proc/sys rw mount for Docker compatibility. Server container runs as dedicated non-root user `workout` (UID 900), which owns `secrets/jwt_private_key.pem` (0600, delivered via compose `secrets:`). One-time `powersync_role` LOGIN+password grant required after fresh deploy *and* after DB restore (plain `pg_dump` doesn't capture roles) — runbook in `stacks/ct-workout/README.md`. Backed up nightly by ct-backup: full `/opt/stacks/ct-workout` tree (includes `.env` + JWT key) plus both Postgres dumps (`pg-dump-workout`, `pg-dump-powersync`).
 
+### ct-chat (LXC — VMID 115 on proxmoxmain)
+- **IP:** 192.168.3.18
+- **User:** root
+- **OS:** Debian 13 (Trixie), unprivileged LXC
+- **SSH:** Port 22, key-based auth (no password)
+- **Resources:** 2 vCPU, 2048MB RAM, 512MB swap, 32GB disk
+- **Role:** AI chat frontend — a self-hosted ChatGPT equivalent. Runs Open WebUI against a single OpenRouter account, publicly reachable at `chat.<PERSONAL_DOMAIN>` via the existing Cloudflare Tunnel and gated by Cloudflare Access. Native Android/iOS client is Conduit.
+- **Stack:** `/opt/stacks/ct-chat/docker-compose.yml` (local copy: `stacks/ct-chat/`)
+- **Ports:** 8080 (Open WebUI HTTP)
+- **Config notes:** AppArmor unconfined + proc/sys rw mount for Docker compatibility. Image pinned to `v0.11.0`; upstream ships breaking changes between minors and **Conduit v4.0.0 is the tested pair** — roll back to v0.10.2 only together with an older Conduit. **Disk is 32GB, not 16GB, deliberately:** the image unpacks to 7.16GB and `docker compose pull` fetches the new image before releasing the old, so an upgrade needs ~14GB of images at once; check `df -h /` before pulling. **`RAG_EMBEDDING_ENGINE=openai` and `AUDIO_STT_ENGINE=openai` are load-bearing RAM controls, not preferences** — their empty defaults load SentenceTransformers (~500MB *per worker*) and a local Whisper instance, and the 2GB allocation assumes neither ever loads. **Every OpenRouter slot is configured explicitly (8 vars):** the env docs claim per-slot base URLs inherit `${OPENAI_API_BASE_URL}`, which is **false at first-boot seeding** (verified on v0.11.0) — they seed to literal `https://api.openai.com/v1` with an empty key, so embeddings/STT/TTS/images would all fail while chat worked. **Most Open WebUI settings are persistent `ConfigVar`s:** env is read on *first boot only*, then `data/webui.db` wins, so change settings in the Admin Panel and mirror them back to compose — the compose file is a seed, not live state. TTS returns raw PCM from OpenRouter, which Open WebUI transcodes to mp3 via pydub+ffmpeg (works as-is, no config needed). Image generation costs ~$0.039 each — consider `USER_PERMISSIONS_FEATURES_IMAGE_GENERATION` to scope it. **`WEBUI_AUTH_TRUSTED_EMAIL_HEADER` is deliberately unset:** port 8080 is LAN-reachable, so trusting Cloudflare Access's email header would let any LAN host forge authentication (verified blocked). State is a `./data` bind mount, not a Docker volume, so ct-backup captures the full `/opt/stacks` tree plus an online SQLite `.backup`. Memory uses the Adaptive Memory community function because native Personalization memory only honours ~3 entries (upstream #19196) — re-test memory after every upgrade. No `.lan` hostname by design, so LAN traffic round-trips through the WAN and there is no access at all if the tunnel is down. Runbook: `stacks/ct-chat/README.md`.
+
 ### ct-photos (LXC — VMID 106 on proxmoxmain)
 - **IP:** 192.168.3.9
 - **User:** root
@@ -217,6 +229,7 @@ blvckmain (main PC)
   ├── ssh ct-tools       → 192.168.3.15:22   (root, key auth)
   ├── ssh ct-portfolio   → 192.168.3.16:22   (root, key auth)
   ├── ssh ct-workout     → 192.168.3.17:22   (root, key auth)
+  ├── ssh ct-chat        → 192.168.3.18:22   (root, key auth)
   └── ssh ct-backup      → 192.168.3.13:22   (root, key auth)
 ```
 
@@ -235,6 +248,7 @@ Immich photo management runs on ct-photos (https://immich.lan or http://192.168.
 Minecraft servers run on ct-games (192.168.3.14:25565 for vanilla/Paper, :25566 for modded). Vanilla is publicly reachable at `mc.<PERSONAL_DOMAIN>:25565` via UniFi port-forward from the static public IP. Playit.gg agent remains as transitional fallback and will be retired. LAN RCON on :25575 (vanilla) / :25576 (modded). Daily `.tgz` archives on mergerfs at `/mnt/cloud/volumes/games/archives/<server>/`.
 Portfolio site runs on ct-portfolio (https://portfolio.<PERSONAL_DOMAIN> publicly, http://portfolio.lan on LAN). Stateless Next.js standalone container pulled from `ghcr.io/psychonaut0/portfolio:latest`. Source repo: `github.com/psychonaut0/portfolio` (separate from infra).
 Workout-tracker backend runs on ct-workout (http://workout.lan API, http://workout-sync.lan PowerSync). Go API + app Postgres + PowerSync service + dedicated bucket-storage Postgres, serving the phone app. LAN-only. Server image: `ghcr.io/psychonaut0/workout-tracker-server` (source repo `github.com/psychonaut0/workout-tracker`, separate from infra).
+Open WebUI runs on ct-chat (https://chat.<PERSONAL_DOMAIN> publicly, http://192.168.3.18:8080 on LAN) as a self-hosted ChatGPT equivalent over a single OpenRouter account — persistent memory, Brave-backed web search, embeddings/STT/TTS/image generation all through the same key. Public access is gated by Cloudflare Access; Conduit is the native Android/iOS client. There is deliberately no `.lan` hostname.
 infra CLI release mirror runs natively on ct-mgmt as a systemd timer (every 5 min) and is served via Caddy at http://infra-bin.lan. Pulls GitHub Release artifacts and re-publishes to the LAN. Source + deploy notes: `stacks/ct-mgmt/infra-mirror/`.
 Hardware and storage details in `docs/hardware.md`.
 
