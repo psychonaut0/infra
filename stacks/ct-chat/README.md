@@ -143,6 +143,61 @@ allowlist, web-search settings and installed functions.
 **Rollback:** pin `v0.10.2` *and* install a correspondingly older Conduit.
 Never mix v0.10.2 with Conduit v4.0.0.
 
+## Rotating the OpenRouter key — three places, not one
+
+The key is stored in three independent locations. Missing any one leaves a
+component silently broken:
+
+1. **`.env`** — `OPENROUTER_API_KEY`. Seeds first boot only.
+2. **`data/webui.db` config** — `openai.api_keys`, plus `rag.openai.api_key`,
+   `audio.stt.openai.api_key`, `audio.tts.openai.api_key` and
+   `image_generation.openai.api_key`. These are persistent ConfigVars, so change
+   them in **Admin Panel → Settings** (Connections / Documents / Audio / Images),
+   not by editing `.env`.
+3. **The Adaptive Memory function's valves** — `llm_api_key` on
+   `adaptive_memory_v3`, set via Admin Panel → Functions → its gear icon.
+
+Symptom of forgetting (3): chat keeps working while memory silently stops
+recording anything, because the filter logs its failure and returns normally.
+
+## Adaptive Memory configuration
+
+Installing the function and setting `llm_model_name` is **not sufficient**. Its
+`llm_provider_type` defaults to `"ollama"` and its endpoint to
+`http://host.docker.internal:11434/api/chat`, so out of the box it tries to
+reach a local Ollama that does not exist here, fails after three retries, logs
+`No valid memories to process after filtering/identification`, and returns
+normally — the UI shows no error at all.
+
+Four valves are required:
+
+| Valve | Value |
+|---|---|
+| `llm_provider_type` | `openai_compatible` |
+| `llm_api_endpoint_url` | `https://openrouter.ai/api/v1/chat/completions` |
+| `llm_api_key` | the OpenRouter key (mandatory — the code raises without it) |
+| `llm_model_name` | `qwen/qwen3.7-flash` |
+
+Note the endpoint needs the **full path** including `/chat/completions`, unlike
+the base URLs used elsewhere in this stack.
+
+The function must also be both **Active** and **Global** — a filter that is
+imported but not enabled does nothing, and one that is active but not global
+must be attached to each model individually.
+
+To confirm it is working, check for the absence of `11434` in the logs
+*since the container started* (mind the timezone: log timestamps are local while
+`docker logs --since` is UTC):
+
+```bash
+docker logs --since <container-start-utc> open-webui 2>&1 | grep -c 11434   # want 0
+sqlite3 data/webui.db 'select count(*) from memory;'                        # want > 0
+```
+
+Model choice is cost-insensitive here: at ~2k in / 200 out tokens per turn,
+`qwen3.7-flash` runs about $0.09 per 1,000 turns, against $0.0387 for a single
+generated image. Optimise for extraction reliability, not price.
+
 ## Model swaps
 
 `AUDIO_TTS_VOICE` is specific to `AUDIO_TTS_MODEL` — each TTS model publishes its
