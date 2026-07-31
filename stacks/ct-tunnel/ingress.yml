@@ -10,7 +10,7 @@
 # public. The real value lives in ~/.config/infra/cloudflare.yml and CLAUDE.local.md.
 
 source: cloudflare
-version: 3
+version: 4
 ingress:
     - hostname: portfolio.<PERSONAL_DOMAIN>
       service: http://192.168.3.16:3000
@@ -18,6 +18,8 @@ ingress:
       service: http://192.168.3.11:3923
     - hostname: family.<PERSONAL_DOMAIN>
       service: http://192.168.3.11:3924
+    - hostname: chat.<PERSONAL_DOMAIN>
+      service: http://192.168.3.18:8080
     - service: http_status:404
 warp-routing:
     enabled: false
