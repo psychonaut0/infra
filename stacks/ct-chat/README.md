@@ -143,6 +143,47 @@ allowlist, web-search settings and installed functions.
 **Rollback:** pin `v0.10.2` *and* install a correspondingly older Conduit.
 Never mix v0.10.2 with Conduit v4.0.0.
 
+## Voice, image generation and the HTTPS requirement
+
+**Voice input and hands-free call mode only work over `https://chat.<PERSONAL_DOMAIN>`,
+never over `http://192.168.3.18:8080`.** Browsers gate
+`navigator.mediaDevices.getUserMedia` behind a secure context, and a bare LAN IP
+over plain HTTP is not one (only `localhost` is exempt). The microphone button
+will be unavailable or fail there, with nothing wrong server-side.
+
+This makes the public hostname *required* for voice, not merely convenient — a
+consequence of the deliberate no-`.lan`-hostname decision. Conduit is unaffected:
+it is a native app with its own microphone permission.
+
+**Text-to-speech returns raw PCM**, not mp3 — `audio/pcm;rate=24000;channels=1`.
+Open WebUI transcodes it via pydub + ffmpeg (`transcode_audio_to_mp3`, which
+explicitly handles "raw PCM audio (e.g. Gemini-TTS via OpenRouter/LiteLLM)"), so
+no configuration is needed. It does mean **ffmpeg must be present in the image**
+and `BYPASS_PYDUB_PREPROCESSING` must stay unset, or you get unplayable audio.
+
+**Speech-to-text auto-detects language and can get it wrong on short clips.** A
+synthetic English test clip round-tripped as Japanese katakana. Real dictation
+should be fine; if it consistently mis-detects, look for an STT language setting
+rather than assuming the model is broken.
+
+**`IMAGE_SIZE` must be set explicitly.** Open WebUI defaults to `512x512` and
+*does* send it — `routers/images.py` builds `{'size': form_data.size or
+IMAGE_SIZE}` — but 512x512 is below the minimum pixel budget of current image
+models, so generation fails with an opaque 400. Verified 2026-07-31:
+
+| Model | 512x512 | 1024x1024 | no size |
+|---|---|---|---|
+| `google/gemini-2.5-flash-image` | 400 "Request contains an invalid argument" | **200** | 200 |
+| `openai/gpt-image-2` | 400 "below the current minimum pixel budget" | — | — |
+
+Pinned to `1024x1024`. Omitting `size` also works for Gemini, but the UI's size
+selector can reintroduce a value, so an explicitly valid size is the safer fix.
+Note `IMAGE_AUTO_SIZE_MODELS_REGEX_PATTERN` defaults to `^gpt-image`, so Gemini
+models never get the `auto` escape hatch.
+
+Image generation costs **~$0.039 per image** — roughly 114× a memory-extraction
+turn. `USER_PERMISSIONS_FEATURES_IMAGE_GENERATION` can scope it per user.
+
 ## Rotating the OpenRouter key — three places, not one
 
 The key is stored in three independent locations. Missing any one leaves a
