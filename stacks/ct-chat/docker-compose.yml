@@ -25,6 +25,25 @@ services:
       # Safety net: even a signup leak cannot self-approve.
       DEFAULT_USER_ROLE: pending
 
+      # --- Native memory: OFF, deliberately ---
+      # Open WebUI's own memory is enabled by default and would run *alongside*
+      # the Adaptive Memory filter — duplicating the work, injecting a second
+      # system context every turn, and it is the ~3-entry-capped implementation
+      # (upstream #19196) that the filter exists to replace. It is also the
+      # prime suspect for "'list' object has no attribute 'strip'" on
+      # multimodal (image + text) prompts, since utils/memory.py calls
+      # .strip() on the result of get_content_from_message without re-checking
+      # the type.
+      ENABLE_MEMORIES: "false"
+      ENABLE_MEMORY_SYSTEM_CONTEXT: "false"
+
+      # --- Image editing: NOT available via OpenRouter ---
+      # Verified 2026-07-31: OpenRouter has no /images/edits endpoint (404), so
+      # Open WebUI's edit feature cannot work against it. Left disabled rather
+      # than half-configured. Gemini image models do support editing
+      # *conversationally* — attach the image in chat and ask for changes.
+      ENABLE_IMAGE_EDIT: "false"
+
       # --- Chat (OpenRouter) ---
       #
       # IMPORTANT: the docs state each per-slot OpenAI-compatible base URL
