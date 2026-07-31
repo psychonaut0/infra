@@ -185,6 +185,46 @@ The function must also be both **Active** and **Global** — a filter that is
 imported but not enabled does nothing, and one that is active but not global
 must be attached to each model individually.
 
+### ⚠ The installed function is PATCHED — do not blindly re-import
+
+`adaptive_memory_v3` as published is **incompatible with Open WebUI 0.11.0**.
+OWUI 0.11 made `MemoriesTable.get_memories_by_user_id` async; the function calls
+it synchronously inside the already-async `_get_formatted_memories`, so
+retrieval raises:
+
+```
+Error getting formatted memories: 'coroutine' object is not iterable
+RuntimeWarning: coroutine 'MemoriesTable.get_memories_by_user_id' was never awaited
+```
+
+Consequence: **stored memories are never injected into context.** Extraction can
+appear to work while recall silently never happens. It also produced a knock-on
+400 from OWUI's own chat pipeline (`Input required: specify "prompt" or
+"messages"`).
+
+Applied fix — one line, at ~line 2010 of the function body:
+
+```python
+# before
+user_memories = Memories.get_memories_by_user_id(user_id=str(user_id))
+# after
+user_memories = await Memories.get_memories_by_user_id(user_id=str(user_id))
+```
+
+Every other memory helper it uses (`add_memory`, `delete_memory_by_id`,
+`query_memory`) was already awaited correctly — this was the only defect.
+
+- Unmodified original: **`/root/adaptive_memory_v3.orig.py`** on ct-chat.
+- The patched body lives in `function.content` in `data/webui.db`, so it **is**
+  captured by the nightly SQLite dump and survives a restore.
+- **Re-importing or updating the function from the community site reverts this
+  patch.** If memory stops recalling after any such update, this is the first
+  thing to check: `grep -c "await Memories.get_memories_by_user_id"` against the
+  stored content should be 1.
+
+This is the concrete form of the plugin-maintenance risk the spec accepted when
+choosing Open WebUI's community memory over LibreChat's native implementation.
+
 To confirm it is working, check for the absence of `11434` in the logs
 *since the container started* (mind the timezone: log timestamps are local while
 `docker logs --since` is UTC):
