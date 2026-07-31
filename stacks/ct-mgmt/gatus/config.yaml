@@ -242,6 +242,32 @@ endpoints:
         success-threshold: 2
         send-on-resolved: true
 
+  - name: Open WebUI (public, Access enforced)
+    group: important
+    # Asserts 302 ON PURPOSE, not < 400. Cloudflare Access redirects every
+    # unauthenticated request — including /health — to the Access login page.
+    # A 200 here would mean Access has STOPPED enforcing and the app is bare on
+    # the internet in front of a paid API key, so 200 must fail this check
+    # rather than pass it. Verified enforced code on 2026-07-31: 302 to
+    # <team>.cloudflareaccess.com/cdn-cgi/access/login/chat.<domain>.
+    url: "https://chat.${PERSONAL_DOMAIN}/health"
+    interval: 5m
+    client:
+      # Load-bearing. Gatus follows redirects by default, so it would chase the
+      # 302 to the Access login page and report that page's 200 — making a
+      # [STATUS] == 200 assertion pass for the wrong reason and hiding a real
+      # Access failure. Without this, the check cannot see the 302 at all.
+      ignore-redirect: true
+    conditions:
+      - "[CONNECTED] == true"
+      - "[STATUS] == 302"
+      - "[CERTIFICATE_EXPIRATION] > 168h"
+    alerts:
+      - type: telegram
+        failure-threshold: 3
+        success-threshold: 2
+        send-on-resolved: true
+
   # --- Tier 3: Background (120s, alert after 3 failures) ---
 
   - name: Sonarr
