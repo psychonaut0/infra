@@ -60,9 +60,19 @@ services:
       AUDIO_TTS_OPENAI_API_KEY: ${OPENROUTER_API_KEY}
 
       # --- Image generation ---
+      #
+      # IMAGE_SIZE must be set: Open WebUI defaults to 512x512 and DOES send it
+      # (routers/images.py builds {'size': form_data.size or IMAGE_SIZE}), but
+      # 512x512 is below the minimum pixel budget of current image models.
+      # VERIFIED 2026-07-31: google/gemini-2.5-flash-image returns 400 "Request
+      # contains an invalid argument" at 512x512 and 200 at 1024x1024;
+      # openai/gpt-image-2 returns 400 "Requested resolution is below the
+      # current minimum pixel budget". Omitting size also works, but the UI's
+      # size selector can reintroduce it, so pin a valid value instead.
       ENABLE_IMAGE_GENERATION: "true"
       IMAGE_GENERATION_ENGINE: openai
       IMAGE_GENERATION_MODEL: google/gemini-2.5-flash-image
+      IMAGE_SIZE: 1024x1024
       IMAGES_OPENAI_API_BASE_URL: https://openrouter.ai/api/v1
       IMAGES_OPENAI_API_KEY: ${OPENROUTER_API_KEY}
 
