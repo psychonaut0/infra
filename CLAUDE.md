@@ -23,6 +23,16 @@
 - **SSH:** Port 22, key-based auth (no password)
 - **Role:** Primary workstation; operator host for fleet operations.
 
+### blvckflow (ROG Flow Z13)
+- **Hostname:** BLVCKFlow (MagicDNS `blvckflow` on the tailnet; no Pi-hole record — workstations are not in DNS)
+- **User:** psy
+- **SSH:** Port 22, key-based auth (no password)
+- **Hardware:** ASUS ROG Flow Z13 (2025, GZ302), Ryzen AI Max "Strix Halo", 64GB LPDDR5X (soldered), 1TB NVMe
+- **Role:** Portable primary workstation. Merges the BLVCKMain and BLVCKSmall roles.
+- **OS:** Dual boot — Windows 11 (200GB, retained for Vanguard-gated games) + CachyOS (~665GB root, ext4).
+- **Boot:** systemd-boot with a **1GB XBOOTLDR** partition at `/boot`; the factory ESP at `/efi` is untouched and still holds the Windows bootloader. **Secure Boot is ENABLED** with custom keys via `sbctl` (Microsoft keys retained) — Vanguard requires it, and Secure Boot is firmware-global so it cannot be off for Linux only. `systemd-boot-manager` is deliberately **removed** (it only knows the ESP path and fails on every kernel update in this layout); `systemd-boot-update.service` is enabled in its place, and loader entries are hand-written.
+- **Known hardware gaps:** no working camera (AMD ISP4 not upstream, no OV05C10 driver), no fingerprint reader on this model, no tablet-mode events on cover detach. Sustained inference load can trigger an EC power cut. See `docs/superpowers/specs/2026-08-09-blvckflow-z13-setup-design.md`.
+
 ### proxmoxmain
 - **IP:** 192.168.3.2
 - **User:** root
@@ -216,6 +226,9 @@ Termux (phone)
   ├── ssh blvckmain      → 192.168.1.110:22  (psy, key auth)
   ├── ssh proxmoxmain    → 192.168.3.2:22    (root, key auth)
   ├── ssh proxmoxnode    → 192.168.3.3:22    (root, key auth)
+blvckflow (ROG Flow Z13)
+  ├── ssh blvckmain      → 192.168.1.110:22  (psy, key auth)
+  └── (all ct-* below plus proxmoxmain/proxmoxnode, same aliases as blvckmain)
 blvckmain (main PC)
   ├── ssh ct-dns         → 192.168.3.5:22    (root, key auth)
   ├── ssh ct-tunnel      → 192.168.3.6:22    (root, key auth)
