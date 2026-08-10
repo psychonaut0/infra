@@ -224,10 +224,22 @@ Username `psy` is required — several scripts hardcode `/home/psy`.
 
 `bootctl install` overwrites `EFI/BOOT/BOOTX64.EFI`, which on this ESP is Microsoft's fallback loader. Back it up first.
 
+**`bootctl install` must run under `arch-chroot -S`, not plain `arch-chroot`.** Plain mode uses a PID namespace, and `bootctl` deliberately refuses to touch UEFI variables there — it copies every file to the ESP and silently creates **no NVRAM entry**, so the firmware boots straight into Windows with no visible error. Verified the hard way on this build.
+
+So either run the whole configuration under `arch-chroot -S /mnt`, or do the bootloader step separately from the live environment:
+
 ```bash
 cp -a /boot/EFI/BOOT/BOOTX64.EFI /root/BOOTX64.EFI.microsoft.bak 2>/dev/null || true
-bootctl install
+bootctl install                    # only works if the chroot was entered with -S
 systemctl enable systemd-boot-update.service
+```
+
+If the NVRAM entry is missing afterwards, fix it from the live environment without re-doing anything else:
+
+```bash
+mount /dev/nvme0n1p6 /mnt && mount /dev/nvme0n1p1 /mnt/boot
+arch-chroot -S /mnt bootctl install
+efibootmgr | grep -E '^BootOrder|Linux Boot Manager'
 ```
 
 **Enabling that unit is not optional.** Arch ships it disabled (presets only apply at first enablement), which is why both existing fleet hosts run sd-boot 257.4 under systemd 261.
