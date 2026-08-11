@@ -181,8 +181,9 @@ The Z13 is a kickstand tablet with a detachable cover: **no hinge, no libinput `
 
 ## Build-order gaps found during execution
 
-Two steps were missing from the plan and both surfaced late, as confusing
-failures rather than obvious omissions:
+Four steps were missing from the plan. All of them surfaced late, as confusing
+symptoms rather than obvious omissions — the common cause being **local state on
+BLVCKSmall that nothing deploys**, so no step existed to skip:
 
 - **Stow the `system` dotfiles package before enabling Tailscale.** It ships
   `99-tailscale-subnet-fix`, the `sudoers.d/askpass` helper, the `sddm.conf.d`
@@ -192,6 +193,24 @@ failures rather than obvious omissions:
 - **Install `inetutils`.** `system/install.sh` opens with `HOST="$(hostname)"`
   under `set -euo pipefail`, and Arch does not ship `hostname` by default, so
   the installer aborts on line 14 on a fresh host.
+- **Run `~/scripts/install-fonts.sh`.** `ags/style.scss` asks for the commercial
+  `Gintronic Nerd Font`, which existed only in BLVCKSmall's
+  `~/.local/share/fonts`. Absent, fontconfig silently substitutes Noto Sans and
+  the entire shell renders in the wrong typeface at the wrong metrics — which
+  reads as mis-themed icons, text and sliders, not as a missing font. The
+  archive of record is now `ct-files:…/psy/Documents/Fonts/_install/`; the fonts
+  stay out of the repo on licence grounds. Note the archive originally held only
+  `.woff`, which fontconfig cannot use, so it had to be completed with the
+  `.ttf` set before it could install anything.
+- **Install `ttf-nerd-fonts-symbols`, `breeze-icons`, `cantarell-fonts`.** Not
+  in the curated package list. Without them the glyph fallback chain and
+  Thunar's icon fallbacks differ from the other hosts.
+
+GTK3 dark mode was a fleet-wide bug rather than a Z13 one: GTK3 ignores
+`gsettings` `color-scheme=prefer-dark` (that key only drives GTK4/libadwaita),
+so Thunar and friends rendered light against a dark shell on **all three**
+hosts. Both toolkits' `settings.ini` are now a tracked `gtk` stow package with
+`gtk-application-prefer-dark-theme=1`.
 
 ## Follow-up work
 
@@ -200,6 +219,9 @@ failures rather than obvious omissions:
 - Test `asusctl armoury set ppt_pl1_spl` below 60W against the EC power-cut-under-load defect.
 - Identify why the UVC camera yields no frames (privacy shutter? firmware gate?).
 - Keyboard backlight has no hotkey on any host; `asusctl leds next/prev` would do it once the folio's keysyms are confirmed with `wev`.
+- `hypr/env.conf` sets `QT_QPA_PLATFORMTHEME=qt5ct` but `qt5ct` is installed on **none** of the three hosts, so Qt apps are unthemed fleet-wide. Either install it or drop the variable.
+- `gsettings` names `Orchis-Pink-Dark` (gtk-theme) and `Reversal-black-dark` (icon-theme) on BLVCKSmall; neither theme exists on any host (`~/.themes` and `~/.icons` are empty). Stale strings — GTK silently falls back to Adwaita. Clean up or install them for real.
+- The AGS stylesheet emits four GTK4 CSS warnings at every start (`max-height`, `overflow`, `max-width` — unsupported properties). Harmless but noisy.
 - AGS integration for asusd over its polkit-free D-Bus API.
 - Enable `systemd-boot-update.service` on `BLVCKMain` and `BLVCKSmall` and run `bootctl update` — both are four minor versions behind.
 - Decide whether `BLVCKSmall` stays in service.
