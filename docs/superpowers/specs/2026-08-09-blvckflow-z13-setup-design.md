@@ -128,7 +128,7 @@ Kernel 7.1 clears essentially every version gate in circulating guides, most wri
 | WiFi/BT (MT7925) | Works. **Do not** apply `disable_aspm=1` preemptively — fixed in 6.17, and it costs idle power. If Bluetooth wedges, the lever is `usbcore.autosuspend=-1`, *not* downgrading `linux-firmware` |
 | Touchscreen | Works natively (merged 6.15/6.16) |
 | Stylus | Untested under Hyprland — the one "working" report used a Surface Pen |
-| Cameras | **Broken.** ISP4 not upstream, no `OV05C10` driver in any tree |
+| Cameras | **Recon was wrong.** Not an ISP4/`OV05C10` part at all — it enumerates as a plain USB UVC device (`ASUS 5M webcam`, `636e:0bda`, `/dev/video0-3`) advertising MJPG to 2592x1944. The driver works; capture returns no frames, so suspect a privacy shutter or firmware gate, not a missing driver |
 | Fingerprint | **Absent on this model** |
 | Tablet-mode switch | **Broken.** `SW_TABLET_MODE` advertised but no events on detach |
 | Suspend | s2idle. Diagnose with `amd-debug-tools`, not guesswork |
@@ -169,7 +169,8 @@ The Z13 is a kickstand tablet with a detachable cover: **no hinge, no libinput `
 
 ## Known limitations
 
-- No working camera, and no path to one until ISP4 + OV05C10 land upstream.
+- Camera enumerates as USB UVC and the driver binds, but no frames come out. Cause unidentified — a privacy shutter or firmware gate, not the missing ISP4 driver this spec originally assumed.
+- Touch gestures do not work. hyprgrass was removed; Hyprland 0.56's native `gesture` keyword is accepted by the parser but does not fire on touchscreen input. Deferred with no working path.
 - No biometric login of any kind.
 - Tablet-mode detection does not work; cover detach is invisible to userspace.
 - Sustained heavy inference may hard-cut power. Unfixable in software.
@@ -178,9 +179,27 @@ The Z13 is a kickstand tablet with a detachable cover: **no hinge, no libinput `
 - `.lan` resolution has two single points of failure (ct-dns and the subnet router), true even on the home LAN because the tailscale0 route wins for `192.168.3.0/24`.
 - The tailnet ACL policy was not readable during recon; if enrolment succeeds but `192.168.3.x` is unreachable, subnet routes may need approving.
 
+## Build-order gaps found during execution
+
+Two steps were missing from the plan and both surfaced late, as confusing
+failures rather than obvious omissions:
+
+- **Stow the `system` dotfiles package before enabling Tailscale.** It ships
+  `99-tailscale-subnet-fix`, the `sudoers.d/askpass` helper, the `sddm.conf.d`
+  files and the astronaut theme variant. Skipping it meant `--accept-routes`
+  black-holed the LAN the moment Tailscale came up, and the cause was three
+  layers away from the symptom.
+- **Install `inetutils`.** `system/install.sh` opens with `HOST="$(hostname)"`
+  under `set -euo pipefail`, and Arch does not ship `hostname` by default, so
+  the installer aborts on line 14 on a fresh host.
+
 ## Follow-up work
 
 - `infra keys add <pubkey>` — wrap the key-distribution loop, currently hand-rolled.
+- Touch gestures: neither hyprgrass nor Hyprland's native `gesture` works. Needs a fresh look.
+- Test `asusctl armoury set ppt_pl1_spl` below 60W against the EC power-cut-under-load defect.
+- Identify why the UVC camera yields no frames (privacy shutter? firmware gate?).
+- Keyboard backlight has no hotkey on any host; `asusctl leds next/prev` would do it once the folio's keysyms are confirmed with `wev`.
 - AGS integration for asusd over its polkit-free D-Bus API.
 - Enable `systemd-boot-update.service` on `BLVCKMain` and `BLVCKSmall` and run `bootctl update` — both are four minor versions behind.
 - Decide whether `BLVCKSmall` stays in service.
