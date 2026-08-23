@@ -53,6 +53,7 @@ Stated priorities, in the owner's words: **privacy**, **offline capability**, an
 | `--jinja` on this build | **already default-enabled** | Kept explicit anyway, so a future default flip cannot silently break tool-calling |
 | `orcarouter` repo access | **gated** — HTTP 401, `x-error-code: GatedRepo` | Requires an approved HF account; owner chose to authenticate rather than substitute |
 | `douyamv` alternative | **empty repo** — no GGUF files despite its description | Ruled out; recorded so nobody re-evaluates it |
+| `hf` 1.28 **Xet backend stalls** | Download dies silently at ~200 MB — process stays alive, 0 bytes for 40 s+. Reproduced on two separate files | **Always pass `HF_HUB_DISABLE_XET=1`** for large pulls on this host. The process does not exit or error, so a stalled download looks identical to a slow one — check byte deltas, not liveness |
 
 ### Model facts
 
