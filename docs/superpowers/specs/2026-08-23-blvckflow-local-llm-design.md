@@ -46,6 +46,11 @@ Stated priorities, in the owner's words: **privacy**, **offline capability**, an
 | RADV heap[1] `DEVICE_LOCAL` | **22.16 GiB** | RADV sizes the device-local heap from GTT, **not** from the 4 GiB carve-out — this is the direct proof the carve-out never needed raising |
 | RADV heap[0] `HOST_VISIBLE` | 11.08 GiB | ~33 GiB total exposed to Vulkan |
 | Headroom for KV + compute | ~6.5 GiB after a 15.65 GiB model in the device-local heap | 32K context is plausible but is the thing to watch; see *Fallbacks* |
+| `llama-cpp` build | `0.2.0-dev`, build **10566**, commit `bb4caa7540` | Postdates the 2026-05 merge |
+| `qwen35` arch support | **present in `libllama.so`** (with `qwen35moe`, `qwen3vl`, `qwen3next`) | **No source build needed.** Verified by inspecting the arch table directly rather than by a 16.8 GB trial download |
+| Device memory as llama.cpp sees it | `Vulkan0` — **34,045 MiB total, 33,009 MiB free** | It aggregates both heaps, so headroom is far better than the 22.16 GiB device-local figure alone implies; 32K context should be comfortable |
+| `--flash-attn` on this build | tri-state, defaults to `auto` | Correctly omitted from the unit; hardcoding it would only remove llama.cpp's own judgement |
+| `--jinja` on this build | **already default-enabled** | Kept explicit anyway, so a future default flip cannot silently break tool-calling |
 | `orcarouter` repo access | **gated** — HTTP 401, `x-error-code: GatedRepo` | Requires an approved HF account; owner chose to authenticate rather than substitute |
 | `douyamv` alternative | **empty repo** — no GGUF files despite its description | Ruled out; recorded so nobody re-evaluates it |
 
