@@ -33,9 +33,21 @@ Stated priorities, in the owner's words: **privacy**, **offline capability**, an
 | `mkinitcpio` HOOKS | includes `modconf` | `/etc/mkinitcpio.conf:55` |
 | Kernel cmdline | no `amdgpu` parameters set | `/proc/cmdline` |
 | Loader entries | `arch.conf`, `cachyos.conf`; booting `linux-cachyos` | `/boot/loader/entries` |
-| `llama-cpp` in Arch `extra` | `b10333-1`, installed size 17.42 MiB, depends on `ggml` | `pacman -Si` |
+| `llama-cpp` in Arch `extra` | `0.2.0-1`, installed size 17.73 MiB, depends on `ggml` | `pacman -Si` |
 | `opencode` in Arch `extra` | `1.18.16-1` | `pacman -Ss` |
-| pacman sync db age | **2026-08-12 — 11 days stale** | `/var/lib/pacman/sync/extra.db` |
+
+### Facts established during build (2026-08-23)
+
+| Fact | Value | Consequence |
+|---|---|---|
+| `ggml-vulkan` exists | **yes** — `0.21.0-1`, installed | The stale-db risk is retired; no source build needed on that account |
+| Vulkan device | `AMD Radeon 8060S Graphics (RADV STRIX_HALO)`, radv, API 1.4.354 | Backend confirmed present and correct |
+| `mem_info_gtt_total` | **31,403,888,640 B — 29.25 GiB** | Above the 24 GiB bar; **no memory configuration required** |
+| RADV heap[1] `DEVICE_LOCAL` | **22.16 GiB** | RADV sizes the device-local heap from GTT, **not** from the 4 GiB carve-out — this is the direct proof the carve-out never needed raising |
+| RADV heap[0] `HOST_VISIBLE` | 11.08 GiB | ~33 GiB total exposed to Vulkan |
+| Headroom for KV + compute | ~6.5 GiB after a 15.65 GiB model in the device-local heap | 32K context is plausible but is the thing to watch; see *Fallbacks* |
+| `orcarouter` repo access | **gated** — HTTP 401, `x-error-code: GatedRepo` | Requires an approved HF account; owner chose to authenticate rather than substitute |
+| `douyamv` alternative | **empty repo** — no GGUF files despite its description | Ruled out; recorded so nobody re-evaluates it |
 
 ### Model facts
 
@@ -96,7 +108,10 @@ The obvious move is to raise the iGPU carve-out. **That is the wrong move on thi
 
 Default GTT on recent `amdgpu` is approximately half of system RAM — around 29 GiB here — which already exceeds a 16.8 GB model plus its KV cache. **The likely outcome is that no memory configuration is needed at all.**
 
-Therefore: measure GTT first (`amdgpu_top`, or `dmesg | grep -i gtt` as root). Only if it proves short, add:
+> **Resolved 2026-08-23: measured, and no configuration is needed.**
+> `mem_info_gtt_total` = 29.25 GiB, and RADV exposes a **22.16 GiB `DEVICE_LOCAL` heap** — sized from GTT, not from the 4 GiB carve-out. The override below was never applied and the carve-out was never touched. The prediction held; this section is retained because the reasoning is the part worth keeping.
+
+Therefore: measure GTT first (`amdgpu_top`, or `/sys/class/drm/card1/device/mem_info_gtt_total`). Only if it proves short, add:
 
 ```
 # /etc/modprobe.d/amdgpu-gtt.conf
@@ -123,7 +138,15 @@ Q4_K_M (16.8 GB) into a user-owned path — `~/.local/share/models/qwen3.8-27b-u
 
 ### 4. Service definition
 
-`~/dotfiles/system/hosts/BLVCKFlow/etc/systemd/user/llama-server.service`, matching the host-specific pattern already used there for `notify-profile.service` and the `z13ctl` drop-in.
+`~/dotfiles/system/hosts/BLVCKFlow/etc/systemd/user/llama-server.service`, matching the host-specific pattern already used there for `notify-profile.service` and the `z13ctl` drop-in. Note this installs to **`/etc/systemd/user/`**, not `~/.config/systemd/user/` — that is what `system/install.sh` does with `hosts/<HOST>/etc/`, and following the repo's existing pattern beats matching this spec's first draft.
+
+#### Fallbacks if the 32K context will not allocate
+
+~6.5 GiB of device-local headroom remains after the weights. If the KV cache exceeds it, apply in this order, cheapest first:
+
+1. **Quantise the KV cache** — `--cache-type-k q8_0 --cache-type-v q8_0`, roughly halving it for little quality cost.
+2. **Reduce context** to 16K, which most real use never reaches.
+3. **`--no-kv-offload`**, keeping the cache in host memory. Slower, but heap[0] has 11.08 GiB spare.
 
 ```
 llama-server \
