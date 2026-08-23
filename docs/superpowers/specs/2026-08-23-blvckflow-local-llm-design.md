@@ -45,10 +45,10 @@ Stated priorities, in the owner's words: **privacy**, **offline capability**, an
 | `mem_info_gtt_total` | **31,403,888,640 B — 29.25 GiB** | Above the 24 GiB bar; **no memory configuration required** |
 | RADV heap[1] `DEVICE_LOCAL` | **22.16 GiB** | RADV sizes the device-local heap from GTT, **not** from the 4 GiB carve-out — this is the direct proof the carve-out never needed raising |
 | RADV heap[0] `HOST_VISIBLE` | 11.08 GiB | ~33 GiB total exposed to Vulkan |
-| Headroom for KV + compute | ~6.5 GiB after a 15.65 GiB model in the device-local heap | 32K context is plausible but is the thing to watch; see *Fallbacks* |
+| Headroom for KV + compute | **~1.27 GiB** after the chosen 20.89 GiB Q6_K model in the device-local heap (~6.5 GiB had Q4_K_M been kept) | 32K context is the main open risk; see *Quantisation* and *Fallbacks* |
 | `llama-cpp` build | `0.2.0-dev`, build **10566**, commit `bb4caa7540` | Postdates the 2026-05 merge |
-| `qwen35` arch support | **present in `libllama.so`** (with `qwen35moe`, `qwen3vl`, `qwen3next`) | **No source build needed.** Verified by inspecting the arch table directly rather than by a 16.8 GB trial download |
-| Device memory as llama.cpp sees it | `Vulkan0` — **34,045 MiB total, 33,009 MiB free** | It aggregates both heaps, so headroom is far better than the 22.16 GiB device-local figure alone implies; 32K context should be comfortable |
+| `qwen35` arch support | **present in `libllama.so`** (with `qwen35moe`, `qwen3vl`, `qwen3next`) | **No source build needed.** Verified by inspecting the arch table directly rather than by a 20+ GB trial download |
+| Device memory as llama.cpp sees it | `Vulkan0` — **34,045 MiB total, 33,009 MiB free** | It aggregates both heaps. Comfortable in total, but the *device-local* heap is what matters for speed, and Q6_K nearly fills it — so "33 GiB free" must not be read as reassurance |
 | `--flash-attn` on this build | tri-state, defaults to `auto` | Correctly omitted from the unit; hardcoding it would only remove llama.cpp's own judgement |
 | `--jinja` on this build | **already default-enabled** | Kept explicit anyway, so a future default flip cannot silently break tool-calling |
 | `orcarouter` repo access | **gated** — HTTP 401, `x-error-code: GatedRepo` | Requires an approved HF account; owner chose to authenticate rather than substitute |
@@ -64,7 +64,7 @@ Stated priorities, in the owner's words: **privacy**, **offline capability**, an
 | Modality | Native multimodal — image and video understanding |
 | Context | 262K native, extensible to 1M via YaRN |
 | BF16 size | 55.6 GB; official FP8 30.9 GB |
-| Chosen build | `orcarouter/Qwen3.8-27B-Uncensored-GGUF`, **Q4_K_M, 16.8 GB** |
+| Chosen build | `orcarouter/Qwen3.8-27B-Uncensored-GGUF`, **Q6_K, 22.43 GB / 20.89 GiB** (revised — see *Quantisation*) |
 | Vision projector | separate `mmproj` f16, 0.9 GB — required only for image input |
 | MTP head | embedded `nextn` block retained; usable for speculative decode |
 | llama.cpp requirement | `qwen35` arch + MTP head merged **2026-05** — older builds will not load these files |
@@ -73,7 +73,7 @@ Stated priorities, in the owner's words: **privacy**, **offline capability**, an
 
 **In scope:**
 
-- `llama.cpp` serving Q4_K_M over HTTP on `127.0.0.1` only.
+- `llama.cpp` serving Q6_K over HTTP on `127.0.0.1` only.
 - GPU offload genuinely on the iGPU via Vulkan, confirmed — not silently on CPU.
 - An on-demand systemd **user** unit; explicitly *not* enabled at boot.
 - Measured prefill and decode throughput, recorded in `~/dotfiles`.
@@ -111,7 +111,7 @@ The bandwidth figure is the load-bearing number in this design. See *Performance
 
 The obvious move is to raise the iGPU carve-out. **That is the wrong move on this hardware.** A large fixed UMA reserve reduces OS-visible RAM *and* GTT capacity; the established Strix Halo guidance is to keep the carve-out as small as the firmware permits (512 MB where offered) and let the GPU reach system memory through **GTT**, which is dynamic. The current 4 GiB carve-out is already acceptable and will not be touched.
 
-Default GTT on recent `amdgpu` is approximately half of system RAM — around 29 GiB here — which already exceeds a 16.8 GB model plus its KV cache. **The likely outcome is that no memory configuration is needed at all.**
+Default GTT on recent `amdgpu` is approximately half of system RAM — around 29 GiB here — which already exceeds the draft's 15.65 GiB Q4_K_M plus its KV cache. **The likely outcome is that no memory configuration is needed at all.**
 
 > **Resolved 2026-08-23: measured, and no configuration is needed.**
 > `mem_info_gtt_total` = 29.25 GiB, and RADV exposes a **22.16 GiB `DEVICE_LOCAL` heap** — sized from GTT, not from the 4 GiB carve-out. The override below was never applied and the carve-out was never touched. The prediction held; this section is retained because the reasoning is the part worth keeping.
@@ -137,9 +137,36 @@ A second, independent reason a source build may be forced: the model card states
 
 ### 3. Model placement
 
-Q4_K_M (16.8 GB) into a user-owned path — `~/.local/share/models/qwen3.8-27b-uncensored/`. User-owned rather than `/var/lib` because this is a single-user workstation and the service runs as a user unit. 566 GiB free makes size irrelevant.
+Into a user-owned path — `~/.local/share/models/qwen3.8-27b-uncensored/`. User-owned rather than `/var/lib` because this is a single-user workstation and the service runs as a user unit. 566 GiB free makes size irrelevant.
 
-`IQ4_XS` (15.3 GB) is the documented fallback if the working set proves tight. `Q5_K_M` (18.2 GB) is the upgrade path if there is headroom to spare.
+#### Quantisation — revised to Q6_K (2026-08-23)
+
+The draft specified **Q4_K_M**. The owner chose **Q6_K** instead after the reasoning was laid out, and that decision is recorded here with its consequence rather than quietly applied.
+
+The argument for Q4_K_M was that on this hardware quantisation is a **speed** decision more than a quality one. Decode is memory-bandwidth-bound at ~256 GB/s, so throughput scales roughly inversely with working-set size:
+
+| Quant | Size | vs Q4_K_M | Est. decode |
+|---|---|---|---|
+| Q4_K_M | 15.65 GiB | baseline | ~8–12 tok/s |
+| Q5_K_M | 16.95 GiB | +8% | ~7–11 tok/s |
+| **Q6_K** | **20.89 GiB** | **+33%** | **~6–9 tok/s** |
+| Q8_0 | 25.24 GiB | +61% | ~5–7 tok/s |
+
+Quality gains above Q4_K_M are small and diminishing; the speed cost is linear. Q6_K trades roughly a quarter of generation speed for a near-lossless working set. That is a legitimate preference, not an error — but it has a second-order effect the draft did not anticipate.
+
+**The tight fit.** Q6_K at 20.89 GiB sits against a **22.16 GiB `DEVICE_LOCAL` heap** — about **1.27 GiB of slack**, which a 32K KV cache will very likely exceed. This partially reverses the "no memory configuration needed" finding above, which was measured against Q4_K_M's 15.65 GiB.
+
+The failure mode is probably *not* a crash. llama.cpp reports ~33 GiB free because it aggregates the 11.08 GiB host-visible heap, so the likely outcome is the cache landing in the slower heap and costing throughput silently. **That makes it something to measure for, not merely to wait for a crash to reveal.** Compare measured tok/s against the ~6–9 estimate; a large shortfall points here.
+
+Escalation ladder, cheapest first:
+
+1. `--cache-type-k q8_0 --cache-type-v q8_0` — roughly halves the cache, minimal quality cost.
+2. `--ctx-size 16384` — most real use never reaches 32K.
+3. Raise GTT via `/etc/modprobe.d/amdgpu-gtt.conf` (`options amdgpu gttsize=49152`) + `mkinitcpio -P` + reboot — the override written off earlier, now back in play. Still Secure-Boot-safe, still no loader-entry edit.
+
+Only step 3 costs a reboot, so it is the last resort rather than the opening move.
+
+`Q5_K_M` (16.95 GiB) is the fallback that would restore comfortable headroom if Q6_K proves not worth its cost.
 
 ### 4. Service definition
 
@@ -147,7 +174,7 @@ Q4_K_M (16.8 GB) into a user-owned path — `~/.local/share/models/qwen3.8-27b-u
 
 #### Fallbacks if the 32K context will not allocate
 
-~6.5 GiB of device-local headroom remains after the weights. If the KV cache exceeds it, apply in this order, cheapest first:
+With Q6_K, only ~1.27 GiB of device-local headroom remains after the weights (it was ~6.5 GiB under the draft's Q4_K_M). If the KV cache exceeds it, apply in this order, cheapest first:
 
 1. **Quantise the KV cache** — `--cache-type-k q8_0 --cache-type-v q8_0`, roughly halving it for little quality cost.
 2. **Reduce context** to 16K, which most real use never reaches.
@@ -155,7 +182,7 @@ Q4_K_M (16.8 GB) into a user-owned path — `~/.local/share/models/qwen3.8-27b-u
 
 ```
 llama-server \
-  --model ~/.local/share/models/qwen3.8-27b-uncensored/Q4_K_M.gguf \
+  --model ~/.local/share/models/qwen3.8-27b-uncensored/Qwen3.8-27B-Uncensored-Q6_K.gguf \
   --host 127.0.0.1 --port 8088 \
   -ngl 99 -c 32768 --flash-attn --jinja
 ```
@@ -188,7 +215,7 @@ Power profiles come from **asusd**, not power-profiles-daemon, which is masked a
 
 ### 6. Performance expectations
 
-Stated up front so that measurement can contradict it. Strix Halo's 256-bit LPDDR5X-8000 gives roughly **256 GB/s**. A dense 27B model at Q4_K_M has a ~17 GB working set that must be read once per token, putting the hard ceiling near **15 tok/s** and the realistic figure around **8–12 tok/s**.
+Stated up front so that measurement can contradict it. Strix Halo's 256-bit LPDDR5X-8000 gives roughly **256 GB/s**. A dense 27B model at **Q6_K** has a 20.89 GiB working set that must be read once per token, putting the hard ceiling near **11 tok/s** and the realistic figure around **6–9 tok/s**. (Under the draft's Q4_K_M those figures were ~15 and ~8–12.)
 
 The consequence matters for phase 2: this is comfortable for chat and ad-hoc questions, but agentic coding loops consume tens of thousands of tokens per task and will feel slow. The retained **MTP speculative-decoding head** is the available lever, and measuring with and without it is part of phase 1.
 
