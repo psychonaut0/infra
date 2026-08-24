@@ -1,6 +1,6 @@
 # BLVCKFlow — Local LLM Inference Server — Design
 
-**Status:** Draft 2026-08-23 — phase 1 (server only), not yet built
+**Status:** Built and verified 2026-08-24 — phase 1 complete except the sustained thermal hold; client selection (phase 2) still open
 **Goal:** Serve `Qwen3.8-27B` (abliterated) from a localhost-only OpenAI-compatible endpoint on `BLVCKFlow`, on the Radeon 8060S iGPU via Vulkan, and establish measured performance and thermal figures for the machine under sustained inference load.
 
 ## Background
@@ -204,9 +204,13 @@ Two observability packages are prerequisites and are not currently installed: **
 
 The existing Z13 spec records that **sustained inference load on this machine can trigger an EC power cut**, with `asusctl armoury set ppt_pl1_spl 60` noted as the *untested* candidate mitigation. Sustained LLM decode is precisely the workload that provokes it.
 
+> **Correction 2026-08-24: `asusctl` is not installed on this host and `asusd` is inactive.** The repo's `CLAUDE.md` claims power profiles come from asusd and that `asusctl armoury` exposes the PPT limits; neither is true here. **`z13ctl` owns all hardware control** — lighting, profiles, fan curves, TDP, undervolt and battery limit — having replaced asusctl because asusd 6.3.11 exposes no `xyz.ljones.Slash` interface for the GZ302EA and so cannot reach the rear lightbar. `CLAUDE.md` needs fixing.
+>
+> The working equivalent is `z13ctl tdp --set 60` (uniform) or `--set N --pl2/--pl3` to shape individual limits; `z13ctl tdp --get` reads them, `z13ctl status` reports temp/fans/profile/TDP, `--dry-run` previews, `--reset` restores stock. **As found, PL1 was 70W and PL2/PL3 86W** — above the ≤60W the mitigation calls for. Applied: uniform 60W. Note `--pl1` is an override *of* `--set`, not a standalone flag, and `--set 60 --pl2 86` would *raise* `apu_sppt`/`platform_sppt` from 70 to 86, so uniform 60 is the conservative choice.
+
 Phase 1 therefore treats the benchmark as the first real test of that mitigation:
 
-1. Cap PPT with `asusctl armoury set ppt_pl1_spl 60` (range is 28–80 W, default 60).
+1. Cap PPT — `z13ctl tdp --set 60` (**not** `asusctl armoury`, which does not exist here).
 2. Hold sustained generation for at least 10 minutes.
 3. Watch for the EC cut.
 
@@ -240,6 +244,65 @@ No step is considered done without the stated evidence.
 | MTP benefit | `llama-bench` with and without speculative decode | Delta recorded |
 | Thermal hold | 10 min sustained generation at PPT 60 | No EC power cut |
 | Not autostarted | `systemctl --user is-enabled llama-server` | `disabled` |
+
+## Measured results (2026-08-24)
+
+Built and verified. Everything below is measured on this machine, at **PL1/PL2/PL3 = 60W** and Q6_K.
+
+### Throughput
+
+`llama-bench -ngl 99 -p 512 -n 128 -r 2`:
+
+| Test | Result |
+|---|---|
+| **pp512** (prefill) | **189.69 ± 1.75 tok/s** |
+| **tg128** (decode) | **9.39 ± 0.01 tok/s** |
+| Backend | **Vulkan**, RADV STRIX_HALO, `uma: 1`, `matrix cores: KHR_coopmat` |
+| CPU backend resolved | `libggml-cpu-zen4.so` (correct microarch) |
+
+**The prediction held.** The spec estimated 6–9 tok/s for Q6_K; actual is 9.39–9.48, marginally above the top of the range. Decode is confirmed bandwidth-bound: 20.88 GiB × 9.39 tok/s ≈ **210 GB/s effective against a 256 GB/s ceiling, ~82% efficiency**. That figure is also the proof that offload is genuine.
+
+**The `gpu_busy_percent` and GRBM sensors are unreliable on this APU** — they read 1% and ~9W while the GPU was demonstrably saturated. Do not use them to verify offload here; use `llama-bench`'s backend line and the bandwidth arithmetic instead. An earlier revision of this document treated a 1% reading as alarming; it was noise.
+
+### The Q6_K heap risk did not materialise
+
+32K context allocates and runs at **the same speed as 4K** (105.44 vs 105.55 ms/token). No KV spill penalty was observed, and none of the three escalation steps was needed. The device-local/host-visible split turned out not to matter in practice — llama.cpp spanned both pools (VRAM 3994/4096 MiB full, GTT 20505 MiB) without incident.
+
+### Capability verification
+
+| Check | Result |
+|---|---|
+| Model loads | `qwen35` accepted, 27.32B params, 20.88 GiB |
+| Endpoint | `127.0.0.1:8088`, 4 slots, `n_ctx_slot = 32768`, unified KV |
+| Loopback only | **Verified** — `ss` shows `127.0.0.1:8088`; probe to `192.168.1.144:8088` refused |
+| Completion correctness | `17 × 23 equals 391` |
+| **Tool-calling** | **Works** — `finish_reason: tool_calls`, correct function name and valid JSON arguments. Phase 2's clients are unblocked |
+| Abliteration | **Effective** — complied with a request stock models decline |
+
+### Findings that change the design
+
+**1. The MTP head is discarded.** llama.cpp logs every `blk.64.nextn.*` tensor as `unused tensor … ignoring`. The speculative-decoding head the model card advertises is present in the file (~320 MB of it) but unused by this build's graph. **The speculative-decode lever the spec counted on to recover throughput is therefore unavailable**, and would need explicit draft-model plumbing rather than working automatically.
+
+**2. This is a heavy reasoning model, and that is the real usability problem — not the 9.4 tok/s.** With template defaults it spent **900 tokens reasoning and emitted no answer at all** (`finish_reason: length`, `content` empty) for a request as trivial as a limerick. At 9.4 tok/s that is ~96 seconds before a single visible word.
+
+Controls, as measured against this model's template:
+
+| Lever | Result |
+|---|---|
+| `chat_template_kwargs: {"enable_thinking": false}` | **Works.** Same question answered in 3 tokens |
+| `reasoning_effort: low` / `medium` | Accepted |
+| `reasoning_effort: high` / `minimal` | **HTTP 500** — the template raises on unexpected values |
+| Server-side `--reasoning off`, `--reasoning-budget N`, `--reasoning-effort` | Available as flags |
+
+Because the useful lever is per-request and client-driven, the unit does **not** hardcode a reasoning policy. Phase 2 must configure its client to pass `enable_thinking: false` for routine work, or set a `--reasoning-budget` server-side as a runaway guard. Left unmanaged, this model is unusable interactively regardless of tok/s.
+
+**3. Arch builds `llama-cpp` with asserts enabled** — `warning: asserts enabled, performance may be affected`. There is likely free throughput in a source build with `NDEBUG`. Worth a phase-2 experiment; not a reason to abandon the package.
+
+**4. `ggml-cpu` is a separate package and is required even at `-ngl 99`.** Without it, load fails with `make_cpu_buft_list: no CPU backend found` — a confusing error that looks like a memory problem but is not. Arch splits every backend (`ggml-cpu`, `ggml-blas`, `ggml-vulkan`, `ggml-cuda`, `ggml-hip`, `ggml-openvino`, `ggml-sycl`).
+
+**5. `llama-cli` and `llama-completion` auto-enable conversation mode** when the model ships a chat template, and spin at 100% CPU on EOF stdin, emitting `> ` forever. Irrelevant to `llama-server`, but it wastes time when smoke-testing.
+
+**6. `asusctl` does not exist on this host.** The spec's mitigation command was wrong. `z13ctl` owns all hardware control here — see *Thermal*.
 
 ## Consequences and follow-ups
 
