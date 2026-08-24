@@ -216,6 +216,16 @@ Phase 1 therefore treats the benchmark as the first real test of that mitigation
 
 If the machine survives, that retires a known unknown in the fleet documentation. If it does not, that finding is more valuable than any throughput number, and the next step is to walk PPT down rather than to tune inference. Either result gets written back to the Z13 spec and to `~/dotfiles`.
 
+> **Status 2026-08-24: DEFERRED at the owner's decision. The EC power cut is neither reproduced nor retired.**
+> Incidental evidence only: a ~2-minute `llama-bench` run at a uniform 60W held fine, with the APU at 51°C and fans at 4300 RPM. That is encouraging but **not** the test — the recorded failure mode is *sustained* load, so a 2-minute pass proves little. TDP has been left capped at a uniform 60W; `z13ctl tdp --reset` restores stock (which was PL1 70W / PL2-3 86W).
+> Whoever runs this later: close anything unsaved first, since the failure mode is a hard power-off.
+>
+> **Trap, learned the hard way: `z13ctl tdp --set` is not a transient knob.** It edits the profile you are *currently running*, and when a firmware profile is active it **silently creates and activates a new profile literally named `custom`**. Running it here replaced the active `performance` rung (PL1 70W / PL2-3 86W) with a fabricated 60W `custom` profile that persisted in `~/.local/state/z13ctl/state.json`. Worse, custom profiles never write `platform_profile` and so **inherit the fan behaviour of whatever preceded them** — measured 4300 RPM under the custom profile versus **0 RPM** on firmware auto at the same temperature.
+>
+> **Always pass `--profile <name>` to edit a profile without applying it.** To undo: `z13ctl profile --set performance` restores the firmware rung, `z13ctl profile --delete custom` removes the stray, and the daemon may keep `custom` listed as an empty reserved slot afterwards (harmless — check `state.json` for the truth). All of this is documented in `~/dotfiles/CLAUDE.md`; it was not read before acting, which is the actual lesson.
+>
+> **The benchmark figures in this document were taken at a uniform 60W**, i.e. *below* the machine's stock 70W sustained limit. They are therefore conservative, and re-running at stock `performance` should be slightly faster on prefill (decode is bandwidth-bound and will barely move).
+
 Power profiles come from **asusd**, not power-profiles-daemon, which is masked and uninstalled on this host.
 
 ### 6. Performance expectations
