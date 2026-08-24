@@ -1,6 +1,6 @@
 # BLVCKFlow — Local LLM Inference Server — Design
 
-**Status:** Built and verified 2026-08-24 — phase 1 complete except the sustained thermal hold; client selection (phase 2) still open
+**Status:** Complete 2026-08-24 — phases 1 and 2 done (server + opencode client); only the sustained thermal hold remains deferred
 **Goal:** Serve `Qwen3.8-27B` (abliterated) from a localhost-only OpenAI-compatible endpoint on `BLVCKFlow`, on the Radeon 8060S iGPU via Vulkan, and establish measured performance and thermal figures for the machine under sustained inference load.
 
 ## Background
@@ -84,7 +84,7 @@ Stated priorities, in the owner's words: **privacy**, **offline capability**, an
 
 - Any `ct-chat` / Open WebUI integration.
 - Any Anthropic-API shim, and any change to `claude-personal`.
-- Client/agent configuration (`opencode`, `crush`, `aider`) — deferred to phase 2.
+- Client/agent configuration — was deferred to phase 2, now **done**: see *Phase 2*.
 - ROCm. Vulkan/RADV is the reliable backend on Strix Halo; a tuned ROCm build wins roughly 3× only at very long context (128K–200K), which no phase-1 use case reaches.
 - Vision input. The `mmproj` file is optional and left for later.
 - Network exposure of any kind. The endpoint binds loopback.
@@ -92,7 +92,7 @@ Stated priorities, in the owner's words: **privacy**, **offline capability**, an
 ## Architecture
 
 ```
-opencode / crush / aider          (phase 2 — deferred)
+opencode 1.18.21                  (phase 2 — DONE)
         │  OpenAI-compatible HTTP
         ▼
 llama-server  127.0.0.1:8088      (systemd --user, on demand)
@@ -313,6 +313,42 @@ Because the useful lever is per-request and client-driven, the unit does **not**
 **5. `llama-cli` and `llama-completion` auto-enable conversation mode** when the model ships a chat template, and spin at 100% CPU on EOF stdin, emitting `> ` forever. Irrelevant to `llama-server`, but it wastes time when smoke-testing.
 
 **6. `asusctl` does not exist on this host.** The spec's mitigation command was wrong. `z13ctl` owns all hardware control here — see *Thermal*.
+
+## Phase 2 — client (done 2026-08-24)
+
+**`opencode` 1.18.21** from Arch `extra`, chosen over `crush` and `aider` on documentation quality for exactly this pairing. Config at `~/.config/opencode/opencode.jsonc`.
+
+The unit is installed and registered: `/etc/systemd/user/llama-server.service`, `systemctl --user is-enabled llama-server` → **`disabled`** as designed, starts on demand, model loads in ~3.5 s from page cache.
+
+### Config shape
+
+Provider uses `npm: "@ai-sdk/openai-compatible"` with `options.baseURL = http://127.0.0.1:8088/v1`. Two details matter:
+
+- **The model key must equal the server's `--alias`** (`qwen3.8-27b`), because it is sent as the `model` field.
+- **Per-model `options` is spread verbatim into the request body**, which is how `chat_template_kwargs: {"enable_thinking": false}` reaches llama-server. This is the mechanism that makes the model usable at all; `reasoning: false` alongside it only tells opencode not to expect a reasoning stream.
+
+### Verified working
+
+```
+> build · qwen3.8-27b
+→ Read buggy.py
+`add` returns `a - b` (subtraction) instead of `a + b` (buggy.py:2).
+```
+
+Tool invocation, correct diagnosis, `file:line` citation, and a direct answer with no reasoning detour.
+
+### The real cost is prefill, not decode
+
+Server-side timings from that session:
+
+| Request | Prompt tokens | Prefill | Decode |
+|---|---|---|---|
+| First | **7,561** | 48,274 ms @ 156.63 tok/s | 86 tok @ 9.02 tok/s |
+| Second | **129** | 947 ms @ 136.23 tok/s | 28 tok @ 9.02 tok/s |
+
+opencode's system prompt plus tool definitions is ~7.5K tokens, so **the first message of a session costs ~48 seconds before anything appears.** The second request processed only 129 prompt tokens, which proves llama-server's slot prompt cache reused the prefix — so this is a **one-off session-start tax, not a per-message one**.
+
+That reframes the usability story: 9 tok/s decode is livable, and the thing a user actually notices is the cold-start wait. If it becomes annoying, the levers are keeping the server warm (it already is, being on-demand-but-persistent) and avoiding needless session restarts — not chasing decode throughput.
 
 ## Consequences and follow-ups
 
