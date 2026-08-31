@@ -33,8 +33,19 @@ if ! id "$USER_NAME" >/dev/null 2>&1; then
 fi
 install -d -m 755 -o "$USER_NAME" -g "$USER_NAME" "$REPO_PARENT"
 
-echo "$USER_NAME ALL=(ALL) NOPASSWD:ALL" > /etc/sudoers.d/90-"$USER_NAME"
-chmod 440 /etc/sudoers.d/90-"$USER_NAME"
+# Validate the generated sudoers content in a scratch file before installing
+# it: a syntax error in a live sudoers.d file breaks sudo for the whole
+# container, and this script is the disaster-recovery artifact a later edit
+# to this section could otherwise poison silently.
+sudoers_tmp=$(mktemp)
+printf '%s ALL=(ALL) NOPASSWD:ALL\n' "$USER_NAME" > "$sudoers_tmp"
+if ! visudo -c -f "$sudoers_tmp" >/dev/null; then
+  log "FAIL: generated sudoers content is invalid"
+  rm -f "$sudoers_tmp"
+  exit 1
+fi
+install -m 440 -o root -g root "$sudoers_tmp" /etc/sudoers.d/90-"$USER_NAME"
+rm -f "$sudoers_tmp"
 
 # --- 4. SSH ---------------------------------------------------------------
 install -d -m 700 -o "$USER_NAME" -g "$USER_NAME" "/home/$USER_NAME/.ssh"
