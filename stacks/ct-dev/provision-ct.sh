@@ -69,14 +69,27 @@ sed -i 's/^#\?PasswordAuthentication.*/PasswordAuthentication no/' /etc/ssh/sshd
 # near the top, and a drop-in there can silently override the sed above.
 # Verify the EFFECTIVE value rather than trusting the sed; if a drop-in wins,
 # write our own drop-in instead so it sorts after the others (99- prefix).
-systemctl restart ssh
-if sshd -T 2>/dev/null | grep -qi '^passwordauthentication no$'; then
+# Use `reload`, not `restart`, here: this script is normally executed OVER an
+# SSH connection (direct ssh or `pct exec ... bash provision-ct.sh` piped
+# through one), and a restart tears down the very session running it. reload
+# re-reads sshd_config for new connections without dropping established ones
+# — exactly what a config-only change needs; nothing here requires a restart.
+# Capture sshd -T's output into a variable before grepping it, rather than
+# piping straight into `grep -q`: under `set -o pipefail` (on at the top of
+# this script), `grep -q` exits the instant it finds its match, which sends
+# SIGPIPE to the still-writing `sshd -T`; pipefail then reports the
+# pipeline's status as sshd -T's SIGPIPE exit (141), not grep's 0 — so the
+# check fails intermittently even when the value is already correct.
+systemctl reload ssh
+sshd_t_out=$(sshd -T 2>/dev/null)
+if grep -qi '^passwordauthentication no$' <<< "$sshd_t_out"; then
   log "PasswordAuthentication no confirmed via sshd -T"
 else
   log "sed on sshd_config did not take effect (a drop-in is overriding it); writing /etc/ssh/sshd_config.d/99-ct-dev.conf"
   echo "PasswordAuthentication no" > /etc/ssh/sshd_config.d/99-ct-dev.conf
-  systemctl restart ssh
-  if sshd -T 2>/dev/null | grep -qi '^passwordauthentication no$'; then
+  systemctl reload ssh
+  sshd_t_out=$(sshd -T 2>/dev/null)
+  if grep -qi '^passwordauthentication no$' <<< "$sshd_t_out"; then
     log "PasswordAuthentication no confirmed via sshd -T (drop-in)"
   else
     log "ERROR: PasswordAuthentication still enabled after drop-in; refusing to proceed silently"
