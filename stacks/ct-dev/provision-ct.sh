@@ -83,3 +83,14 @@ else
     exit 1
   fi
 fi
+
+# --- 5. Tailscale ---------------------------------------------------------
+# Requires the /dev/net/tun passthrough configured by provision-host.sh.
+# NOTE: ct-dev sits on 192.168.3.0/24, which Main-Gateway advertises. Do NOT
+# use --accept-routes here: accepting a route for your own subnet black-holes
+# local traffic (the same trap documented for BLVCKFlow).
+if ! command -v tailscale >/dev/null 2>&1; then
+  log "installing tailscale"
+  curl -fsSL https://tailscale.com/install.sh | sh
+fi
+systemctl enable --now tailscaled
