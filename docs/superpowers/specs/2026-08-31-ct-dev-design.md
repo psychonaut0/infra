@@ -107,9 +107,13 @@ Profile-name scoping is the project scoping: **do not pin a repo-local
 
 Two changes on **proxmoxmain itself**, both outside the CT:
 
-1. **`vm.max_map_count=262144`** via `/etc/sysctl.d/`. The compose stack's search
-   service requires it and this sysctl is *not* namespaced — it cannot be set
-   from inside the container. Hypervisor-level blast radius; small but real.
+1. **`vm.max_map_count >= 262144`** floor (floor-only, not a hard-coded value).
+   The compose stack's search service requires it and this sysctl is *not*
+   namespaced — it cannot be set from inside the container. Hypervisor-level
+   blast radius; small but real. The effective value on proxmoxmain is already
+   262144 (from PVE's `/usr/lib/sysctl.d/10-pve-ct-inotify-limits.conf`), so
+   normally no `/etc/sysctl.d/` drop-in is needed — the provisioning script
+   ensures the floor is met but never lowers the system default.
 2. **`/dev/net/tun` passthrough** for Tailscale in an unprivileged LXC:
    `lxc.cgroup2.devices.allow: c 10:200 rwm` plus the matching mount entry. No
    existing CT does this, so it is new ground for the fleet.
