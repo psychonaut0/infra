@@ -39,7 +39,9 @@ not always up. Today the canonical checkout lives on the workstation, so:
 ## Architecture
 
 A single unprivileged LXC on proxmoxmain, following the existing fleet pattern
-(`nesting=1,keyctl=1`, AppArmor unconfined, `/proc/sys` rw for Docker-in-LXC).
+(`nesting=1,keyctl=1`, AppArmor unconfined, `lxc.mount.auto: proc:rw sys:rw`
+for Docker-in-LXC — the unprivileged-CT form; a `/proc/sys` bind-mount is the
+privileged-CT pattern and fails `pct start` on an unprivileged container).
 
 ### Sizing
 
