@@ -107,3 +107,64 @@ if ! command -v tailscale >/dev/null 2>&1; then
   curl -fsSL https://tailscale.com/install.sh | sh
 fi
 systemctl enable --now tailscaled
+
+# --- 6. Language toolchain ------------------------------------------------
+# Versions are pinned to satisfy the monorepo's preinstall gates
+# (scripts/check-node.sh and scripts/check-go.sh). Debian 13 packages are too
+# old for all three, so each comes from an upstream tarball.
+GO_VERSION=1.26.0
+NODE_VERSION=26.7.0
+BUN_VERSION=1.3.13
+
+ARCH=$(dpkg --print-architecture)   # amd64
+case "$ARCH" in
+  amd64) GO_ARCH=amd64; NODE_ARCH=x64; BUN_ARCH=x64 ;;
+  *) echo "unsupported arch $ARCH" >&2; exit 1 ;;
+esac
+
+if [ "$(/usr/local/go/bin/go version 2>/dev/null | awk '{print $3}')" != "go${GO_VERSION}" ]; then
+  log "installing go ${GO_VERSION}"
+  curl -fsSL "https://go.dev/dl/go${GO_VERSION}.linux-${GO_ARCH}.tar.gz" -o /tmp/go.tgz
+  rm -rf /usr/local/go && tar -C /usr/local -xzf /tmp/go.tgz && rm /tmp/go.tgz
+else
+  log "go ${GO_VERSION} already installed, skipping"
+fi
+
+if [ "$(/usr/local/node/bin/node --version 2>/dev/null)" != "v${NODE_VERSION}" ]; then
+  log "installing node ${NODE_VERSION}"
+  curl -fsSL "https://nodejs.org/dist/v${NODE_VERSION}/node-v${NODE_VERSION}-linux-${NODE_ARCH}.tar.xz" -o /tmp/node.txz
+  rm -rf /usr/local/node && mkdir -p /usr/local/node
+  tar -C /usr/local/node --strip-components=1 -xJf /tmp/node.txz && rm /tmp/node.txz
+else
+  log "node ${NODE_VERSION} already installed, skipping"
+fi
+
+if [ "$(/usr/local/bun/bin/bun --version 2>/dev/null)" != "$BUN_VERSION" ]; then
+  log "installing bun ${BUN_VERSION}"
+  curl -fsSL "https://github.com/oven-sh/bun/releases/download/bun-v${BUN_VERSION}/bun-linux-${BUN_ARCH}.zip" -o /tmp/bun.zip
+  rm -rf /usr/local/bun && mkdir -p /usr/local/bun/bin
+  unzip -qo /tmp/bun.zip -d /tmp/bunx
+  install -m 755 "/tmp/bun-linux-${BUN_ARCH}/bun" /usr/local/bun/bin/bun 2>/dev/null \
+    || install -m 755 "/tmp/bunx/bun-linux-${BUN_ARCH}/bun" /usr/local/bun/bin/bun
+  rm -rf /tmp/bun.zip /tmp/bunx "/tmp/bun-linux-${BUN_ARCH}"
+else
+  log "bun ${BUN_VERSION} already installed, skipping"
+fi
+
+cat > /etc/profile.d/ct-dev-path.sh <<'PATHEOF'
+export PATH="/usr/local/go/bin:/usr/local/node/bin:/usr/local/bun/bin:$HOME/.local/bin:$PATH"
+export GOPATH="$HOME/go"
+PATHEOF
+chmod 644 /etc/profile.d/ct-dev-path.sh
+
+# profile.d only sources for login shells. Non-login interactive shells
+# (e.g. plain `ssh ct-dev command`, or a non-login bash) need it too, so
+# also drop a symlink into /etc/bash.bashrc.d equivalent: source it from
+# /etc/bash.bashrc for non-login bash, since Debian's /etc/bash.bashrc
+# already runs for every interactive non-login shell.
+if ! grep -qF '/etc/profile.d/ct-dev-path.sh' /etc/bash.bashrc 2>/dev/null; then
+  log "wiring ct-dev-path.sh into /etc/bash.bashrc for non-login shells"
+  printf '\n# ct-dev: language toolchain PATH (see /etc/profile.d/ct-dev-path.sh)\nif [ -f /etc/profile.d/ct-dev-path.sh ]; then\n  . /etc/profile.d/ct-dev-path.sh\nfi\n' >> /etc/bash.bashrc
+else
+  log "ct-dev-path.sh already wired into /etc/bash.bashrc, skipping"
+fi
