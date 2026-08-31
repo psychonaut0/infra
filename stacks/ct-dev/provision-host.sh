@@ -34,3 +34,42 @@ if [[ $current -lt 262144 ]]; then
   exit 1
 fi
 log "vm.max_map_count=$current meets floor 262144"
+
+# --- 2. Container ---------------------------------------------------------
+TEMPLATE="${TEMPLATE:-local:vztmpl/debian-13-standard_13.1-2_amd64.tar.zst}"
+
+if ! pct status "$VMID" >/dev/null 2>&1; then
+  log "creating CT $VMID"
+  pct create "$VMID" "$TEMPLATE" \
+    --hostname "$HOSTNAME" \
+    --cores 6 --memory 12288 --swap 4096 \
+    --rootfs local-lvm:120 \
+    --net0 "name=eth0,bridge=vmbr0,firewall=1,gw=${GW},ip=${IP}/24,type=veth" \
+    --nameserver "$DNS" \
+    --ostype debian \
+    --unprivileged 1 \
+    --features nesting=1,keyctl=1 \
+    --onboot 1
+else
+  log "CT $VMID already exists, skipping create"
+fi
+
+# --- 3. CT config: Docker-in-LXC + Tailscale TUN --------------------------
+# AppArmor unconfined + rw proc/sys match the rest of the fleet's *unprivileged*
+# Docker-in-LXC CTs (ct-portfolio/113, ct-workout/114, ct-chat/115): those use
+# `lxc.mount.auto: proc:rw sys:rw`, NOT a bind-mount of /proc/sys -- a bind
+# mount of the host's /proc/sys into an unprivileged container's user
+# namespace fails at start ("Failed to mount /proc/sys ... Invalid argument"),
+# which is only used by the fleet's *privileged* CTs (e.g. ct-nvr/104).
+# The /dev/net/tun passthrough is NEW for this fleet -- Tailscale cannot
+# create its interface in an unprivileged LXC without it.
+CONF="/etc/pve/lxc/${VMID}.conf"
+add_conf() {
+  grep -qxF "$1" "$CONF" || { log "conf += $1"; echo "$1" >> "$CONF"; }
+}
+add_conf 'lxc.mount.auto: proc:rw sys:rw'
+add_conf 'lxc.apparmor.profile: unconfined'
+add_conf 'lxc.cgroup2.devices.allow: c 10:200 rwm'
+add_conf 'lxc.mount.entry: /dev/net/tun dev/net/tun none bind,create=file'
+
+pct status "$VMID" | grep -q running || { log "starting CT"; pct start "$VMID"; }
