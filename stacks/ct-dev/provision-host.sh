@@ -72,4 +72,15 @@ add_conf 'lxc.apparmor.profile: unconfined'
 add_conf 'lxc.cgroup2.devices.allow: c 10:200 rwm'
 add_conf 'lxc.mount.entry: /dev/net/tun dev/net/tun none bind,create=file'
 
-pct status "$VMID" | grep -q running || { log "starting CT"; pct start "$VMID"; }
+# Same pipefail + `grep -q` SIGPIPE class fixed in provision-ct.sh: `grep -q`
+# can exit before `pct status` finishes writing, and pipefail would then
+# surface the killed producer's SIGPIPE exit rather than grep's. Not an
+# observed failure here (pct status's single short line has never lost this
+# race in testing) -- fixed defensively so it can't start an already-running
+# CT (which would error and abort under set -e) and so it doesn't stand next
+# to the fixed sshd form as an example to copy.
+ct_status=$(pct status "$VMID" 2>/dev/null || true)
+if ! grep -q running <<< "$ct_status"; then
+  log "starting CT"
+  pct start "$VMID"
+fi
