@@ -84,8 +84,24 @@ Installed by the provisioning script, pinned to satisfy the monorepo's
 | Claude Code | current | one-time interactive login on first use |
 | tmux, git, git-lfs, ripgrep, jq | current | baseline |
 
-The repo's own CLI is not a separate install — it is `bun run <script>` inside
-the checkout, so it works once Bun and the dependencies are present.
+**AWS tooling is four separate binaries, not one.** Correcting an earlier
+assumption in this design: `aws` (CLI v2), `session-manager-plugin`, `pgcli`,
+and the project's own **`travelogue` CLI** — a Go binary distributed via
+*Bitbucket downloads* (self-updating via `travelogue update`), not part of the
+monorepo and not installed by `bun install`. It refuses to run without `aws` on
+PATH. `travelogue setup` writes the SSO profiles; `travelogue login`, `tunnel`
+and `database` wrap the day-to-day flows.
+
+Two consequences for provisioning:
+
+- Installing the monorepo's dependencies is **not sufficient** to get a working
+  environment. The `travelogue` binary must be fetched separately.
+- Unlike BLVCKFlow — where `sudo` needs a password and this tooling therefore
+  lives userland under `~/.local` — ct-dev has root, so all four install
+  system-wide. The `~/.local` workaround does not carry over.
+
+Profile-name scoping is the project scoping: **do not pin a repo-local
+`AWS_CONFIG_FILE`**, it breaks the `travelogue` CLI.
 
 ## Host prerequisites
 
@@ -173,7 +189,12 @@ What moves (343 MB total):
 |---|---|---|
 | 3 session transcripts (`*.jsonl`) | 60 MB | the conversations themselves |
 | 2 session working directories | ~283 MB | per-session artifacts |
-| `memory/` | small | project memories for the work repo |
+| `memory/` | 40 files | project memories for the work repo |
+
+The `memory/` directory is where employer-specific knowledge (SSO start URL,
+profile names, CI quirks, prod-data procedures) lives. It migrates to ct-dev but
+**must never enter this public repo** — which is why the committed ct-dev
+`CLAUDE.md` carries machine facts only.
 
 Also present and handled separately:
 
@@ -187,6 +208,9 @@ Also present and handled separately:
 The workstation hierarchy (`~/CLAUDE.md`, `~/Documents/CLAUDE.md`,
 `~/Documents/work/CLAUDE.md`, plus the repo's own committed one) moves so the
 same instructions apply.
+
+The ct-dev variant is committed at **`stacks/ct-dev/home/CLAUDE.md`** and
+deployed to `~/CLAUDE.md`; `<WORK_REPO>` is substituted at provision time.
 
 **The global `~/CLAUDE.md` cannot be copied verbatim.** It describes BLVCKFlow's
 hardware — the Z13, `z13ctl`, Hyprland, the local `llama-server`, Secure Boot,
