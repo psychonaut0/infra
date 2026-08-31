@@ -151,20 +151,113 @@ else
   log "bun ${BUN_VERSION} already installed, skipping"
 fi
 
-cat > /etc/profile.d/ct-dev-path.sh <<'PATHEOF'
-export PATH="/usr/local/go/bin:/usr/local/node/bin:/usr/local/bun/bin:$HOME/.local/bin:$PATH"
-export GOPATH="$HOME/go"
+# The toolchain dirs are derived once and reused for every PATH sink below,
+# so there is exactly one place to edit if a tool moves.
+CT_DEV_PATH_DIRS="/usr/local/go/bin:/usr/local/node/bin:/usr/local/bun/bin"
+CT_DEV_GOPATH="/home/${USER_NAME}/go"
+
+# --- 6a. Login/interactive shells: /etc/profile.d ------------------------
+cat > /etc/profile.d/ct-dev-path.sh <<PATHEOF
+export PATH="${CT_DEV_PATH_DIRS}:\$HOME/.local/bin:\$PATH"
+export GOPATH="\$HOME/go"
 PATHEOF
 chmod 644 /etc/profile.d/ct-dev-path.sh
 
-# profile.d only sources for login shells. Non-login interactive shells
-# (e.g. plain `ssh ct-dev command`, or a non-login bash) need it too, so
-# also drop a symlink into /etc/bash.bashrc.d equivalent: source it from
-# /etc/bash.bashrc for non-login bash, since Debian's /etc/bash.bashrc
-# already runs for every interactive non-login shell.
+# profile.d only sources for login shells. Non-login *interactive* shells
+# (e.g. `ssh -t ct-dev`, or an interactive `bash` with no `-l`) need it too,
+# so also source it from /etc/bash.bashrc, which Debian bash reads for
+# every interactive non-login shell.
 if ! grep -qF '/etc/profile.d/ct-dev-path.sh' /etc/bash.bashrc 2>/dev/null; then
   log "wiring ct-dev-path.sh into /etc/bash.bashrc for non-login shells"
   printf '\n# ct-dev: language toolchain PATH (see /etc/profile.d/ct-dev-path.sh)\nif [ -f /etc/profile.d/ct-dev-path.sh ]; then\n  . /etc/profile.d/ct-dev-path.sh\nfi\n' >> /etc/bash.bashrc
 else
   log "ct-dev-path.sh already wired into /etc/bash.bashrc, skipping"
+fi
+
+# --- 6b. Non-interactive, non-login shells (plain `ssh host cmd`): -------
+# /etc/environment is read by pam_env for every SSH session regardless of
+# interactivity/login-ness. It is NOT a shell script: plain KEY=value, no
+# `export`, no `$VAR` expansion, no partial fragments — so the PATH here
+# must be the fully expanded literal, standard system dirs included, or a
+# plain `ssh host cmd` loses the base OS PATH entirely.
+CT_DEV_ETC_ENV_PATH="${CT_DEV_PATH_DIRS}:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+ct_dev_desired_path_line="PATH=\"${CT_DEV_ETC_ENV_PATH}\""
+ct_dev_desired_gopath_line="GOPATH=\"${CT_DEV_GOPATH}\""
+ct_dev_current_path_line=$(grep -m1 '^PATH=' /etc/environment 2>/dev/null || true)
+ct_dev_current_gopath_line=$(grep -m1 '^GOPATH=' /etc/environment 2>/dev/null || true)
+
+if [ "$ct_dev_current_path_line" != "$ct_dev_desired_path_line" ] || [ "$ct_dev_current_gopath_line" != "$ct_dev_desired_gopath_line" ]; then
+  log "updating /etc/environment PATH/GOPATH"
+  ct_dev_tmp_env=$(mktemp)
+  { grep -v '^PATH=' /etc/environment 2>/dev/null | grep -v '^GOPATH=' || true; } > "$ct_dev_tmp_env"
+  printf '%s\n%s\n' "$ct_dev_desired_path_line" "$ct_dev_desired_gopath_line" >> "$ct_dev_tmp_env"
+  # Sanity-check before replacing a file PAM reads on every login: refuse to
+  # install anything that doesn't contain our toolchain PATH verbatim.
+  ct_dev_check=$(grep -F "$ct_dev_desired_path_line" "$ct_dev_tmp_env" || true)
+  if [ -n "$ct_dev_check" ]; then
+    install -m 644 "$ct_dev_tmp_env" /etc/environment
+  else
+    echo "ERROR: refusing to write malformed /etc/environment" >&2
+    rm -f "$ct_dev_tmp_env"
+    exit 1
+  fi
+  rm -f "$ct_dev_tmp_env"
+else
+  log "/etc/environment PATH/GOPATH already up to date, skipping"
+fi
+
+# --- 6c. systemd --user manager (dev-task's headless units): -------------
+# environment.d is read by the systemd USER manager (per-user, not PAM), so
+# it's what a `systemd-run --user` / user unit sees — profile.d and
+# /etc/environment do not reach that context.
+#
+# `systemd-run --user` talks to the per-user D-Bus session bus, which on
+# Debian is provided by the separate dbus-user-session package (not pulled
+# in by base `dbus`) — without it there is no /run/user/<uid>/bus socket
+# and `systemd-run --user` fails with "Failed to connect to user scope bus"
+# regardless of environment.d/lingering being correct. `apt-get install` of
+# an already-installed package is a no-op, so this is naturally idempotent.
+apt-get install -y -qq dbus-user-session
+#
+# Without lingering, that per-user manager only exists while a login
+# session for the user is open, and dies with the last session — so a
+# headless dev-task run with nobody logged in would have no user manager
+# to talk to at all, regardless of environment.d. Enabling linger makes
+# the user manager start at boot and persist with no active session,
+# which is required for the "systemd --user unit runs headless" capability
+# this task exists to support. `loginctl enable-linger` is itself
+# idempotent (writes a marker file, no error/duplicate on re-run); the
+# guard below only exists to keep the log quiet on a re-run.
+if [ "$(loginctl show-user "$USER_NAME" -p Linger --value 2>/dev/null)" != "yes" ]; then
+  log "enabling lingering for ${USER_NAME} (persistent systemd --user manager for headless units)"
+  loginctl enable-linger "$USER_NAME"
+else
+  log "lingering already enabled for ${USER_NAME}, skipping"
+fi
+
+CT_DEV_USER_ENV_DIR="/home/${USER_NAME}/.config/environment.d"
+CT_DEV_USER_ENV_FILE="${CT_DEV_USER_ENV_DIR}/10-ct-dev.conf"
+ct_dev_desired_user_env=$(printf 'PATH=%s:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:%s/.local/bin\nGOPATH=%s\n' \
+  "$CT_DEV_PATH_DIRS" "/home/${USER_NAME}" "$CT_DEV_GOPATH")
+
+mkdir -p "$CT_DEV_USER_ENV_DIR"
+chown "${USER_NAME}:${USER_NAME}" "/home/${USER_NAME}/.config" "$CT_DEV_USER_ENV_DIR" 2>/dev/null || true
+
+ct_dev_current_user_env=""
+[ -f "$CT_DEV_USER_ENV_FILE" ] && ct_dev_current_user_env=$(cat "$CT_DEV_USER_ENV_FILE")
+
+if [ "$ct_dev_current_user_env" != "$ct_dev_desired_user_env" ]; then
+  log "writing ${CT_DEV_USER_ENV_FILE} for systemd --user"
+  printf '%s' "$ct_dev_desired_user_env" > "$CT_DEV_USER_ENV_FILE"
+  chown "${USER_NAME}:${USER_NAME}" "$CT_DEV_USER_ENV_FILE"
+  chmod 644 "$CT_DEV_USER_ENV_FILE"
+  # Apply immediately (rather than waiting for next login) so this run's
+  # own verification step can see it take effect.
+  if runuser -u "$USER_NAME" -- bash -c 'XDG_RUNTIME_DIR=/run/user/$(id -u) systemctl --user daemon-reexec' 2>/dev/null; then
+    log "reloaded systemd --user for ${USER_NAME}"
+  else
+    log "could not reload systemd --user for ${USER_NAME} (no active user session yet) — will take effect at next login"
+  fi
+else
+  log "${CT_DEV_USER_ENV_FILE} already up to date, skipping"
 fi
