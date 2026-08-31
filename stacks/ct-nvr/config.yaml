@@ -36,19 +36,21 @@ live:
 
 record:
   enabled: true
-  # Continuous 24/7 recording, 1-week retention. Recordings are downscaled to
-  # 1080p by the go2rtc QSV transcode streams below (cameras expose no substream),
-  # keeping ~1 week of all-cameras footage within the 393GB nvr-data volume.
+  # Continuous 24/7 recording, 4-day retention. Recordings are downscaled to
+  # 1080p by the go2rtc QSV transcode streams below (cameras expose no substream).
+  # Cut 7d -> 4d on 2026-08-26: at ~49GB/day the 7-day window filled the 393GB
+  # volume to 93% and left the thin volume 99.98% allocated, which thrashed
+  # ct-nvr's 6GiB memcg on page cache and wedged the CT. See docs/hardware.md for details.
   continuous:
-    days: 7
-  # Object/motion review items (the timeline "checks") tracked for the same week.
+    days: 4
+  # Object/motion review items (the timeline "checks") tracked for the same window.
   alerts:
     retain:
-      days: 7
+      days: 4
       mode: motion
   detections:
     retain:
-      days: 7
+      days: 4
       mode: motion
 
 snapshots:

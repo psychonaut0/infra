@@ -100,9 +100,29 @@ Partition activation is handled by `kpartx` via the systemd unit `/etc/systemd/s
 
 **Note:** the LV name `vm-100-disk-0` is a cosmetic holdover from the pre-migration VM; it is not a zombie and should not be deleted. Renaming requires detaching /mnt/nvr-data and recreating the LV — not worth the churn.
 
+### Retention: 7 days → 4 days (2026-08-26)
+
+Continuous 24/7 recording of all cameras writes roughly **49GB/day**, so the
+original 7-day window did not fit: `/mnt/nvr-data` reached 93% and the thin LV
+`vm-100-disk-0` sat at 99.98% allocated. ct-nvr then thrashed its 6GiB memcg on
+page cache and wedged; the CT had to be stopped.
+
+`stacks/ct-nvr/config.yaml` now sets `continuous`, `alerts` and `detections`
+retention to **4 days** (~200GB steady state, comfortable inside 393GB).
+
+Two things to keep in mind:
+
+- **The thin LV stays ~100% allocated even after footage is deleted.** Thin
+  provisioning does not reclaim blocks without discard, so `lvs` will keep
+  reporting `Data% 99.98` while `df` shows free space. Judge headroom by `df -h
+  /mnt/nvr-data`, not by `lvs`.
+- **ct-nvr is currently stopped on purpose** (2026-08-31) — recording is not
+  needed right now. `onboot: 1` is still set, so it will come back on the next
+  proxmoxmain reboot unless that is changed.
+
 ## Notes & Capacity Concerns
 
-- `nvr-data` thin pool at 87% — Frigate retention is 200 days. Watch for pool exhaustion; Frigate will start failing writes well before the LV hits 100%.
+- `nvr-data` thin pool at 87.6%; the `vm-100-disk-0` LV reads 99.98% allocated and will stay there (no discard). Filesystem is the real signal: 287GB/393GB used (77%) after the retention cut. See *Retention* above.
 - `ct-mgmt` boot disk at 91%, `ct-tunnel` at 86% — both 4GB and 2GB respectively. Candidates for disk resize via `pct resize` if they grow further.
 - No off-box backup target configured (`pvesm status` has no PBS or remote pool). 2.7TB of mergerfs data is single-point-of-failure on two non-RAID HDDs.
 - proxmoxnode is heavily underutilized (4% local-lvm) — capacity headroom for future workloads, but no shared storage to live-migrate from proxmoxmain.
