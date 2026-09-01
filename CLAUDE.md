@@ -193,6 +193,55 @@
 - **Ports:** 8080 (Open WebUI HTTP)
 - **Config notes:** AppArmor unconfined + proc/sys rw mount for Docker compatibility. Image pinned to `v0.11.0`; upstream ships breaking changes between minors and **Conduit v4.0.0 is the tested pair** — roll back to v0.10.2 only together with an older Conduit. **Disk is 32GB, not 16GB, deliberately:** the image unpacks to 7.16GB and `docker compose pull` fetches the new image before releasing the old, so an upgrade needs ~14GB of images at once; check `df -h /` before pulling. **`RAG_EMBEDDING_ENGINE=openai` and `AUDIO_STT_ENGINE=openai` are load-bearing RAM controls, not preferences** — their empty defaults load SentenceTransformers (~500MB *per worker*) and a local Whisper instance, and the 2GB allocation assumes neither ever loads. **Every OpenRouter slot is configured explicitly (8 vars):** the env docs claim per-slot base URLs inherit `${OPENAI_API_BASE_URL}`, which is **false at first-boot seeding** (verified on v0.11.0) — they seed to literal `https://api.openai.com/v1` with an empty key, so embeddings/STT/TTS/images would all fail while chat worked. **Most Open WebUI settings are persistent `ConfigVar`s:** env is read on *first boot only*, then `data/webui.db` wins, so change settings in the Admin Panel and mirror them back to compose — the compose file is a seed, not live state. TTS returns raw PCM from OpenRouter, which Open WebUI transcodes to mp3 via pydub+ffmpeg (works as-is, no config needed). Image generation costs ~$0.039 each — consider `USER_PERMISSIONS_FEATURES_IMAGE_GENERATION` to scope it. **`WEBUI_AUTH_TRUSTED_EMAIL_HEADER` is deliberately unset:** port 8080 is LAN-reachable, so trusting Cloudflare Access's email header would let any LAN host forge authentication (verified blocked). State is a `./data` bind mount, not a Docker volume, so ct-backup captures the full `/opt/stacks` tree plus an online SQLite `.backup`. Memory uses the Adaptive Memory community function because native Personalization memory only honours ~3 entries (upstream #19196) — re-test memory after every upgrade. No `.lan` hostname by design, so LAN traffic round-trips through the WAN and there is no access at all if the tunnel is down. Runbook: `stacks/ct-chat/README.md`.
 
+### ct-dev (LXC — VMID 116 on proxmoxmain)
+- **IP:** 192.168.3.19 (MagicDNS `ct-dev` on the tailnet)
+- **User:** psy (UID 1000) — **not root**, unlike the rest of the fleet
+- **OS:** Debian 13 (Trixie), unprivileged LXC
+- **SSH:** Port 22, key-based auth (no password)
+- **Resources:** 6 vCPU, 12288MB RAM, 4096MB swap, 120GB disk
+- **Role:** Always-on remote development workspace. Holds the work monorepo and
+  keeps long-lived Claude Code sessions alive across disconnects, so work
+  continues when the workstation sleeps or is away.
+- **Stack:** No Docker stack managed by this repo — provisioning is native
+  scripts at `stacks/ct-dev/` (`provision-host.sh` on the hypervisor,
+  `provision-ct.sh` inside). The work repo brings its own compose stack.
+- **Config notes:** AppArmor unconfined + `lxc.mount.auto: proc:rw sys:rw` (the
+  unprivileged-CT form; a `/proc/sys` bind-mount is the privileged-CT pattern
+  and fails `pct start` here) + `nesting=1,keyctl=1` for
+  Docker-in-LXC. **`/dev/net/tun` is passed through** (`lxc.cgroup2.devices.allow:
+  c 10:200 rwm`) — unique in this fleet, and required or Tailscale cannot start.
+  **`vm.max_map_count` is only asserted on proxmoxmain, not set:** provisioning
+  checks the floor the work stack's OpenSearch needs (262144) is met but writes
+  nothing — the host's systemd default is already 1048576, and a `99-` drop-in
+  forcing 262144 would have *lowered* a live hypervisor limit, so there is no
+  sysctl override to find. Tailscale runs **without** `--accept-routes`: ct-dev
+  sits on `192.168.3.0/24`, a subnet the tailnet advertises, and accepting it
+  black-holes the LAN.
+  The home path `~/Documents/work/travelware/<WORK_REPO>` is **load-bearing** —
+  it is byte-identical to the workstation so the git `includeIf` work identity
+  applies and Claude Code session directories migrate without rewriting.
+  Work happens inside `tmux`; detached batch runs use `dev-task run|list|log`
+  (systemd user units, lingering enabled), with results pulled, not pushed —
+  there is deliberately no notification service. **`PATH` has three independent
+  contexts** on this box — login shells (`/etc/profile.d/`), non-interactive
+  `ssh host cmd` (`/etc/environment`, via pam_env), and systemd `--user` units
+  (`~/.config/environment.d/`) — any binary added must be verified in all
+  three; full detail in `stacks/ct-dev/README.md`.
+  **Not backed up, by design:** ct-dev is absent from `CT_IPS` in
+  `stacks/ct-backup/scripts/pre-backup.sh` so work source never reaches personal
+  B2 storage; the base setup is reproducible instead. Uncommitted work dies with
+  the container. **Memory limits on proxmoxmain are caps, not reservations —
+  the host is deliberately oversubscribed on paper:** proxmoxmain has 31GB
+  physical, configured CT memory limits sum to roughly 60GB (~2x), and that
+  was already true before ct-dev existed (ct-games alone is 16GB, ct-media
+  and ct-photos 8GB each). The signal to watch is *actual* usage (`free -g`
+  on proxmoxmain), not the sum of configured limits — measured, with
+  ct-dev's full compose stack running, that's 11GB used / 19GB available.
+  Restarting ct-nvr adds real usage (Frigate plus its transcodes) and
+  tightens actual headroom, so check `free -g` before running heavy builds
+  alongside it.
+  Runbook: `stacks/ct-dev/README.md`.
+
 ### ct-photos (LXC — VMID 106 on proxmoxmain)
 - **IP:** 192.168.3.9
 - **User:** root
@@ -246,6 +295,7 @@ blvckmain (main PC)
   ├── ssh ct-portfolio   → 192.168.3.16:22   (root, key auth)
   ├── ssh ct-workout     → 192.168.3.17:22   (root, key auth)
   ├── ssh ct-chat        → 192.168.3.18:22   (root, key auth)
+  ├── ssh ct-dev         → 192.168.3.19:22   (psy, key auth)
   └── ssh ct-backup      → 192.168.3.13:22   (root, key auth)
 ```
 
@@ -265,6 +315,9 @@ Minecraft servers run on ct-games (192.168.3.14:25565 for vanilla/Paper, :25566 
 Portfolio site runs on ct-portfolio (https://portfolio.<PERSONAL_DOMAIN> publicly, http://portfolio.lan on LAN). Stateless Next.js standalone container pulled from `ghcr.io/psychonaut0/portfolio:latest`. Source repo: `github.com/psychonaut0/portfolio` (separate from infra).
 Workout-tracker backend runs on ct-workout (http://workout.lan API, http://workout-sync.lan PowerSync). Go API + app Postgres + PowerSync service + dedicated bucket-storage Postgres, serving the phone app. LAN-only. Server image: `ghcr.io/psychonaut0/workout-tracker-server` (source repo `github.com/psychonaut0/workout-tracker`, separate from infra).
 Open WebUI runs on ct-chat (https://chat.<PERSONAL_DOMAIN> publicly, http://192.168.3.18:8080 on LAN) as a self-hosted ChatGPT equivalent over a single OpenRouter account — persistent memory, Brave-backed web search, embeddings/STT/TTS/image generation all through the same key. Public access is gated by Cloudflare Access; Conduit is the native Android/iOS client. There is deliberately no `.lan` hostname.
+Remote development container runs on ct-dev (ssh ct-dev). Holds the work
+monorepo; tmux keeps agent sessions alive across disconnects and `dev-task`
+runs headless work with nothing attached. Not backed up by design.
 infra CLI release mirror runs natively on ct-mgmt as a systemd timer (every 5 min) and is served via Caddy at http://infra-bin.lan. Pulls GitHub Release artifacts and re-publishes to the LAN. Source + deploy notes: `stacks/ct-mgmt/infra-mirror/`.
 Hardware and storage details in `docs/hardware.md`.
 

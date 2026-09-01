@@ -1,0 +1,188 @@
+#!/bin/bash
+# dev-task — run Claude Code headless under a transient systemd user unit, so
+# work continues with no terminal attached. Results are PULLED, not pushed:
+# there is deliberately no notification service.
+#
+# The log directory, not systemd, is authoritative for `list`. Transient
+# `systemd-run --user` units default to CollectMode=inactive: a unit that
+# exits cleanly is garbage-collected within seconds, so `systemctl --user
+# list-units` goes blind to success almost immediately -- indistinguishable
+# from a task that never ran. Logs persist. `run` therefore wraps the command
+# so its own exit code is appended as the last line of the log, and `list`
+# derives status from that trailing line (falling back to the live unit's
+# ActiveState only while no such line exists yet, i.e. still running).
+set -euo pipefail
+
+STATE_DIR="${XDG_STATE_HOME:-$HOME/.local/state}/dev-task"
+mkdir -p "$STATE_DIR"
+
+usage() {
+  cat >&2 <<USAGE
+usage:
+  dev-task run <name> "<prompt>"   start a headless task
+  dev-task list                    show task states
+  dev-task log <name>              tail a task's output
+USAGE
+  exit 2
+}
+
+# Task names become both a filename component (under $STATE_DIR) and a
+# systemd unit name (dev-task-<name>), so they're restricted to a
+# conservative charset up front: no "/" means no path traversal is even
+# expressible (a name can never leave $STATE_DIR), and "." / ".." are
+# rejected explicitly on top of that since a task silently landing on a
+# name `list` would never glob (STATE_DIR/*.log) is exactly the kind of
+# silent-failure this tool exists to avoid -- the listing is the only
+# feedback channel this feature has.
+_validate_name() {
+  local name="$1"
+  case "$name" in
+    .|..)
+      echo "dev-task: invalid task name '${name}' -- '.' and '..' are not allowed" >&2
+      exit 1
+      ;;
+  esac
+  if ! [[ "$name" =~ ^[A-Za-z0-9._-]+$ ]]; then
+    echo "dev-task: invalid task name '${name}' -- only letters, digits, '.', '_', '-' are allowed" >&2
+    exit 1
+  fi
+}
+
+cmd_run() {
+  local name="${1:?task name required}"; shift
+  local prompt="${*:?prompt required}"
+  _validate_name "$name"
+
+  local unit="dev-task-${name}"
+  local log="$STATE_DIR/${name}.log"
+  local prev_log="$STATE_DIR/${name}.log.prev"
+
+  # Guard on EXISTENCE, not activity. systemd-run refuses to (re)create a
+  # unit that exists in ANY state -- active, or a terminal one (failed /
+  # inactive) left behind by a previous run that hasn't been collected or
+  # reset-failed yet. Failed transient units are NOT garbage-collected the
+  # way successful ones are, so "task failed, fix the cause, retry under
+  # the same name" -- the normal workflow, not an edge case, and currently
+  # the *only* workflow while Claude Code auth is outstanding -- would
+  # otherwise hit systemd's raw "already loaded or has a fragment file"
+  # error on the very next attempt.
+  local load_state
+  load_state="$(systemctl --user show "$unit" --property=LoadState --value 2>/dev/null || true)"
+  if [ -n "$load_state" ] && [ "$load_state" != "not-found" ]; then
+    local active_state
+    active_state="$(systemctl --user show "$unit" --property=ActiveState --value 2>/dev/null || true)"
+    case "$active_state" in
+      active|activating|reloading|deactivating)
+        # Live: refuse cleanly, touch nothing -- neither the unit nor the
+        # in-flight log this task is still writing to.
+        echo "dev-task: '${name}' is already running (unit ${unit}, state: ${active_state}) -- pick another name or wait for it to finish" >&2
+        exit 1
+        ;;
+      *)
+        # Terminal (failed/inactive) leftover: this is the retry-after-
+        # failure path, so clear it automatically rather than forcing the
+        # user to run `systemctl --user reset-failed` by hand for what is,
+        # for this tool, the routine case.
+        systemctl --user reset-failed "$unit" 2>/dev/null || true
+        echo "dev-task: cleared previous ${active_state:-terminal} run of '${name}' (unit ${unit}) before starting a new one" >&2
+        ;;
+    esac
+  fi
+
+  # Preserve the previous run's log (one generation, "<name>.log.prev")
+  # rather than destroy it outright -- a failed run's log is exactly the
+  # diagnostic the user is about to want, and this rotation only happens
+  # once the unit-name slot above is already confirmed free, so a later,
+  # unrelated systemd-run failure below never costs anything: worst case
+  # is an empty $log sitting next to an intact $log.prev. Kept to a single
+  # generation (mv -f, not append or timestamp) so the state dir cannot
+  # grow without bound across repeated retries.
+  if [ -s "$log" ]; then
+    mv -f "$log" "$prev_log"
+  fi
+  : > "$log"
+
+  # exec redirects the wrapper's own stdout+stderr (and therefore claude's,
+  # once it execs) to append to the log; $0 inside the wrapper is the log
+  # path, passed positionally rather than interpolated into the script text
+  # so neither it nor the prompt need special quoting. The trailing
+  # "[dev-task] exit=N" line is what makes a finished run's outcome
+  # recoverable after the unit itself has been collected.
+  #
+  # $$ec / $$ below (not $ec / $) is deliberate, not a typo: systemd performs
+  # its own ${VAR}/$VAR specifier substitution on the ExecStart command line
+  # before the shell ever sees it, and "ec" parses as a valid variable name
+  # to systemd (unset in the unit's environment, so it silently becomes an
+  # empty string -- confirmed via `journalctl --user`, which logs "Referenced
+  # but unset environment variable ... : ec"). $? and $0 survive untouched
+  # because "?" and "0" aren't valid identifier characters, but any named
+  # variable we introduce ourselves is not safe unless escaped. systemd's
+  # own escape for a literal "$" is "$$" (systemd.service(5)); that literal
+  # "$" is what then reaches bash as an ordinary variable reference.
+  systemd-run --user --unit="${unit}" \
+    --working-directory="$PWD" \
+    --setenv=HOME="$HOME" \
+    /bin/bash -c 'exec >>"$0" 2>&1; claude -p "$1"; ec=$?; echo "[dev-task] exit=$$ec"; exit "$$ec"' \
+    "$log" "$prompt"
+  echo "started ${unit} (log: ${log})"
+}
+
+# Reads the trailing "[dev-task] exit=N" line out of a log, if present.
+# Prints nothing if the task is still running (no such line yet).
+_last_exit() {
+  local log="$1" line last=""
+  while IFS= read -r line; do
+    case "$line" in
+      '[dev-task] exit='*) last="${line#*exit=}" ;;
+    esac
+  done < "$log"
+  printf '%s' "$last"
+}
+
+cmd_list() {
+  local log name mtime exit_code status active found=0
+  for log in "$STATE_DIR"/*.log; do
+    [ -e "$log" ] || continue
+    found=1
+    name="$(basename "$log" .log)"
+    mtime="$(date -r "$log" '+%Y-%m-%d %H:%M:%S')"
+    exit_code="$(_last_exit "$log")"
+    if [ -n "$exit_code" ]; then
+      if [ "$exit_code" = "0" ]; then
+        status="done (exit 0)"
+      else
+        status="failed (exit ${exit_code})"
+      fi
+    else
+      # No exit line yet: still running, unless the unit itself is gone
+      # without ever recording one (killed, or crashed before the wrapper
+      # could append its line), or terminal in a state other than "active"
+      # (e.g. failed with no exit line -- an OOM-kill, say). Report which
+      # of those it is rather than blanket-claiming "not found" when the
+      # unit was, in fact, found.
+      active="$(systemctl --user show "dev-task-${name}" --property=ActiveState --value 2>/dev/null || true)"
+      case "$active" in
+        active|activating|reloading) status="running" ;;
+        "") status="unknown (no exit recorded; unit not found)" ;;
+        *) status="unknown (no exit recorded; unit state: ${active})" ;;
+      esac
+    fi
+    printf '%-24s %-20s %s\n' "$name" "$mtime" "$status"
+  done
+  if [ "$found" -eq 0 ]; then
+    echo "no tasks" >&2
+  fi
+}
+
+cmd_log() {
+  local name="${1:?task name required}"
+  _validate_name "$name"
+  tail -f "$STATE_DIR/${name}.log"
+}
+
+case "${1:-}" in
+  run)  shift; cmd_run "$@" ;;
+  list) cmd_list ;;
+  log)  shift; cmd_log "$@" ;;
+  *)    usage ;;
+esac
