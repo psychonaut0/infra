@@ -15,7 +15,7 @@ export DEBIAN_FRONTEND=noninteractive
 # --- 1. Base packages -----------------------------------------------------
 apt-get update -qq
 apt-get install -y -qq \
-  ca-certificates curl wget gnupg git git-lfs jq ripgrep unzip zip \
+  ca-certificates curl wget gnupg git git-lfs jq ripgrep unzip zip rsync \
   build-essential pkg-config sudo tmux locales less python3 python3-venv pipx \
   openssh-server
 

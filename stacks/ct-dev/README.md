@@ -17,6 +17,11 @@ Recovery is **recreate and re-run**, not restore — nothing here is backed up.
 5. Migrate Claude session state (see below).
 
 Both scripts are idempotent; re-running them is the intended way to converge.
+`provision-ct.sh` is the **only** supported way to reach a working ct-dev —
+the box is not backed up, so the script is the sole rebuild path. Any manual
+fix applied to the live container to get unblocked must be folded back into
+the script immediately, or the "reproducible from these scripts" claim that
+justifies skipping backups quietly stops being true.
 
 ## Claude session migration
 
