@@ -151,9 +151,12 @@ else
   log "bun ${BUN_VERSION} already installed, skipping"
 fi
 
-# The toolchain dirs are derived once and reused for every PATH sink below,
-# so there is exactly one place to edit if a tool moves.
+# The toolchain dirs, and the standard system dirs that must always
+# accompany a fully-expanded literal PATH (rather than a `$PATH`-appending
+# fragment), are derived once and reused for every PATH sink below — one
+# place to edit if a tool moves or the standard dirs list needs to change.
 CT_DEV_PATH_DIRS="/usr/local/go/bin:/usr/local/node/bin:/usr/local/bun/bin"
+CT_DEV_STD_DIRS="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
 CT_DEV_GOPATH="/home/${USER_NAME}/go"
 
 # --- 6a. Login/interactive shells: /etc/profile.d ------------------------
@@ -179,8 +182,10 @@ fi
 # interactivity/login-ness. It is NOT a shell script: plain KEY=value, no
 # `export`, no `$VAR` expansion, no partial fragments — so the PATH here
 # must be the fully expanded literal, standard system dirs included, or a
-# plain `ssh host cmd` loses the base OS PATH entirely.
-CT_DEV_ETC_ENV_PATH="${CT_DEV_PATH_DIRS}:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+# plain `ssh host cmd` loses the base OS PATH entirely. GOPATH is likewise
+# a literal here — not because of the ct-dev user specifically, but because
+# this file format has no variable expansion at all, for any value.
+CT_DEV_ETC_ENV_PATH="${CT_DEV_PATH_DIRS}:${CT_DEV_STD_DIRS}"
 ct_dev_desired_path_line="PATH=\"${CT_DEV_ETC_ENV_PATH}\""
 ct_dev_desired_gopath_line="GOPATH=\"${CT_DEV_GOPATH}\""
 ct_dev_current_path_line=$(grep -m1 '^PATH=' /etc/environment 2>/dev/null || true)
@@ -218,16 +223,59 @@ fi
 # regardless of environment.d/lingering being correct. `apt-get install` of
 # an already-installed package is a no-op, so this is naturally idempotent.
 apt-get install -y -qq dbus-user-session
+
+# environment.d is read ONCE, at the moment the systemd --user manager for
+# this uid first starts — not on every login, and not on daemon-reexec (see
+# below). So this file MUST exist before that manager's first start, or the
+# manager comes up without the toolchain PATH and stays that way until
+# something restarts it. That is exactly the bug fix-round-1 papered over
+# with a manual `systemctl restart user@1000.service`: `loginctl
+# enable-linger` starts the manager immediately if it isn't running yet, and
+# the old ordering ran that call BEFORE this file existed. Writing the file
+# first (here) means a from-scratch container's first manager start already
+# has the right PATH — no manual step needed.
 #
-# Without lingering, that per-user manager only exists while a login
-# session for the user is open, and dies with the last session — so a
-# headless dev-task run with nobody logged in would have no user manager
-# to talk to at all, regardless of environment.d. Enabling linger makes
-# the user manager start at boot and persist with no active session,
-# which is required for the "systemd --user unit runs headless" capability
-# this task exists to support. `loginctl enable-linger` is itself
-# idempotent (writes a marker file, no error/duplicate on re-run); the
-# guard below only exists to keep the log quiet on a re-run.
+# GOPATH is a literal here too, same as /etc/environment above — but for a
+# different reason: environment.d has no shell-style `$HOME` expansion
+# either (it is not a shell script, and there is no reliable
+# already-resolved-at-generation-time substitute we want to depend on), so
+# it is baked in from ${USER_NAME} at script-generation time. This is safe
+# specifically because this file always lives inside that same user's own
+# ~/.config, generated with that same user's name — it is not one user's
+# path leaking into another user's environment.d.
+CT_DEV_USER_ENV_DIR="/home/${USER_NAME}/.config/environment.d"
+CT_DEV_USER_ENV_FILE="${CT_DEV_USER_ENV_DIR}/10-ct-dev.conf"
+ct_dev_desired_user_env=$(printf 'PATH=%s:%s:%s/.local/bin\nGOPATH=%s\n' \
+  "$CT_DEV_PATH_DIRS" "$CT_DEV_STD_DIRS" "/home/${USER_NAME}" "$CT_DEV_GOPATH")
+
+mkdir -p "$CT_DEV_USER_ENV_DIR"
+chown "${USER_NAME}:${USER_NAME}" "/home/${USER_NAME}/.config" "$CT_DEV_USER_ENV_DIR" 2>/dev/null || true
+
+ct_dev_current_user_env=""
+[ -f "$CT_DEV_USER_ENV_FILE" ] && ct_dev_current_user_env=$(cat "$CT_DEV_USER_ENV_FILE")
+ct_dev_user_env_changed=no
+
+if [ "$ct_dev_current_user_env" != "$ct_dev_desired_user_env" ]; then
+  log "writing ${CT_DEV_USER_ENV_FILE} for systemd --user"
+  printf '%s' "$ct_dev_desired_user_env" > "$CT_DEV_USER_ENV_FILE"
+  chown "${USER_NAME}:${USER_NAME}" "$CT_DEV_USER_ENV_FILE"
+  chmod 644 "$CT_DEV_USER_ENV_FILE"
+  ct_dev_user_env_changed=yes
+else
+  log "${CT_DEV_USER_ENV_FILE} already up to date, skipping"
+fi
+
+# Without lingering, the per-user manager only exists while a login session
+# for the user is open, and dies with the last session — so a headless
+# dev-task run with nobody logged in would have no user manager to talk to
+# at all, regardless of environment.d. Enabling linger makes the user
+# manager start at boot and persist with no active session, which is
+# required for the "systemd --user unit runs headless" capability this task
+# exists to support. `loginctl enable-linger` is itself idempotent (writes a
+# marker file, no error/duplicate on re-run); the guard below only exists to
+# keep the log quiet on a re-run. This call is now AFTER the environment.d
+# write above, so if it is what starts the manager for the first time (a
+# from-scratch container), that first start already sees the right PATH.
 if [ "$(loginctl show-user "$USER_NAME" -p Linger --value 2>/dev/null)" != "yes" ]; then
   log "enabling lingering for ${USER_NAME} (persistent systemd --user manager for headless units)"
   loginctl enable-linger "$USER_NAME"
@@ -235,31 +283,28 @@ else
   log "lingering already enabled for ${USER_NAME}, skipping"
 fi
 
-CT_DEV_USER_ENV_DIR="/home/${USER_NAME}/.config/environment.d"
-CT_DEV_USER_ENV_FILE="${CT_DEV_USER_ENV_DIR}/10-ct-dev.conf"
-ct_dev_desired_user_env=$(printf 'PATH=%s:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:%s/.local/bin\nGOPATH=%s\n' \
-  "$CT_DEV_PATH_DIRS" "/home/${USER_NAME}" "$CT_DEV_GOPATH")
-
-mkdir -p "$CT_DEV_USER_ENV_DIR"
-chown "${USER_NAME}:${USER_NAME}" "/home/${USER_NAME}/.config" "$CT_DEV_USER_ENV_DIR" 2>/dev/null || true
-
-ct_dev_current_user_env=""
-[ -f "$CT_DEV_USER_ENV_FILE" ] && ct_dev_current_user_env=$(cat "$CT_DEV_USER_ENV_FILE")
-
-if [ "$ct_dev_current_user_env" != "$ct_dev_desired_user_env" ]; then
-  log "writing ${CT_DEV_USER_ENV_FILE} for systemd --user"
-  printf '%s' "$ct_dev_desired_user_env" > "$CT_DEV_USER_ENV_FILE"
-  chown "${USER_NAME}:${USER_NAME}" "$CT_DEV_USER_ENV_FILE"
-  chmod 644 "$CT_DEV_USER_ENV_FILE"
-  # Apply immediately (rather than waiting for next login) so this run's
-  # own verification step can see it take effect.
-  if runuser -u "$USER_NAME" -- bash -c 'XDG_RUNTIME_DIR=/run/user/$(id -u) systemctl --user daemon-reexec' 2>/dev/null; then
-    log "reloaded systemd --user for ${USER_NAME}"
+# The reorder above covers a manager starting fresh for the first time, but
+# NOT a manager that was already running before this script ran (e.g.
+# lingering was enabled by a previous run, or an interactive session is
+# open) — that instance parsed the OLD environment.d at its own startup and
+# will keep the stale PATH until something reloads it. `systemctl --user
+# daemon-reexec` does NOT do this: it re-executes the manager binary in
+# place but does not re-read environment.d, which is only parsed at startup
+# — that gap is why fix-round-1 needed a manual `restart` to verify at all.
+# A real `restart` re-reads environment.d correctly, whether it is
+# restarting an already-running manager or (harmlessly) starting one that
+# is already up from the enable-linger call just above.
+#
+# CAUTION: restarting user@<uid>.service terminates any of this user's
+# systemd --user units that happen to be running at the time. Acceptable
+# for provisioning ct-dev now; would NOT be acceptable to run unconditionally
+# against a box with live dev-task work in progress.
+if [ "$ct_dev_user_env_changed" = yes ]; then
+  if systemctl restart "user@${USER_UID}.service" 2>/dev/null; then
+    log "restarted user@${USER_UID}.service for ${USER_NAME} to pick up the new environment.d (terminates any of their currently running --user units)"
   else
-    log "could not reload systemd --user for ${USER_NAME} (no active user session yet) — will take effect at next login"
+    log "could not restart user@${USER_UID}.service for ${USER_NAME} (no session yet) — will take effect at next login"
   fi
-else
-  log "${CT_DEV_USER_ENV_FILE} already up to date, skipping"
 fi
 
 # --- 7. Docker ------------------------------------------------------------
