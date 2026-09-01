@@ -477,3 +477,50 @@ else
   log "installing claude code"
   as_user bash -lc 'curl -fsSL https://claude.ai/install.sh | bash'
 fi
+
+# --- 12. dev-task -----------------------------------------------------------
+if [ -f /root/ct-dev-files/dev-task ]; then
+  install -m 755 /root/ct-dev-files/dev-task /usr/local/bin/dev-task
+  log "installed /usr/local/bin/dev-task"
+else
+  log "no /root/ct-dev-files/dev-task staged, skipping dev-task install"
+fi
+
+# Without lingering, user units are killed when the last session ends -- which
+# would defeat the entire point of detached batch tasks.
+loginctl enable-linger "$USER_NAME"
+
+# Login summary. NOT /etc/update-motd.d -- those run as root under pam_motd,
+# so $HOME would be /root and `systemctl --user` would query the wrong user.
+# This must run as psy, so it goes in the user's bashrc.
+#
+# Capture the grep target into a variable before testing it, rather than
+# piping straight into `grep -q` (see the sshd -T note in section 4): under
+# `set -o pipefail` (on at the top of this script), a grep -q short-circuit
+# can SIGPIPE an upstream producer and pipefail would then report the
+# pipeline's status as that SIGPIPE, not grep's. There's no producer process
+# here, but capture-then-grep is the safe habit regardless.
+bashrc="/home/$USER_NAME/.bashrc"
+bashrc_contents=""
+if [ -f "$bashrc" ]; then
+  bashrc_contents=$(cat "$bashrc")
+fi
+if ! grep -q 'dev-task summary' <<< "$bashrc_contents"; then
+  cat >> "$bashrc" <<'RCEOF'
+
+# dev-task summary on interactive login
+if [ -n "$PS1" ]; then
+  _dt=$(systemctl --user list-units 'dev-task-*' --all --no-legend --no-pager 2>/dev/null)
+  if [ -n "$_dt" ]; then
+    printf '\ndev-task:\n'
+    printf '%s\n' "$_dt" | awk '{printf "  %-28s %s\n", $1, $4}'
+    printf '\n'
+  fi
+  unset _dt
+fi
+RCEOF
+  chown "$USER_NAME:$USER_NAME" "$bashrc"
+  log "installed dev-task summary block in ~/.bashrc for ${USER_NAME}"
+else
+  log "dev-task summary block already present in ~/.bashrc, skipping"
+fi
