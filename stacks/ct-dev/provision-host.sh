@@ -64,13 +64,24 @@ fi
 # The /dev/net/tun passthrough is NEW for this fleet -- Tailscale cannot
 # create its interface in an unprivileged LXC without it.
 CONF="/etc/pve/lxc/${VMID}.conf"
+conf_changed=no
 add_conf() {
-  grep -qxF "$1" "$CONF" || { log "conf += $1"; echo "$1" >> "$CONF"; }
+  grep -qxF "$1" "$CONF" || { log "conf += $1"; echo "$1" >> "$CONF"; conf_changed=yes; }
 }
 add_conf 'lxc.mount.auto: proc:rw sys:rw'
 add_conf 'lxc.apparmor.profile: unconfined'
 add_conf 'lxc.cgroup2.devices.allow: c 10:200 rwm'
 add_conf 'lxc.mount.entry: /dev/net/tun dev/net/tun none bind,create=file'
+
+# add_conf only appends to the config file; LXC applies it at next container
+# start, not live. `--memory`/`--cores`/`--features` above are likewise only
+# read by `pct create` and produce no output at all on a re-run against an
+# existing CT, even if they've drifted from what's passed on the command
+# line. We deliberately do NOT auto-restart here (this box does unattended
+# work) — just make the gap loud instead of silent.
+if [ "$conf_changed" = yes ] && [ "$(pct status "$VMID" 2>/dev/null)" = "status: running" ]; then
+  log "WARNING: $CONF was changed while CT $VMID is running — the new lxc.* lines take effect only after 'pct stop $VMID && pct start $VMID'"
+fi
 
 # Same pipefail + `grep -q` SIGPIPE class fixed in provision-ct.sh: `grep -q`
 # can exit before `pct status` finishes writing, and pipefail would then

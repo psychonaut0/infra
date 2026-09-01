@@ -230,8 +230,16 @@
   **Not backed up, by design:** ct-dev is absent from `CT_IPS` in
   `stacks/ct-backup/scripts/pre-backup.sh` so work source never reaches personal
   B2 storage; the base setup is reproducible instead. Uncommitted work dies with
-  the container. **The 12GB allocation assumes ct-nvr stays stopped** — running
-  full builds alongside a restarted ct-nvr oversubscribes proxmoxmain.
+  the container. **Memory limits on proxmoxmain are caps, not reservations —
+  the host is deliberately oversubscribed on paper:** proxmoxmain has 31GB
+  physical, configured CT memory limits sum to roughly 60GB (~2x), and that
+  was already true before ct-dev existed (ct-games alone is 16GB, ct-media
+  and ct-photos 8GB each). The signal to watch is *actual* usage (`free -g`
+  on proxmoxmain), not the sum of configured limits — measured, with
+  ct-dev's full compose stack running, that's 11GB used / 19GB available.
+  Restarting ct-nvr adds real usage (Frigate plus its transcodes) and
+  tightens actual headroom, so check `free -g` before running heavy builds
+  alongside it.
   Runbook: `stacks/ct-dev/README.md`.
 
 ### ct-photos (LXC — VMID 106 on proxmoxmain)
