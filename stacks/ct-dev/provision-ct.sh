@@ -445,3 +445,35 @@ if [ -n "${WORK_REPO:-}" ] && [ -n "${WORK_REPO_URL:-}" ]; then
 else
   log "no WORK_REPO/WORK_REPO_URL supplied, skipping work-repo checkout"
 fi
+
+# --- 10. Shell environment ------------------------------------------------
+if [ -f /root/ct-dev-files/tmux.conf ]; then
+  install -m 644 -o "$USER_NAME" -g "$USER_NAME" \
+    /root/ct-dev-files/tmux.conf "/home/$USER_NAME/.tmux.conf"
+  log "installed ~/.tmux.conf for ${USER_NAME}"
+else
+  log "no /root/ct-dev-files/tmux.conf staged, skipping ~/.tmux.conf install"
+fi
+
+# CLAUDE.md carries a <WORK_REPO> placeholder because the infra repo is public;
+# substitute the real name at deploy time.
+if [ -f /root/ct-dev-files/CLAUDE.md ]; then
+  if [ -n "${WORK_REPO:-}" ]; then
+    sed "s|<WORK_REPO>|${WORK_REPO}|g" /root/ct-dev-files/CLAUDE.md \
+      > "/home/$USER_NAME/CLAUDE.md"
+    chown "$USER_NAME:$USER_NAME" "/home/$USER_NAME/CLAUDE.md"
+    log "installed ~/CLAUDE.md for ${USER_NAME} (WORK_REPO substituted)"
+  else
+    log "no WORK_REPO supplied, skipping ~/CLAUDE.md install (would leave placeholder in place)"
+  fi
+else
+  log "no /root/ct-dev-files/CLAUDE.md staged, skipping ~/CLAUDE.md install"
+fi
+
+# --- 11. Claude Code -------------------------------------------------------
+if as_user bash -lc 'command -v claude' >/dev/null 2>&1; then
+  log "claude already installed, skipping"
+else
+  log "installing claude code"
+  as_user bash -lc 'curl -fsSL https://claude.ai/install.sh | bash'
+fi
