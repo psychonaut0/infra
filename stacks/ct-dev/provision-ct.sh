@@ -261,3 +261,24 @@ if [ "$ct_dev_current_user_env" != "$ct_dev_desired_user_env" ]; then
 else
   log "${CT_DEV_USER_ENV_FILE} already up to date, skipping"
 fi
+
+# --- 7. Docker ------------------------------------------------------------
+# Works inside an unprivileged LXC thanks to nesting=1 + AppArmor unconfined
+# + lxc.mount.auto: proc:rw sys:rw (not a /proc/sys bind-mount, which is the
+# privileged-CT pattern and fails pct start here), all set by provision-host.sh.
+if ! command -v docker >/dev/null 2>&1; then
+  log "installing docker"
+  install -m 0755 -d /etc/apt/keyrings
+  curl -fsSL https://download.docker.com/linux/debian/gpg \
+    -o /etc/apt/keyrings/docker.asc
+  chmod a+r /etc/apt/keyrings/docker.asc
+  echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/debian $(. /etc/os-release && echo "$VERSION_CODENAME") stable" \
+    > /etc/apt/sources.list.d/docker.list
+  apt-get update -qq
+  apt-get install -y -qq docker-ce docker-ce-cli containerd.io \
+    docker-buildx-plugin docker-compose-plugin
+else
+  log "docker already installed, skipping"
+fi
+systemctl enable --now docker
+usermod -aG docker "$USER_NAME"
