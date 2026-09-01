@@ -55,24 +55,53 @@ cmd_run() {
 
   local unit="dev-task-${name}"
   local log="$STATE_DIR/${name}.log"
+  local prev_log="$STATE_DIR/${name}.log.prev"
 
-  # Check for a conflicting live unit BEFORE touching the log at all. The
-  # previous version truncated the log unconditionally first, then let
-  # systemd-run fail on the duplicate unit name and `set -e` abort -- net
-  # effect: an in-flight task's output destroyed, and no replacement
-  # started either. A unit in a terminal state (failed, or simply gone
-  # because it already succeeded and was collected) is fine to reuse the
-  # name over; only a still-live unit blocks a re-run.
-  local active
-  active="$(systemctl --user show "$unit" --property=ActiveState --value 2>/dev/null || true)"
-  case "$active" in
-    active|activating|reloading|deactivating)
-      echo "dev-task: '${name}' is already running (unit ${unit}, state: ${active}) -- pick another name or wait for it to finish" >&2
-      exit 1
-      ;;
-  esac
+  # Guard on EXISTENCE, not activity. systemd-run refuses to (re)create a
+  # unit that exists in ANY state -- active, or a terminal one (failed /
+  # inactive) left behind by a previous run that hasn't been collected or
+  # reset-failed yet. Failed transient units are NOT garbage-collected the
+  # way successful ones are, so "task failed, fix the cause, retry under
+  # the same name" -- the normal workflow, not an edge case, and currently
+  # the *only* workflow while Claude Code auth is outstanding -- would
+  # otherwise hit systemd's raw "already loaded or has a fragment file"
+  # error on the very next attempt.
+  local load_state
+  load_state="$(systemctl --user show "$unit" --property=LoadState --value 2>/dev/null || true)"
+  if [ -n "$load_state" ] && [ "$load_state" != "not-found" ]; then
+    local active_state
+    active_state="$(systemctl --user show "$unit" --property=ActiveState --value 2>/dev/null || true)"
+    case "$active_state" in
+      active|activating|reloading|deactivating)
+        # Live: refuse cleanly, touch nothing -- neither the unit nor the
+        # in-flight log this task is still writing to.
+        echo "dev-task: '${name}' is already running (unit ${unit}, state: ${active_state}) -- pick another name or wait for it to finish" >&2
+        exit 1
+        ;;
+      *)
+        # Terminal (failed/inactive) leftover: this is the retry-after-
+        # failure path, so clear it automatically rather than forcing the
+        # user to run `systemctl --user reset-failed` by hand for what is,
+        # for this tool, the routine case.
+        systemctl --user reset-failed "$unit" 2>/dev/null || true
+        echo "dev-task: cleared previous ${active_state:-terminal} run of '${name}' (unit ${unit}) before starting a new one" >&2
+        ;;
+    esac
+  fi
 
+  # Preserve the previous run's log (one generation, "<name>.log.prev")
+  # rather than destroy it outright -- a failed run's log is exactly the
+  # diagnostic the user is about to want, and this rotation only happens
+  # once the unit-name slot above is already confirmed free, so a later,
+  # unrelated systemd-run failure below never costs anything: worst case
+  # is an empty $log sitting next to an intact $log.prev. Kept to a single
+  # generation (mv -f, not append or timestamp) so the state dir cannot
+  # grow without bound across repeated retries.
+  if [ -s "$log" ]; then
+    mv -f "$log" "$prev_log"
+  fi
   : > "$log"
+
   # exec redirects the wrapper's own stdout+stderr (and therefore claude's,
   # once it execs) to append to the log; $0 inside the wrapper is the log
   # path, passed positionally rather than interpolated into the script text
