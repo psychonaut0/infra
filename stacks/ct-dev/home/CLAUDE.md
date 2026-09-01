@@ -28,10 +28,9 @@ It is a headless container, not a workstation. The global BLVCKFlow context does
 Detaching is how work survives you; a bare SSH session dies with the connection.
 
 - `claude --resume` picks up prior sessions (state migrated from the workstation).
-- Batch, nothing attached: `dev-task run <name> "<prompt>"` runs Claude headless
-  under a transient systemd user unit. `dev-task list` shows state,
-  `dev-task log <name>` tails output. Results are pulled, not pushed — there is
-  no notification service by design.
+- `tmux` is the only persistence mechanism on this box — there is no headless
+  batch runner and no notification service; everything runs inside an
+  attached (or detached) `tmux` session.
 
 ## Workspace
 

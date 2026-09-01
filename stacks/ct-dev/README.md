@@ -66,19 +66,15 @@ be reorderable, it shouldn't: don't move key generation before the first
    scp ~/travelogue proxmoxmain:/root/travelogue
    ssh proxmoxmain "pct push 116 /root/travelogue /root/travelogue"
 
-   # 6. Shell environment + host CLAUDE.md + dev-task (this repo's copies).
+   # 6. Shell environment + host CLAUDE.md (this repo's copies).
    #    Skip tmux.conf and psy gets tmux's bare defaults; skip CLAUDE.md and
    #    psy gets no project-context file at all (not a broken placeholder —
-   #    the file is simply never installed); skip dev-task and the binary is
-   #    simply absent — the .bashrc login summary (installed unconditionally
-   #    by provision-ct.sh) then calls a command that does not exist.
+   #    the file is simply never installed).
    ssh proxmoxmain "pct exec 116 -- mkdir -p /root/ct-dev-files"
    scp stacks/ct-dev/home/tmux.conf proxmoxmain:/root/tmux.conf
    ssh proxmoxmain "pct push 116 /root/tmux.conf /root/ct-dev-files/tmux.conf"
    scp stacks/ct-dev/home/CLAUDE.md proxmoxmain:/root/CLAUDE.md
    ssh proxmoxmain "pct push 116 /root/CLAUDE.md /root/ct-dev-files/CLAUDE.md"
-   scp stacks/ct-dev/bin/dev-task proxmoxmain:/root/dev-task
-   ssh proxmoxmain "pct push 116 /root/dev-task /root/ct-dev-files/dev-task"
    ```
 
 3. Push `provision-ct.sh` itself, then run it inside the CT — **first
@@ -97,7 +93,7 @@ be reorderable, it shouldn't: don't move key generation before the first
    log-and-skip on this pass — that is expected, not a failure:** no GitHub
    SSH key exists on the container yet, so there is nothing else it could
    do. Everything else (toolchain, Docker, AWS tooling, shell environment,
-   Claude Code, `dev-task`) installs normally.
+   Claude Code) installs normally.
 4. **Now that `ssh ct-dev` works, generate and register the GitHub SSH
    key.** It is generated *on* ct-dev itself, then registered with GitHub —
    it is not one of the staged files above, and it cannot exist before step
@@ -164,9 +160,8 @@ off the encoded path).
 
 ## Daily use
 
-- Always work inside `tmux`; it is what makes sessions survive disconnect.
-- Batch, nothing attached: `dev-task run <name> "<prompt>"`, then
-  `dev-task list` / `dev-task log <name>`. MOTD shows what finished.
+- Always work inside `tmux`; it is what makes sessions survive disconnect —
+  it is the only persistence mechanism on this box.
 - AWS: `travelogue login` (headless — use the `--no-browser` flow).
 
 ## Gotchas
@@ -194,7 +189,7 @@ off the encoded path).
 - **PATH on ct-dev has three independent contexts, configured separately:**
   - login/interactive shells → `/etc/profile.d/ct-dev-path.sh`
   - non-interactive `ssh ct-dev "cmd"` → `/etc/environment` (read by `pam_env`)
-  - systemd `--user` units (this is how `dev-task` runs) →
+  - systemd `--user` units →
     `~/.config/environment.d/10-ct-dev.conf`
 
   Any binary added to this box must be verified in **all three** — a binary
@@ -206,9 +201,9 @@ off the encoded path).
 - **The work-repo clone/`bun install` block (section 9) is non-fatal.** A
   failure there — bad or unregistered SSH key, network, or a destination
   that exists but isn't a git repo — is logged and the script continues, so
-  sections 10-12 (shell environment, `~/CLAUDE.md`, Claude Code, `dev-task`)
-  still run. Re-running `provision-ct.sh` after fixing the credential
-  retries the clone.
+  sections 10-11 (shell environment, `~/CLAUDE.md`, Claude Code) still run.
+  Re-running `provision-ct.sh` after fixing the credential retries the
+  clone.
 - **`ping` does not work as unprivileged `psy`** in this container (no
   `cap_net_raw`) — use `sudo ping` or a TCP-level check instead.
 - **Avoid `cmd | grep -q` in scripts.** Under `set -o pipefail`, `grep -q`'s

@@ -220,9 +220,9 @@
   The home path `~/Documents/work/travelware/<WORK_REPO>` is **load-bearing** —
   it is byte-identical to the workstation so the git `includeIf` work identity
   applies and Claude Code session directories migrate without rewriting.
-  Work happens inside `tmux`; detached batch runs use `dev-task run|list|log`
-  (systemd user units, lingering enabled), with results pulled, not pushed —
-  there is deliberately no notification service. **`PATH` has three independent
+  Work happens inside `tmux`, which is the only session-persistence mechanism
+  on this box — `tmux` detach/reattach is how work survives a disconnect.
+  **`PATH` has three independent
   contexts** on this box — login shells (`/etc/profile.d/`), non-interactive
   `ssh host cmd` (`/etc/environment`, via pam_env), and systemd `--user` units
   (`~/.config/environment.d/`) — any binary added must be verified in all
@@ -316,8 +316,8 @@ Portfolio site runs on ct-portfolio (https://portfolio.<PERSONAL_DOMAIN> publicl
 Workout-tracker backend runs on ct-workout (http://workout.lan API, http://workout-sync.lan PowerSync). Go API + app Postgres + PowerSync service + dedicated bucket-storage Postgres, serving the phone app. LAN-only. Server image: `ghcr.io/psychonaut0/workout-tracker-server` (source repo `github.com/psychonaut0/workout-tracker`, separate from infra).
 Open WebUI runs on ct-chat (https://chat.<PERSONAL_DOMAIN> publicly, http://192.168.3.18:8080 on LAN) as a self-hosted ChatGPT equivalent over a single OpenRouter account — persistent memory, Brave-backed web search, embeddings/STT/TTS/image generation all through the same key. Public access is gated by Cloudflare Access; Conduit is the native Android/iOS client. There is deliberately no `.lan` hostname.
 Remote development container runs on ct-dev (ssh ct-dev). Holds the work
-monorepo; tmux keeps agent sessions alive across disconnects and `dev-task`
-runs headless work with nothing attached. Not backed up by design.
+monorepo; tmux keeps agent sessions alive across disconnects. Not backed up
+by design.
 infra CLI release mirror runs natively on ct-mgmt as a systemd timer (every 5 min) and is served via Caddy at http://infra-bin.lan. Pulls GitHub Release artifacts and re-publishes to the LAN. Source + deploy notes: `stacks/ct-mgmt/infra-mirror/`.
 Hardware and storage details in `docs/hardware.md`.
 
