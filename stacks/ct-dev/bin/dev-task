@@ -26,10 +26,52 @@ USAGE
   exit 2
 }
 
+# Task names become both a filename component (under $STATE_DIR) and a
+# systemd unit name (dev-task-<name>), so they're restricted to a
+# conservative charset up front: no "/" means no path traversal is even
+# expressible (a name can never leave $STATE_DIR), and "." / ".." are
+# rejected explicitly on top of that since a task silently landing on a
+# name `list` would never glob (STATE_DIR/*.log) is exactly the kind of
+# silent-failure this tool exists to avoid -- the listing is the only
+# feedback channel this feature has.
+_validate_name() {
+  local name="$1"
+  case "$name" in
+    .|..)
+      echo "dev-task: invalid task name '${name}' -- '.' and '..' are not allowed" >&2
+      exit 1
+      ;;
+  esac
+  if ! [[ "$name" =~ ^[A-Za-z0-9._-]+$ ]]; then
+    echo "dev-task: invalid task name '${name}' -- only letters, digits, '.', '_', '-' are allowed" >&2
+    exit 1
+  fi
+}
+
 cmd_run() {
   local name="${1:?task name required}"; shift
   local prompt="${*:?prompt required}"
+  _validate_name "$name"
+
+  local unit="dev-task-${name}"
   local log="$STATE_DIR/${name}.log"
+
+  # Check for a conflicting live unit BEFORE touching the log at all. The
+  # previous version truncated the log unconditionally first, then let
+  # systemd-run fail on the duplicate unit name and `set -e` abort -- net
+  # effect: an in-flight task's output destroyed, and no replacement
+  # started either. A unit in a terminal state (failed, or simply gone
+  # because it already succeeded and was collected) is fine to reuse the
+  # name over; only a still-live unit blocks a re-run.
+  local active
+  active="$(systemctl --user show "$unit" --property=ActiveState --value 2>/dev/null || true)"
+  case "$active" in
+    active|activating|reloading|deactivating)
+      echo "dev-task: '${name}' is already running (unit ${unit}, state: ${active}) -- pick another name or wait for it to finish" >&2
+      exit 1
+      ;;
+  esac
+
   : > "$log"
   # exec redirects the wrapper's own stdout+stderr (and therefore claude's,
   # once it execs) to append to the log; $0 inside the wrapper is the log
@@ -48,12 +90,12 @@ cmd_run() {
   # variable we introduce ourselves is not safe unless escaped. systemd's
   # own escape for a literal "$" is "$$" (systemd.service(5)); that literal
   # "$" is what then reaches bash as an ordinary variable reference.
-  systemd-run --user --unit="dev-task-${name}" \
+  systemd-run --user --unit="${unit}" \
     --working-directory="$PWD" \
     --setenv=HOME="$HOME" \
     /bin/bash -c 'exec >>"$0" 2>&1; claude -p "$1"; ec=$?; echo "[dev-task] exit=$$ec"; exit "$$ec"' \
     "$log" "$prompt"
-  echo "started dev-task-${name} (log: ${log})"
+  echo "started ${unit} (log: ${log})"
 }
 
 # Reads the trailing "[dev-task] exit=N" line out of a log, if present.
@@ -85,11 +127,15 @@ cmd_list() {
     else
       # No exit line yet: still running, unless the unit itself is gone
       # without ever recording one (killed, or crashed before the wrapper
-      # could append its line).
+      # could append its line), or terminal in a state other than "active"
+      # (e.g. failed with no exit line -- an OOM-kill, say). Report which
+      # of those it is rather than blanket-claiming "not found" when the
+      # unit was, in fact, found.
       active="$(systemctl --user show "dev-task-${name}" --property=ActiveState --value 2>/dev/null || true)"
       case "$active" in
         active|activating|reloading) status="running" ;;
-        *) status="unknown (no exit recorded, unit not found)" ;;
+        "") status="unknown (no exit recorded; unit not found)" ;;
+        *) status="unknown (no exit recorded; unit state: ${active})" ;;
       esac
     fi
     printf '%-24s %-20s %s\n' "$name" "$mtime" "$status"
@@ -101,6 +147,7 @@ cmd_list() {
 
 cmd_log() {
   local name="${1:?task name required}"
+  _validate_name "$name"
   tail -f "$STATE_DIR/${name}.log"
 }
 
