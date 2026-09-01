@@ -327,3 +327,71 @@ else
 fi
 systemctl enable --now docker
 usermod -aG docker "$USER_NAME"
+
+# --- 8. AWS tooling --------------------------------------------------------
+# Four separate binaries. ct-dev has root, so all install system-wide.
+#
+# travelogue: a separate Go binary distributed via Bitbucket downloads, not
+# in any monorepo/registry. Its download URL requires Bitbucket credentials,
+# so this script does not fetch it — the operator stages /root/travelogue
+# on the CT beforehand (e.g. scp from a workstation that already has it via
+# `pct push`), and this section only installs what's already staged. It
+# self-updates via `travelogue update` once installed and requires `aws` on
+# PATH to run.
+#
+# ~/.aws/config (SSO profiles: start URL, account IDs, role names — no
+# credentials) is likewise an operator-supplied input, copied in the same
+# way, never generated or embedded by this script.
+# NOTE: these gates check absolute paths, not `command -v` — under plain
+# `pct exec` (as opposed to `pct exec ... -- bash -l ...`), root's PATH is
+# just /sbin:/bin:/usr/sbin:/usr/bin, which doesn't include /usr/local/bin.
+# `command -v aws`/`command -v session-manager-plugin` would silently miss
+# an already-installed binary there and re-trigger the install every run.
+if [ ! -x /usr/local/bin/aws ]; then
+  log "installing aws cli v2"
+  curl -fsSL "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o /tmp/awscliv2.zip
+  unzip -qo /tmp/awscliv2.zip -d /tmp && /tmp/aws/install --update
+  rm -rf /tmp/awscliv2.zip /tmp/aws
+else
+  log "aws cli already installed, skipping"
+fi
+
+if [ ! -x /usr/local/bin/session-manager-plugin ]; then
+  log "installing session-manager-plugin"
+  curl -fsSL "https://s3.amazonaws.com/session-manager-downloads/plugin/latest/ubuntu_64bit/session-manager-plugin.deb" \
+    -o /tmp/smp.deb
+  apt-get install -y -qq /tmp/smp.deb && rm /tmp/smp.deb
+else
+  log "session-manager-plugin already installed, skipping"
+fi
+
+pgcli_present=$(as_user bash -lc 'command -v pgcli' 2>/dev/null || true)
+if [ -z "$pgcli_present" ]; then
+  log "installing pgcli"
+  # psycopg (pgcli's postgres driver) needs libpq's C library on the system;
+  # pipx's venv isolation doesn't pull it in. Without this, pgcli installs
+  # cleanly but fails at runtime with "no pq wrapper available".
+  if ! dpkg -s libpq5 >/dev/null 2>&1; then
+    apt-get install -y -qq libpq5
+  fi
+  as_user bash -lc 'pipx install pgcli'
+else
+  log "pgcli already installed, skipping"
+fi
+
+# travelogue CLI: staged in by the operator (see README), then self-updating.
+if [ -f /root/travelogue ] && [ ! -x /usr/local/bin/travelogue ]; then
+  log "installing travelogue cli"
+  install -m 755 /root/travelogue /usr/local/bin/travelogue
+else
+  log "travelogue already installed (or not staged), skipping"
+fi
+
+# ~/.aws/config: staged in by the operator (SSO profiles, no credentials).
+if [ -f /root/aws-config ]; then
+  install -d -m 700 -o "$USER_NAME" -g "$USER_NAME" "/home/${USER_NAME}/.aws"
+  install -m 600 -o "$USER_NAME" -g "$USER_NAME" /root/aws-config "/home/${USER_NAME}/.aws/config"
+  log "installed ~/.aws/config for ${USER_NAME}"
+else
+  log "no /root/aws-config staged, skipping ~/.aws/config install"
+fi
