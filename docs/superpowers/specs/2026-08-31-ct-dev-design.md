@@ -253,9 +253,12 @@ a native scripts-and-units stack rather than a compose file — covering:
 
 Recovery is *recreate and re-run*, not *restore*. The trade-off, stated plainly:
 **uncommitted work is not covered.** Committed and pushed work is safe in the
-work GitHub org; anything else dies with the CT. The cheap mitigation if that
-ever stings is an hourly auto-commit to a `wip/ct-dev` branch — not implemented,
-noted as the obvious next step.
+work GitHub org; anything else dies with the CT.
+
+An automatic WIP-commit or auto-push loop was considered and **rejected by the
+owner (2026-09-01)**. Pushing work-in-progress on a timer creates noise in the
+work repo's history and commits code the author has not chosen to share.
+Committing is a deliberate act; keep it that way. Do not re-propose this.
 
 Note the precedent from `ct-backup`: **committed is not deployed.** The script
 must actually be run against the CT, not merely live in the repo.
@@ -273,6 +276,6 @@ must actually be run against the CT, not merely live in the repo.
 |---|---|---|
 | Home internet / proxmoxmain becomes a hard dependency for paid work | High | Accepted trade-off of self-hosting. Committed work stays in GitHub and remains reachable independently. |
 | Resource contention with ct-nvr, Jellyfin, Immich | Medium | ct-nvr stopped; do not run full builds alongside a restarted ct-nvr. |
-| CT loss destroys uncommitted work | Medium | Accepted. `wip/ct-dev` push loop available if it becomes painful. |
+| CT loss destroys uncommitted work | Medium | Accepted, deliberately. An automatic WIP-commit/push loop was rejected by the owner 2026-09-01 — commit when you mean to. |
 | Browser terminal exposes a shell to the internet | High | Phase 3 only; loopback bind + dedicated tunnel + Cloudflare Access. |
 | Employer source on personal hardware | — | Cleared by owner 2026-08-31. |
