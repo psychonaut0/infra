@@ -415,13 +415,33 @@ else
 fi
 
 # --- 9. Work repo ---------------------------------------------------------
-# WORK_REPO is passed in by the operator; it is deliberately not committed to
-# this public repo. See CLAUDE.local.md.
-: "${WORK_REPO:?WORK_REPO must be set (repo name, e.g. WORK_REPO=foo.bar)}"
-: "${WORK_REPO_URL:?WORK_REPO_URL must be set (git remote URL)}"
-
-if [ ! -d "$REPO_PARENT/$WORK_REPO/.git" ]; then
-  log "cloning $WORK_REPO"
-  as_user git clone "$WORK_REPO_URL" "$REPO_PARENT/$WORK_REPO"
+# ~/.gitconfig / ~/.gitconfig-<WORK_ORG>: staged in by the operator (same
+# pattern as the <WORK_CLI> binary and aws-config above), never generated or
+# guessed by this script. A wrong git identity is worse than a missing one,
+# so absence is a log-and-skip, not a synthesized fallback. Contents are the
+# work name/email and are NOT committed to this public repo (see
+# CLAUDE.local.md) — only ever staged host-to-host as /root/gitconfig and
+# /root/gitconfig-<WORK_ORG>.
+if [ -f /root/gitconfig ] && [ -f /root/gitconfig-<WORK_ORG> ]; then
+  install -m 644 -o "$USER_NAME" -g "$USER_NAME" /root/gitconfig "/home/${USER_NAME}/.gitconfig"
+  install -m 644 -o "$USER_NAME" -g "$USER_NAME" /root/gitconfig-<WORK_ORG> "/home/${USER_NAME}/.gitconfig-<WORK_ORG>"
+  log "installed ~/.gitconfig and ~/.gitconfig-<WORK_ORG> for ${USER_NAME}"
+else
+  log "no /root/gitconfig + /root/gitconfig-<WORK_ORG> staged, skipping git identity install"
 fi
-as_user bash -lc "cd '$REPO_PARENT/$WORK_REPO' && bun install"
+
+# WORK_REPO is passed in by the operator; it is deliberately not committed to
+# this public repo. See CLAUDE.local.md. Unlike the staged files above, this
+# is an env var, not a file — but the same rule applies: absence is a
+# log-and-skip so a plain re-run of this script (e.g. to reapply the
+# toolchain/PATH sections, or because later sections were appended after
+# this one) is never blocked on a var that has nothing to do with them.
+if [ -n "${WORK_REPO:-}" ] && [ -n "${WORK_REPO_URL:-}" ]; then
+  if [ ! -d "$REPO_PARENT/$WORK_REPO/.git" ]; then
+    log "cloning $WORK_REPO"
+    as_user git clone "$WORK_REPO_URL" "$REPO_PARENT/$WORK_REPO"
+  fi
+  as_user bash -lc "cd '$REPO_PARENT/$WORK_REPO' && bun install"
+else
+  log "no WORK_REPO/WORK_REPO_URL supplied, skipping work-repo checkout"
+fi
