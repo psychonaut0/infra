@@ -540,3 +540,23 @@ fi
 RCEOF
   chown "$USER_NAME:$USER_NAME" "$BASHRC"
 fi
+
+# --- 13. GitHub CLI --------------------------------------------------------
+# From GitHub's own apt repo rather than Debian's, which ships 2.46 (early
+# 2024) against upstream's 2.9x — gh moves fast and the workstation runs
+# current. Same keyring + signed-by pattern as the Docker repo above: the key
+# is pinned to this one source, never added to the global trusted set.
+# gh lands in /usr/bin, which is on PATH in all three contexts.
+if ! command -v /usr/bin/gh >/dev/null 2>&1; then
+  log "installing github cli"
+  install -m 0755 -d /etc/apt/keyrings
+  curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg \
+    -o /etc/apt/keyrings/githubcli-archive-keyring.gpg
+  chmod a+r /etc/apt/keyrings/githubcli-archive-keyring.gpg
+  echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" \
+    > /etc/apt/sources.list.d/github-cli.list
+  apt-get update -qq
+  apt-get install -y -qq gh
+else
+  log "github cli already installed, skipping"
+fi
