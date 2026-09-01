@@ -494,33 +494,40 @@ loginctl enable-linger "$USER_NAME"
 # so $HOME would be /root and `systemctl --user` would query the wrong user.
 # This must run as psy, so it goes in the user's bashrc.
 #
-# Capture the grep target into a variable before testing it, rather than
-# piping straight into `grep -q` (see the sshd -T note in section 4): under
-# `set -o pipefail` (on at the top of this script), a grep -q short-circuit
-# can SIGPIPE an upstream producer and pipefail would then report the
-# pipeline's status as that SIGPIPE, not grep's. There's no producer process
-# here, but capture-then-grep is the safe habit regardless.
+# The block is wrapped in BEGIN/END sentinel comments and unconditionally
+# stripped-then-reappended on every run, rather than guarded by a grep -q
+# presence check: `dev-task list` is itself evolving (see dev-task's
+# CollectMode comment), and a presence-only guard would leave an
+# already-provisioned host stuck on whatever version of the block it first
+# got. sed-deleting the old block (if any) before appending a fresh one is
+# idempotent by construction and always converges to the current content.
 bashrc="/home/$USER_NAME/.bashrc"
-bashrc_contents=""
 if [ -f "$bashrc" ]; then
-  bashrc_contents=$(cat "$bashrc")
+  # Strip the unmarked block this section shipped with before BEGIN/END
+  # sentinels existed, so a host provisioned under that first cut migrates
+  # cleanly instead of ending up with two summaries. That block always ran
+  # from this exact comment line through the next unindented "fi".
+  sed -i '/^# dev-task summary on interactive login$/,/^fi$/d' "$bashrc"
+  sed -i '/^# BEGIN dev-task summary$/,/^# END dev-task summary$/d' "$bashrc"
 fi
-if ! grep -q 'dev-task summary' <<< "$bashrc_contents"; then
-  cat >> "$bashrc" <<'RCEOF'
+cat >> "$bashrc" <<'RCEOF'
 
-# dev-task summary on interactive login
+# BEGIN dev-task summary
+# dev-task summary on interactive login. Delegates entirely to `dev-task
+# list` rather than re-parsing `systemctl` here: the log directory (not
+# systemd) is the authoritative source of task state, and duplicating that
+# parsing logic in two places is exactly how the CollectMode/marker bugs
+# happened the first time.
 if [ -n "$PS1" ]; then
-  _dt=$(systemctl --user list-units 'dev-task-*' --all --no-legend --no-pager 2>/dev/null)
+  _dt=$(dev-task list 2>/dev/null)
   if [ -n "$_dt" ]; then
     printf '\ndev-task:\n'
-    printf '%s\n' "$_dt" | awk '{printf "  %-28s %s\n", $1, $4}'
+    printf '%s\n' "$_dt" | sed 's/^/  /'
     printf '\n'
   fi
   unset _dt
 fi
+# END dev-task summary
 RCEOF
-  chown "$USER_NAME:$USER_NAME" "$bashrc"
-  log "installed dev-task summary block in ~/.bashrc for ${USER_NAME}"
-else
-  log "dev-task summary block already present in ~/.bashrc, skipping"
-fi
+chown "$USER_NAME:$USER_NAME" "$bashrc"
+log "installed/refreshed dev-task summary block in ~/.bashrc for ${USER_NAME}"
