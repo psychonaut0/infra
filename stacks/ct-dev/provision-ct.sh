@@ -158,6 +158,12 @@ fi
 CT_DEV_PATH_DIRS="/usr/local/go/bin:/usr/local/node/bin:/usr/local/bun/bin"
 CT_DEV_STD_DIRS="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
 CT_DEV_GOPATH="/home/${USER_NAME}/go"
+# User-installed binaries (pipx, `curl | sh` installers like Task 9's Claude
+# Code) land in ~/.local/bin. It must win over the system dirs in
+# CT_DEV_STD_DIRS — hence placed right after the toolchain dirs, same
+# position the login-shell fragment below already uses — so it belongs in
+# the shared-variable set, not hardcoded per sink.
+CT_DEV_LOCAL_BIN="/home/${USER_NAME}/.local/bin"
 
 # --- 6a. Login/interactive shells: /etc/profile.d ------------------------
 cat > /etc/profile.d/ct-dev-path.sh <<PATHEOF
@@ -185,7 +191,10 @@ fi
 # plain `ssh host cmd` loses the base OS PATH entirely. GOPATH is likewise
 # a literal here — not because of the ct-dev user specifically, but because
 # this file format has no variable expansion at all, for any value.
-CT_DEV_ETC_ENV_PATH="${CT_DEV_PATH_DIRS}:${CT_DEV_STD_DIRS}"
+# CT_DEV_LOCAL_BIN is `psy`'s literal path — a compromise for a file that is
+# genuinely system-wide, but acceptable because ct-dev is a single-user
+# development container and pam_env cannot expand `$HOME` here either way.
+CT_DEV_ETC_ENV_PATH="${CT_DEV_PATH_DIRS}:${CT_DEV_LOCAL_BIN}:${CT_DEV_STD_DIRS}"
 ct_dev_desired_path_line="PATH=\"${CT_DEV_ETC_ENV_PATH}\""
 ct_dev_desired_gopath_line="GOPATH=\"${CT_DEV_GOPATH}\""
 ct_dev_current_path_line=$(grep -m1 '^PATH=' /etc/environment 2>/dev/null || true)
@@ -245,8 +254,12 @@ apt-get install -y -qq dbus-user-session
 # path leaking into another user's environment.d.
 CT_DEV_USER_ENV_DIR="/home/${USER_NAME}/.config/environment.d"
 CT_DEV_USER_ENV_FILE="${CT_DEV_USER_ENV_DIR}/10-ct-dev.conf"
-ct_dev_desired_user_env=$(printf 'PATH=%s:%s:%s/.local/bin\nGOPATH=%s\n' \
-  "$CT_DEV_PATH_DIRS" "$CT_DEV_STD_DIRS" "/home/${USER_NAME}" "$CT_DEV_GOPATH")
+# CT_DEV_LOCAL_BIN goes between the toolchain and standard dirs, same
+# ordering as the login-shell fragment and /etc/environment above, so a
+# user-installed binary (pipx, `curl | sh` installers) wins over a system
+# one in every PATH sink.
+ct_dev_desired_user_env=$(printf 'PATH=%s:%s:%s\nGOPATH=%s\n' \
+  "$CT_DEV_PATH_DIRS" "$CT_DEV_LOCAL_BIN" "$CT_DEV_STD_DIRS" "$CT_DEV_GOPATH")
 
 mkdir -p "$CT_DEV_USER_ENV_DIR"
 chown "${USER_NAME}:${USER_NAME}" "/home/${USER_NAME}/.config" "$CT_DEV_USER_ENV_DIR" 2>/dev/null || true
