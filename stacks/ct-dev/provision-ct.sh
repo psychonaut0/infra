@@ -151,6 +151,11 @@ else
   log "bun ${BUN_VERSION} already installed, skipping"
 fi
 
+# The upstream install script normally symlinks bunx alongside bun; this
+# manual zip-extract install doesn't, and monorepo preinstall gates
+# (`bunx only-allow bun`) depend on it being on PATH. ln -sf is idempotent.
+ln -sf /usr/local/bun/bin/bun /usr/local/bun/bin/bunx
+
 # The toolchain dirs, and the standard system dirs that must always
 # accompany a fully-expanded literal PATH (rather than a `$PATH`-appending
 # fragment), are derived once and reused for every PATH sink below — one
@@ -408,3 +413,15 @@ if [ -f /root/aws-config ]; then
 else
   log "no /root/aws-config staged, skipping ~/.aws/config install"
 fi
+
+# --- 9. Work repo ---------------------------------------------------------
+# WORK_REPO is passed in by the operator; it is deliberately not committed to
+# this public repo. See CLAUDE.local.md.
+: "${WORK_REPO:?WORK_REPO must be set (repo name, e.g. WORK_REPO=foo.bar)}"
+: "${WORK_REPO_URL:?WORK_REPO_URL must be set (git remote URL)}"
+
+if [ ! -d "$REPO_PARENT/$WORK_REPO/.git" ]; then
+  log "cloning $WORK_REPO"
+  as_user git clone "$WORK_REPO_URL" "$REPO_PARENT/$WORK_REPO"
+fi
+as_user bash -lc "cd '$REPO_PARENT/$WORK_REPO' && bun install"
