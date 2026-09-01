@@ -39,7 +39,9 @@ not always up. Today the canonical checkout lives on the workstation, so:
 ## Architecture
 
 A single unprivileged LXC on proxmoxmain, following the existing fleet pattern
-(`nesting=1,keyctl=1`, AppArmor unconfined, `/proc/sys` rw for Docker-in-LXC).
+(`nesting=1,keyctl=1`, AppArmor unconfined, `lxc.mount.auto: proc:rw sys:rw`
+for Docker-in-LXC — the unprivileged-CT form; a `/proc/sys` bind-mount is the
+privileged-CT pattern and fails `pct start` on an unprivileged container).
 
 ### Sizing
 
@@ -107,9 +109,20 @@ Profile-name scoping is the project scoping: **do not pin a repo-local
 
 Two changes on **proxmoxmain itself**, both outside the CT:
 
-1. **`vm.max_map_count=262144`** via `/etc/sysctl.d/`. The compose stack's search
-   service requires it and this sysctl is *not* namespaced — it cannot be set
-   from inside the container. Hypervisor-level blast radius; small but real.
+1. **`vm.max_map_count >= 262144`** floor. The compose stack's search service
+   requires it and this sysctl is *not* namespaced — it cannot be set from
+   inside the container. Debian 13 + systemd 257 ships 1048576
+   (`/usr/lib/sysctl.d/50-default.conf`) and PVE ships 262144
+   (`/usr/lib/sysctl.d/10-pve-ct-inotify-limits.conf`); either default already
+   clears the floor on any plausible build of this host. Provisioning
+   therefore only **asserts** the floor (reads the effective value, fails
+   loudly with remediation instructions if it's short) — it never writes,
+   deletes, or reloads sysctl config. An earlier design tried to enforce the
+   floor with a self-healing drop-in and, across three attempts, that write
+   path caused a lowered live limit, a wrongly-deleted file, and a
+   mis-ordered precedence check, without the floor ever actually being unmet
+   in practice. Assert-only trades that risk for a manual one-line fix on the
+   rare host where it's needed.
 2. **`/dev/net/tun` passthrough** for Tailscale in an unprivileged LXC:
    `lxc.cgroup2.devices.allow: c 10:200 rwm` plus the matching mount entry. No
    existing CT does this, so it is new ground for the fleet.

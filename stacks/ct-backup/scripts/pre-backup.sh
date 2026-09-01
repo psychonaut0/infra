@@ -29,6 +29,10 @@ declare -A CT_IPS=(
   [ct-workout]=192.168.3.17
   [ct-chat]=192.168.3.18
 )
+# NOTE: ct-dev (116, 192.168.3.19) is deliberately ABSENT from this list.
+# It holds a work checkout, and that source must never reach the personal B2
+# bucket. Its base setup is reproducible instead -- see stacks/ct-dev/. Do not
+# "fix" this omission.
 # CTs whose full /opt/stacks state must be captured (not just .env). These CTs
 # keep their service data (HA config, Mosquitto passwd/data, ESPHome per-device
 # keys, ct-workout's JWT signing key in secrets/) inside their /opt/stacks
