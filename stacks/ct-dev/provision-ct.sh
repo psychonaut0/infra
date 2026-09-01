@@ -225,7 +225,7 @@ else
   log "/etc/environment PATH/GOPATH already up to date, skipping"
 fi
 
-# --- 6c. systemd --user manager (dev-task's headless units): -------------
+# --- 6c. systemd --user manager (for headless --user units): -------------
 # environment.d is read by the systemd USER manager (per-user, not PAM), so
 # it's what a `systemd-run --user` / user unit sees — profile.d and
 # /etc/environment do not reach that context.
@@ -285,8 +285,8 @@ fi
 
 # Without lingering, the per-user manager only exists while a login session
 # for the user is open, and dies with the last session — so a headless
-# dev-task run with nobody logged in would have no user manager to talk to
-# at all, regardless of environment.d. Enabling linger makes the user
+# --user unit run with nobody logged in would have no user manager to talk
+# to at all, regardless of environment.d. Enabling linger makes the user
 # manager start at boot and persist with no active session, which is
 # required for the "systemd --user unit runs headless" capability this task
 # exists to support. `loginctl enable-linger` is itself idempotent (writes a
@@ -316,7 +316,7 @@ fi
 # CAUTION: restarting user@<uid>.service terminates any of this user's
 # systemd --user units that happen to be running at the time. Acceptable
 # for provisioning ct-dev now; would NOT be acceptable to run unconditionally
-# against a box with live dev-task work in progress.
+# against a box with live headless --user-unit work in progress.
 if [ "$ct_dev_user_env_changed" = yes ]; then
   if systemctl restart "user@${USER_UID}.service" 2>/dev/null; then
     log "restarted user@${USER_UID}.service for ${USER_NAME} to pick up the new environment.d (terminates any of their currently running --user units)"
@@ -442,7 +442,7 @@ fi
 # list) — a missing/unregistered SSH key, a transient network blip, or a
 # destination directory that exists but isn't a git repo can all fail it. Under
 # `set -euo pipefail`, letting any of that abort the script here would also
-# skip every section after it (shell PATH, Claude Code, dev-task) over a
+# skip every section after it (shell PATH, Claude Code) over a
 # problem that has nothing to do with them. So: try, log clearly on failure,
 # and always continue — matching the log-and-skip pattern the staged-input
 # sections already use.
@@ -496,56 +496,3 @@ else
   as_user bash -lc 'curl -fsSL https://claude.ai/install.sh | bash'
 fi
 
-# --- 12. dev-task -----------------------------------------------------------
-if [ -f /root/ct-dev-files/dev-task ]; then
-  install -m 755 /root/ct-dev-files/dev-task /usr/local/bin/dev-task
-  log "installed /usr/local/bin/dev-task"
-else
-  log "no /root/ct-dev-files/dev-task staged, skipping dev-task install"
-fi
-
-# Without lingering, user units are killed when the last session ends -- which
-# would defeat the entire point of detached batch tasks.
-loginctl enable-linger "$USER_NAME"
-
-# Login summary. NOT /etc/update-motd.d -- those run as root under pam_motd,
-# so $HOME would be /root and `systemctl --user` would query the wrong user.
-# This must run as psy, so it goes in the user's bashrc.
-#
-# The block is wrapped in BEGIN/END sentinel comments and unconditionally
-# stripped-then-reappended on every run, rather than guarded by a grep -q
-# presence check: `dev-task list` is itself evolving (see dev-task's
-# CollectMode comment), and a presence-only guard would leave an
-# already-provisioned host stuck on whatever version of the block it first
-# got. sed-deleting the old block (if any) before appending a fresh one is
-# idempotent by construction and always converges to the current content.
-bashrc="/home/$USER_NAME/.bashrc"
-if [ -f "$bashrc" ]; then
-  # Strip the unmarked block this section shipped with before BEGIN/END
-  # sentinels existed, so a host provisioned under that first cut migrates
-  # cleanly instead of ending up with two summaries. That block always ran
-  # from this exact comment line through the next unindented "fi".
-  sed -i '/^# dev-task summary on interactive login$/,/^fi$/d' "$bashrc"
-  sed -i '/^# BEGIN dev-task summary$/,/^# END dev-task summary$/d' "$bashrc"
-fi
-cat >> "$bashrc" <<'RCEOF'
-
-# BEGIN dev-task summary
-# dev-task summary on interactive login. Delegates entirely to `dev-task
-# list` rather than re-parsing `systemctl` here: the log directory (not
-# systemd) is the authoritative source of task state, and duplicating that
-# parsing logic in two places is exactly how the CollectMode/marker bugs
-# happened the first time.
-if [ -n "$PS1" ]; then
-  _dt=$(dev-task list 2>/dev/null)
-  if [ -n "$_dt" ]; then
-    printf '\ndev-task:\n'
-    printf '%s\n' "$_dt" | sed 's/^/  /'
-    printf '\n'
-  fi
-  unset _dt
-fi
-# END dev-task summary
-RCEOF
-chown "$USER_NAME:$USER_NAME" "$bashrc"
-log "installed/refreshed dev-task summary block in ~/.bashrc for ${USER_NAME}"

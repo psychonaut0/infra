@@ -146,6 +146,12 @@ last login. Telegram alerting was considered and rejected: it is a moving part
 with credentials to maintain, for a signal that is only useful once you have
 already decided to sit down and look.
 
+> **Outcome (2026-09-01):** `dev-task` was built as designed here and then
+> removed at the owner's request — it turned out to be useless noise in
+> practice. `tmux` is now the only session-persistence mechanism on ct-dev.
+> This section is retained for history; treat the batch mechanism described
+> above as no longer present.
+
 ## Access
 
 **Primary — Tailscale + SSH.** ct-dev joins the tailnet; `ssh psy@ct-dev` works
