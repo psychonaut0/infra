@@ -160,6 +160,29 @@ off the encoded path).
 
 ## Daily use
 
+**You land in tmux automatically.** A bare `ssh ct-dev` attaches to the `main`
+session, creating it if it does not exist (`tmux new-session -A -s main`, from
+`.bashrc`). Detach with `Ctrl-b d` and the work keeps running; reattach from any
+device. `Ctrl-b c` opens another window, `Ctrl-b 1..9` switches, `Ctrl-b %`
+splits a pane, `Ctrl-b z` zooms one full-screen.
+
+If you are already attached elsewhere, `tmux attach -d` steals the session
+rather than sharing it — two clients on one session force the display down to
+the smaller terminal.
+
+**Escape hatches.** `NO_TMUX=1 ssh -t ct-dev` gives a plain shell. Non-interactive
+use (`ssh ct-dev "cmd"`, scp, rsync) never enters tmux — the guards in
+`.bashrc` require an interactive shell with `SSH_TTY` set, and breaking those
+guards would break all remote tooling.
+
+**Exotic terminals need terminfo.** tmux refuses to start when the client's
+`TERM` has no entry here — kitty and wezterm ship their own. Symptom: SSH
+connects then immediately closes, or reports `missing or unsuitable terminal`.
+Import it from the client with `infocmp -x "$TERM" | ssh ct-dev 'tic -x -'`.
+The autostart is deliberately not `exec`, so a tmux failure drops you into a
+plain shell rather than closing the connection.
+
+
 - Always work inside `tmux`; it is what makes sessions survive disconnect —
   it is the only persistence mechanism on this box.
 - AWS: `travelogue login` (headless — use the `--no-browser` flow).

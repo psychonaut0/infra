@@ -496,3 +496,47 @@ else
   as_user bash -lc 'curl -fsSL https://claude.ai/install.sh | bash'
 fi
 
+
+# --- 12. Auto-attach tmux on interactive SSH -------------------------------
+# ct-dev is only useful if work survives disconnection, and that only happens
+# inside tmux — so landing in tmux must not depend on remembering to type it.
+#
+# `new-session -A -s main` attaches to `main` if it exists and creates it
+# otherwise, so one command covers both cases.
+#
+# The guards are load-bearing, not defensive noise. This file is sourced by
+# EVERY bash invocation, including `ssh ct-dev "cmd"`, scp, rsync and sftp.
+# Exec'ing tmux in any of those breaks all remote tooling, so we require:
+#   $- contains i   -> interactive only (excludes ssh host cmd, scp, rsync)
+#   -z $TMUX        -> not already inside tmux (no nesting)
+#   -n $SSH_TTY     -> arrived over SSH with a terminal (excludes pct exec)
+#   NO_TMUX unset   -> escape hatch: `NO_TMUX=1 ssh -t ct-dev` for debugging
+# Exotic client terminals (kitty, wezterm) ship terminfo entries Debian does
+# not carry, and tmux refuses to start without one. ncurses-term covers most;
+# anything still missing is imported from the client with:
+#   infocmp -x "$TERM" | ssh ct-dev 'tic -x -'
+apt-get install -y -qq ncurses-term
+
+BASHRC="/home/$USER_NAME/.bashrc"
+if ! grep -q '# BEGIN ct-dev tmux autostart' "$BASHRC" 2>/dev/null; then
+  log "adding tmux autostart block to $BASHRC"
+  cat >> "$BASHRC" <<'RCEOF'
+
+# BEGIN ct-dev tmux autostart
+# Land in tmux on interactive SSH. See provision-ct.sh section 12 for why each
+# guard is required — removing one breaks non-interactive ssh/scp/rsync.
+if [[ $- == *i* ]] && [[ -z "${TMUX:-}" ]] && [[ -n "${SSH_TTY:-}" ]] \
+   && [[ -z "${NO_TMUX:-}" ]] && command -v tmux >/dev/null 2>&1; then
+  # NOT `exec`: if tmux cannot start (e.g. the client's TERM has no terminfo
+  # entry here), exec would have already replaced the shell and the SSH
+  # connection would simply drop, leaving no way in. Run it, and fall through
+  # to a normal shell if it fails.
+  if tmux new-session -A -s main; then
+    exit
+  fi
+  echo "ct-dev: tmux could not start (TERM=$TERM) — continuing in a plain shell." >&2
+fi
+# END ct-dev tmux autostart
+RCEOF
+  chown "$USER_NAME:$USER_NAME" "$BASHRC"
+fi
