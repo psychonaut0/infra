@@ -436,12 +436,30 @@ fi
 # log-and-skip so a plain re-run of this script (e.g. to reapply the
 # toolchain/PATH sections, or because later sections were appended after
 # this one) is never blocked on a var that has nothing to do with them.
+#
+# This whole block is deliberately NON-FATAL. It depends on an operator input
+# this script cannot generate or validate up front (see README's staged-input
+# list) — a missing/unregistered SSH key, a transient network blip, or a
+# destination directory that exists but isn't a git repo can all fail it. Under
+# `set -euo pipefail`, letting any of that abort the script here would also
+# skip every section after it (shell PATH, Claude Code, dev-task) over a
+# problem that has nothing to do with them. So: try, log clearly on failure,
+# and always continue — matching the log-and-skip pattern the staged-input
+# sections already use.
 if [ -n "${WORK_REPO:-}" ] && [ -n "${WORK_REPO_URL:-}" ]; then
+  work_repo_ok=yes
   if [ ! -d "$REPO_PARENT/$WORK_REPO/.git" ]; then
     log "cloning $WORK_REPO"
-    as_user git clone "$WORK_REPO_URL" "$REPO_PARENT/$WORK_REPO"
+    if ! as_user git clone "$WORK_REPO_URL" "$REPO_PARENT/$WORK_REPO"; then
+      log "ERROR: git clone of $WORK_REPO failed (bad/unregistered SSH key, network, or an existing non-repo directory at the destination) — continuing without the work repo; see README for the GitHub SSH key step"
+      work_repo_ok=no
+    fi
   fi
-  as_user bash -lc "cd '$REPO_PARENT/$WORK_REPO' && bun install"
+  if [ "$work_repo_ok" = yes ]; then
+    if ! as_user bash -lc "cd '$REPO_PARENT/$WORK_REPO' && bun install"; then
+      log "ERROR: bun install failed in $WORK_REPO — continuing anyway"
+    fi
+  fi
 else
   log "no WORK_REPO/WORK_REPO_URL supplied, skipping work-repo checkout"
 fi

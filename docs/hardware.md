@@ -23,7 +23,7 @@ Post-decomposition state (blvckserver VM retired 2026-04-12). All storage is now
 | Pool | Type | Total | Used | Available | Notes |
 |------|------|-------|------|-----------|-------|
 | local | dir | 94GB | 7.3GB | 82GB | ISOs, backups, templates |
-| local-lvm | lvmthin | 338GB | 30GB | 308GB | CT boot disks (on NVMe) |
+| local-lvm | lvmthin | 337.86GB | 87.72GB (25.96%) | 250.14GB | CT boot disks (on NVMe) |
 | nvr-data | lvmthin | 456GB | 400GB | 56GB | Frigate NVR storage (on sdc) — **87% used** |
 | cloud | dir | 4.5TB | 2.7TB | 1.6TB | mergerfs of cloud-1 + cloud-2, exposed as a PVE dir pool |
 
@@ -43,6 +43,7 @@ Post-decomposition state (blvckserver VM retired 2026-04-12). All storage is now
 | 113 | ct-portfolio | vm-113-disk-0 | 8GB | 27% |
 | 114 | ct-workout | vm-114-disk-0 | 16GB | 19% |
 | 115 | ct-chat | vm-115-disk-0 | 32GB | 27% |
+| 116 | ct-dev | vm-116-disk-0 | 120GB | — |
 
 ## proxmoxnode
 
