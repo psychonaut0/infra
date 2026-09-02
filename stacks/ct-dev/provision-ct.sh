@@ -531,8 +531,12 @@ apt-get install -y -qq ncurses-term
 # (~/Documents and ~/Documents/work) describe the employer's workspace layout
 # and so cannot live in this public repo — they are operator-supplied inputs,
 # staged host-to-host like the gitconfig and aws-config above.
+# Enumerated, not guessed: these are every CLAUDE.md between ~ and the work
+# repo. ~/CLAUDE.md comes from this repo, the repo's own file comes with the
+# clone, and these three are the levels in between.
 for pair in "documents-claude.md:/home/$USER_NAME/Documents/CLAUDE.md" \
-            "work-claude.md:/home/$USER_NAME/Documents/work/CLAUDE.md"; do
+            "work-claude.md:/home/$USER_NAME/Documents/work/CLAUDE.md" \
+            "travelware-claude.md:/home/$USER_NAME/Documents/work/travelware/CLAUDE.md"; do
   src="/root/${pair%%:*}"
   dst="${pair#*:}"
   if [ -f "$src" ]; then

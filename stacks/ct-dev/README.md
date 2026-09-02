@@ -87,7 +87,19 @@ be reorderable, it shouldn't: don't move key generation before the first
    ssh proxmoxmain "pct push 116 /root/documents-claude.md /root/documents-claude.md"
    scp ~/Documents/work/CLAUDE.md proxmoxmain:/root/work-claude.md
    ssh proxmoxmain "pct push 116 /root/work-claude.md /root/work-claude.md"
+   scp ~/Documents/work/travelware/CLAUDE.md proxmoxmain:/root/travelware-claude.md
+   ssh proxmoxmain "pct push 116 /root/travelware-claude.md /root/travelware-claude.md"
    ```
+
+   The travelware-level file is the one that matters most of the three: it
+   carries the commit conventions and the rules for reading issues by author.
+   Without it an agent commits in one lump instead of many small commits, and
+   treats a non-developer's proposed solution as authoritative.
+
+   To confirm nothing is missing, enumerate rather than guess:
+   `find ~ -maxdepth 5 -name CLAUDE.md` on the workstation, and compare the
+   chain from `~` down to the repo. Claude Code merges every ancestor level, so
+   a gap anywhere in the middle silently costs context.
 
    Note both are copied **verbatim** from the workstation rather than adapted,
    so there is only one version of each to maintain. They mention `personal/`
