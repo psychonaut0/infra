@@ -22,6 +22,13 @@ apt-get install -y -qq \
 # --- 2. Locale + timezone -------------------------------------------------
 sed -i 's/^# *en_US.UTF-8/en_US.UTF-8/' /etc/locale.gen
 locale-gen >/dev/null
+# Generating the locale is not the same as SELECTING it. Debian ships
+# /etc/default/locale with LANG="C", and locale-gen does not touch it — so
+# without update-locale every session runs in the POSIX locale and every
+# multi-byte glyph breaks. That is not cosmetic here: Claude Code's icons,
+# box-drawing and spinner frames are all Unicode, and under LANG=C they
+# render as blanks or mojibake.
+update-locale LANG=en_US.UTF-8
 timedatectl set-timezone Europe/Rome 2>/dev/null || ln -sf /usr/share/zoneinfo/Europe/Rome /etc/localtime
 
 # --- 3. User --------------------------------------------------------------
