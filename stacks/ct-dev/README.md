@@ -75,7 +75,24 @@ be reorderable, it shouldn't: don't move key generation before the first
    ssh proxmoxmain "pct push 116 /root/tmux.conf /root/ct-dev-files/tmux.conf"
    scp stacks/ct-dev/home/CLAUDE.md proxmoxmain:/root/CLAUDE.md
    ssh proxmoxmain "pct push 116 /root/CLAUDE.md /root/ct-dev-files/CLAUDE.md"
+
+   # 7. The two intermediate CLAUDE.md levels. Claude Code merges CLAUDE.md
+   #    from every ancestor directory, so the work repo's own committed file is
+   #    only the innermost layer and #6 only the outermost. These two describe
+   #    the employer's workspace layout and so are not in this public repo.
+   #    Skip them and an agent on this box loses the workspace context between
+   #    ~ and the repo — it still works, but knows less than it does on the
+   #    workstation.
+   scp ~/Documents/CLAUDE.md proxmoxmain:/root/documents-claude.md
+   ssh proxmoxmain "pct push 116 /root/documents-claude.md /root/documents-claude.md"
+   scp ~/Documents/work/CLAUDE.md proxmoxmain:/root/work-claude.md
+   ssh proxmoxmain "pct push 116 /root/work-claude.md /root/work-claude.md"
    ```
+
+   Note both are copied **verbatim** from the workstation rather than adapted,
+   so there is only one version of each to maintain. They mention `personal/`
+   and `travelware-old/`, neither of which exists on ct-dev — harmless, and
+   preferable to a second divergent copy.
 
 3. Push `provision-ct.sh` itself, then run it inside the CT — **first
    pass**:

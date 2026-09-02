@@ -524,6 +524,26 @@ fi
 #   infocmp -x "$TERM" | ssh ct-dev 'tic -x -'
 apt-get install -y -qq ncurses-term
 
+# --- 12b. Workspace CLAUDE.md hierarchy ------------------------------------
+# Claude Code merges CLAUDE.md from every ancestor directory, so the work repo's
+# own committed file is only the innermost layer. ~/CLAUDE.md is written above
+# from stacks/ct-dev/home/CLAUDE.md, but the two intermediate levels
+# (~/Documents and ~/Documents/work) describe the employer's workspace layout
+# and so cannot live in this public repo — they are operator-supplied inputs,
+# staged host-to-host like the gitconfig and aws-config above.
+for pair in "documents-claude.md:/home/$USER_NAME/Documents/CLAUDE.md" \
+            "work-claude.md:/home/$USER_NAME/Documents/work/CLAUDE.md"; do
+  src="/root/${pair%%:*}"
+  dst="${pair#*:}"
+  if [ -f "$src" ]; then
+    install -d -m 755 -o "$USER_NAME" -g "$USER_NAME" "$(dirname "$dst")"
+    install -m 644 -o "$USER_NAME" -g "$USER_NAME" "$src" "$dst"
+    log "installed $dst"
+  else
+    log "no $src staged, skipping $(basename "$(dirname "$dst")")/CLAUDE.md"
+  fi
+done
+
 BASHRC="/home/$USER_NAME/.bashrc"
 if ! grep -q '# BEGIN ct-dev tmux autostart' "$BASHRC" 2>/dev/null; then
   log "adding tmux autostart block to $BASHRC"
