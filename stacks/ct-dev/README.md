@@ -39,6 +39,16 @@ be reorderable, it shouldn't: don't move key generation before the first
    # 1. SSH public key -> authorized_keys for psy.
    #    Skip it and the script exits at its own guard rather than disabling
    #    password auth blind — you get no interactive `ssh ct-dev` at all.
+   #
+   #    THIS FILE IS THE AUTHORITATIVE KEY LIST, not a seed. provision-ct.sh
+   #    REPLACES ~/.ssh/authorized_keys with it on every run, so it must
+   #    contain EVERY key that should have access — the workstation, any
+   #    second machine (a Windows partition, a laptop), everything. A key
+   #    appended by hand to ~/.ssh/authorized_keys is silently reverted the
+   #    next time provisioning runs, which is exactly how Windows access was
+   #    lost once already. Replace-not-append is deliberate: it means removing
+   #    a key here actually revokes it.
+   #    To add a machine: append its public key to this file, re-stage, re-run.
    scp ~/.ssh/id_ed25519.pub proxmoxmain:/root/ct-dev-authorized_keys
    ssh proxmoxmain "pct push 116 /root/ct-dev-authorized_keys /root/ct-dev-authorized_keys"
 

@@ -56,6 +56,12 @@ rm -f "$sudoers_tmp"
 
 # --- 4. SSH ---------------------------------------------------------------
 install -d -m 700 -o "$USER_NAME" -g "$USER_NAME" "/home/$USER_NAME/.ssh"
+# NOTE: this REPLACES authorized_keys, it does not merge. The staged file is
+# the authoritative list of every key that may reach this box, so a key added
+# by hand to ~/.ssh/authorized_keys is reverted on the next run. That is the
+# intended semantic — it is what makes removing a key from the staged file an
+# actual revocation — but it has already cost one machine its access, so add
+# new keys to the STAGED file, never to the live one.
 if [ -f /root/ct-dev-authorized_keys ]; then
   install -m 600 -o "$USER_NAME" -g "$USER_NAME" \
     /root/ct-dev-authorized_keys "/home/$USER_NAME/.ssh/authorized_keys"
