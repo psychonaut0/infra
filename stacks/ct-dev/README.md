@@ -237,17 +237,33 @@ plain shell rather than closing the connection.
   `stacks/ct-backup/scripts/pre-backup.sh` on purpose. Uncommitted work dies
   with the container — push often.
 - **Memory limits on proxmoxmain are caps, not reservations — the host is
-  deliberately oversubscribed on paper.** proxmoxmain has 31GB physical;
-  configured CT memory limits across the fleet sum to roughly 60GB (~2x),
-  and that was already true before ct-dev existed (ct-games alone is 16GB,
-  ct-media and ct-photos 8GB each) — LXC `memory:` just caps what a container
-  *can* use, it doesn't set aside RAM up front. What matters is *actual*
-  usage: as measured, with ct-dev's full compose stack running, `free -g` on
-  proxmoxmain shows 11GB used / 19GB available. The real thing to watch
-  isn't "is ct-nvr running" — it's `free -g`. Restarting ct-nvr does add
-  real usage (Frigate plus its transcodes), which tightens actual headroom,
-  so check `free -g` before kicking off heavy builds alongside it, but there
-  is no fixed reservation being violated either way.
+  oversubscribed on paper.** proxmoxmain has 64GB physical (upgraded from
+  32GB on 2026-09-01); configured CT limits across the fleet sum to roughly
+  72GB — LXC `memory:` caps what a container *can* use, it does not set RAM
+  aside up front. What matters is *actual* usage: watch `free -g`, never the
+  sum of limits. Restarting ct-nvr adds real usage (Frigate plus transcodes),
+  so check `free -g` before heavy builds alongside it.
+- **ct-dev runs a `memory.high` throttle below its hard limit, and that is the
+  important part — not the extra RAM.** 24GB hard limit, 20GB `memory.high`
+  (`lxc.cgroup2.memory.high` in `/etc/pve/lxc/116.conf`; verified to survive a
+  full stop/start, not a live-only tweak a reboot would drop).
+  On 2026-09-01 the old 12GB limit was exhausted along with all 4GB of swap.
+  The cgroup then thrashed reclaim — 21.6M `memory.events high` — until nothing
+  inside could fork: `ssh` hung, `pct exec` hung, and host load reached 142,
+  degrading every other container on the hypervisor. **Nothing was OOM-killed,
+  so there was no error message anywhere** — it simply stopped answering. More
+  memory alone would only move that cliff; `memory.high` removes it, because
+  the kernel throttles the cgroup before the limit so work slows down and the
+  box stays reachable. If you raise `memory`, raise `memory.high` with it.
+  Diagnosing it from outside, when the container will not answer — run on
+  proxmoxmain, needs nothing from inside:
+  ```
+  cat /sys/fs/cgroup/lxc/116/memory.{current,high,max}
+  cat /sys/fs/cgroup/lxc/116/memory.events   # a large, growing `high` is the tell
+  cat /sys/fs/cgroup/lxc/116/memory.swap.current
+  ```
+  If it is wedged, `pct stop 116` frees its RAM and swap immediately and is
+  reversible — disk state is untouched; only in-memory work is lost.
 - **PATH on ct-dev has three independent contexts, configured separately:**
   - login/interactive shells → `/etc/profile.d/ct-dev-path.sh`
   - non-interactive `ssh ct-dev "cmd"` → `/etc/environment` (read by `pam_env`)
