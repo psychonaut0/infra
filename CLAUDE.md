@@ -198,7 +198,7 @@
 - **User:** psy (UID 1000) — **not root**, unlike the rest of the fleet
 - **OS:** Debian 13 (Trixie), unprivileged LXC
 - **SSH:** Port 22, key-based auth (no password)
-- **Resources:** 6 vCPU, 12288MB RAM, 4096MB swap, 120GB disk
+- **Resources:** 6 vCPU, 24576MB RAM (with a 20GB `memory.high` throttle), 4096MB swap, 120GB disk
 - **Role:** Always-on remote development workspace. Holds the work monorepo and
   keeps long-lived Claude Code sessions alive across disconnects, so work
   continues when the workstation sleeps or is away.
@@ -230,13 +230,19 @@
   **Not backed up, by design:** ct-dev is absent from `CT_IPS` in
   `stacks/ct-backup/scripts/pre-backup.sh` so work source never reaches personal
   B2 storage; the base setup is reproducible instead. Uncommitted work dies with
-  the container. **Memory limits on proxmoxmain are caps, not reservations —
-  the host is deliberately oversubscribed on paper:** proxmoxmain has 31GB
-  physical, configured CT memory limits sum to roughly 60GB (~2x), and that
-  was already true before ct-dev existed (ct-games alone is 16GB, ct-media
-  and ct-photos 8GB each). The signal to watch is *actual* usage (`free -g`
-  on proxmoxmain), not the sum of configured limits — measured, with
-  ct-dev's full compose stack running, that's 11GB used / 19GB available.
+  the container. **Memory limits on proxmoxmain are caps, not reservations, and the host
+  is oversubscribed on paper:** proxmoxmain has 64GB physical (upgraded from
+  32GB on 2026-09-01) against roughly 72GB of configured CT limits. The signal
+  to watch is *actual* usage (`free -g`), never the sum of limits.
+  **ct-dev carries a 20GB `memory.high` below its 24GB hard limit
+  (`lxc.cgroup2.memory.high` in the CT config, verified to survive a restart).**
+  That is not tuning, it is the fix for a real outage: on 2026-09-01 ct-dev
+  filled all 12GB of its old limit *and* all 4GB of its swap, then thrashed
+  reclaim — 21.6M `memory.events high` — until nothing inside could fork.
+  Both `ssh` and `pct exec` hung, and host load hit 142, degrading every other
+  container. Nothing was OOM-killed; it simply ground to a halt with no warning.
+  `memory.high` makes the kernel throttle the cgroup before that point, so it
+  slows down and stays reachable instead of freezing solid.
   Restarting ct-nvr adds real usage (Frigate plus its transcodes) and
   tightens actual headroom, so check `free -g` before running heavy builds
   alongside it.

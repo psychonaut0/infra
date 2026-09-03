@@ -6,7 +6,8 @@ Post-decomposition state (blvckserver VM retired 2026-04-12). All storage is now
 
 ### Compute
 - **CPU:** Intel i5-10400 @ 2.90GHz — 6 cores, 12 threads
-- **RAM:** 32GB
+- **RAM:** 64GB (2x32GB, ChannelA-DIMM0 + ChannelB-DIMM0 — dual channel, two slots free)
+  Upgraded from 32GB on 2026-09-01 after ct-dev exhausted its cgroup and drove host load to 142.
 - **iGPU:** Intel UHD 630 — shared across CTs via `/dev/dri` bind mount (ct-nvr, ct-media, ct-photos)
 
 ### Physical Disks
