@@ -46,7 +46,14 @@ services:
       EULA: "TRUE"
       TYPE: "FORGE"
       VERSION: "LATEST"
-      MEMORY: "8G"
+      # 12G for a heavy modpack. Past ~12-16G the G1 pause times grow faster
+      # than the extra heap helps, so this is the practical ceiling rather than
+      # a budget limit — the CT has room for more if a pack ever needs it.
+      MEMORY: "12G"
+      # Aikar's GC flags. The important half of the above: a large heap on
+      # stock G1 settings collects lazily and then stalls the server, so 12G
+      # unflagged can stutter worse than 8G flagged.
+      USE_AIKAR_FLAGS: "true"
       MAX_PLAYERS: "10"
       DIFFICULTY: "normal"
       MOTD: "Modded | 192.168.3.14:25566"
