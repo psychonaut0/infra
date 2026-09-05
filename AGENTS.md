@@ -1,0 +1,352 @@
+# Infrastructure
+
+## Upstream / External Access
+
+- **ISP:** <ISP> FWA (wireless). Static public IPv4 **`<PUBLIC_IP>`** ("IP Pubblico Statico" — explicitly requested, confirmed **not CGNAT** via external reachability test 2026-04-21).
+- **Topology:** <ISP_ROUTER> (`192.168.0.1`, WAN = public IP) → UniFi Gateway (WAN `192.168.0.2`, LAN gateway `192.168.1.1`) → LAN `192.168.1.0/24`.
+- **Inbound architecture:** ISP router is in **DMZ Host → `192.168.0.2`** (UniFi WAN). All inbound port-forward rules live on **UniFi only** — never touch the ISP router. ISP-router firewall is off (no extra filtering beyond default NAT). If inbound breaks: check (a) UniFi PF rule enabled, (b) ISP-router DMZ still pointed at 192.168.0.2 (ISP-router has been known to drop DMZ across firmware updates), (c) UniFi firewall not overriding the PF.
+- **Personal domain:** `<PERSONAL_DOMAIN>` (Cloudflare Registrar + Cloudflare DNS). Records pointing at home public IP must be **DNS-only (grey cloud)** — CF free-tier proxy only supports HTTP(S), not arbitrary TCP/UDP.
+- **Public endpoints currently exposed via UniFi port-forward:**
+  - `mc.<PERSONAL_DOMAIN>:25565/tcp` → `192.168.3.14:25565` (mc-vanilla on ct-games)
+- **Public endpoints currently exposed via Cloudflare Tunnel (ct-tunnel):**
+  - `portfolio.<PERSONAL_DOMAIN>` (HTTPS) → `192.168.3.16:3000` (portfolio on ct-portfolio)
+  - `drive.<PERSONAL_DOMAIN>` (HTTPS) → `192.168.3.11:3923` (copyparty psy on ct-files)
+  - `family.<PERSONAL_DOMAIN>` (HTTPS) → `192.168.3.11:3924` (copyparty family on ct-files)
+  - `chat.<PERSONAL_DOMAIN>` (HTTPS) → `192.168.3.18:8080` (Open WebUI on ct-chat) — **the only tunnel hostname gated by Cloudflare Access**; unauthenticated requests get a 302 to the Access login page, which Gatus asserts on
+- **Tunnel ingress is remotely managed but mirrored.** ct-tunnel runs `cloudflared tunnel run` with a `TUNNEL_TOKEN`, so hostname→origin rules live in the Cloudflare Zero Trust dashboard and a change there produces **no repo diff**. `stacks/ct-tunnel/ingress.yml` mirrors that state via `infra tunnel export`; `infra tunnel diff` audits drift (exit 2 = drifted, 1 = check failed). **Run export after any dashboard change** or the mirror goes stale silently. Converting to a locally-managed tunnel is not possible in place — `config_src` is fixed at creation — and was rejected; see `stacks/ct-tunnel/README.md`.
+
+## Network & Devices
+
+### blvckmain (Main PC)
+- **Hostname:** blvckmain (resolves to 192.168.1.110)
+- **User:** psy
+- **SSH:** Port 22, key-based auth (no password)
+- **Role:** Primary workstation; operator host for fleet operations.
+
+### blvckflow (ROG Flow Z13)
+- **Hostname:** BLVCKFlow (MagicDNS `blvckflow` on the tailnet; no Pi-hole record — workstations are not in DNS)
+- **User:** psy
+- **SSH:** Port 22, key-based auth (no password)
+- **Hardware:** ASUS ROG Flow Z13 (2025, GZ302), Ryzen AI Max "Strix Halo", 64GB LPDDR5X (soldered), 1TB NVMe
+- **Role:** Portable primary workstation. Merges the BLVCKMain and BLVCKSmall roles.
+- **OS:** Dual boot — Windows 11 (199GB NTFS, retained for Vanguard-gated games) + **plain Arch** (689GB root, ext4; 64GB swap for hibernation). Not the CachyOS distro: the whole fleet is stock Arch with the `[cachyos]` repo layered *below* `[core]`, which supplies `linux-cachyos` (and `asusctl`, which this host does **not** install — see *Desktop*). Stock `linux` stays installed as the fallback entry.
+- **Boot:** systemd-boot on a **single shared 1GB ESP** (`nvme0n1p1`, label `ESP`) mounted at `/boot`, which also holds the Windows bootloader at `/boot/EFI/Microsoft`. There is **no XBOOTLDR and no separate `/efi`** — an earlier design called for one and it was dropped. `bootctl install` must be run under `arch-chroot -S` or it writes no NVRAM entry (plain `arch-chroot` uses a PID namespace). **Secure Boot is ENABLED** with custom keys via `sbctl` (Microsoft keys retained; omit `--firmware-builtin` on this board) — Vanguard requires it, and Secure Boot is firmware-global so it cannot be off for Linux only. `systemd-boot-manager` is deliberately **removed**; `systemd-boot-update.service` is enabled in its place, and loader entries are hand-written.
+- **Desktop:** Hyprland under SDDM (astronaut `blvck` theme). Power-profiles-daemon is masked *and uninstalled* (it drives `platform_profile` and would race). **All hardware control is `z13ctl`** (`z13ctl-bin`, currently 1.3.1) running as a user unit — lighting, performance profiles, fan curves, TDP, undervolt and battery limit. **`asusctl`/`asusd` are NOT installed here** (asusctl 6.4.0 exists in `[cachyos]` but is unused): it was dropped because asusd 6.3.11 exposes no `xyz.ljones.Slash` interface for the GZ302EA and so cannot reach the rear lightbar, while z13ctl covers everything asusd did plus TDP and undervolt. **Do not reach for `asusctl` commands on this host — they do not exist.** TDP: `z13ctl tdp --get` reads, `z13ctl tdp --set <W>` writes uniformly, `--pl2`/`--pl3` shape individual limits as overrides *of* `--set` (not standalone flags), `--dry-run` previews, `--reset` restores stock, `z13ctl status` shows temp/fans/profile/TDP. PL1 is capped at 75W without `--force`. There is **no iGPU memory allocation knob** — that stays a UEFI/Armoury Crate setting, and per the local-LLM work it does not need raising (see below).
+- **Networking:** Tailscale with `--accept-routes` (matching BLVCKSmall: MagicDNS on, no exit node, advertises nothing). The tailnet advertises `192.168.1.0/24`, the subnet this host sits on, so accepting it black-holes the local LAN. The `system` dotfiles package ships `NetworkManager/dispatcher.d/99-tailscale-subnet-fix`, which adds `ip rule ... priority 100` while on that subnet and removes it when roaming. **Stow `system` before enabling Tailscale**, or the LAN dies on the spot.
+- **Local LLM inference:** `llama-server` serves `Qwen3.8-27B` (abliterated, Q6_K, 20.89 GiB) on **`127.0.0.1:8088`** — loopback only, no API key, no LAN or public exposure by design. Started **on demand** (`systemctl --user start llama-server`), never enabled at boot, because it pins ~21 GiB. Backend is **Vulkan/RADV**, not ROCm; measured **189.7 tok/s prefill, 9.4 tok/s decode** at a uniform 60W TDP (conservative — stock `performance` is 70W) (~82% of the 256 GB/s memory-bandwidth ceiling — decode is bandwidth-bound, so bigger quants are directly slower). Arch splits ggml backends: **`ggml-cpu` is required even at `-ngl 99`** or load fails with the misleading `make_cpu_buft_list: no CPU backend found`. **The iGPU carve-out (4 GiB) needs no change** — RADV sizes its device-local heap from GTT (29 GiB), so the model spans VRAM+GTT fine. **This model reasons heavily and will emit nothing at all on template defaults** — pass `chat_template_kwargs: {"enable_thinking": false}` per request for routine work; `reasoning_effort` accepts only `low`/`medium` (`high`/`minimal` return HTTP 500). Its MTP speculative-decode head is present in the file but **ignored** by llama.cpp. Model at `~/.local/share/models/qwen3.8-27b-uncensored/`; unit in `~/dotfiles/system/hosts/BLVCKFlow/etc/systemd/user/`. Use `HF_HUB_DISABLE_XET=1` for large Hugging Face pulls — the Xet backend stalls silently. Client is **`opencode`** (config `~/.config/opencode/opencode.jsonc`, model `llama.cpp/qwen3.8-27b`) — the model key must equal the server `--alias`, and per-model `options` is spread into the request body, which is how `enable_thinking` gets through. Note the **first message of a session costs ~48s** of prefill (opencode ships a ~7.5K-token system prompt); llama-server's slot cache makes later turns cheap, so it is a session-start tax, not per-message. See `docs/superpowers/specs/2026-08-23-blvckflow-local-llm-design.md`.
+- **Known hardware gaps:** no fingerprint reader on this model; no tablet-mode events on cover detach. Sustained inference load can trigger an EC power cut — the candidate mitigation is `z13ctl tdp --set 60` (**not** `asusctl armoury`, which does not exist here) and it remains **untested**: a ~2-minute `llama-bench` run at a uniform 60W held fine (APU 51°C, fans 4300 RPM — note `tdp --set` silently creates/activates a `custom` profile, so pass `--profile <name>` or restore with `z13ctl profile --set performance`), but the deliberate 10-minute sustained hold was deferred, so the EC cut is neither reproduced nor retired. **Camera: not the ISP4 problem the spec describes.** It enumerates as a plain USB UVC device (`ASUS 5M webcam`, `636e:0bda`, `/dev/video0-3`) advertising MJPG up to 2592x1944, so the driver is fine — but capture returns no frames, which points at a privacy shutter or firmware gate rather than a missing driver. Touch gestures do not work: hyprgrass was removed and Hyprland 0.56's native `gesture` keyword is accepted but does not respond to touchscreen input — **deferred, unresolved**. See `docs/superpowers/specs/2026-08-09-blvckflow-z13-setup-design.md`.
+
+### proxmoxmain
+- **IP:** 192.168.3.2
+- **User:** root
+- **OS:** Proxmox VE
+- **SSH:** Port 22, key-based auth (no password)
+- **CPU:** Intel i5-10400 @ 2.90GHz (6C/12T)
+- **RAM:** 32GB
+- **Role:** Primary Proxmox hypervisor node. Clustered with proxmoxnode. Authorized keys are shared across the cluster. Hosts all bulk storage — mergerfs pool `/mnt/cloud` (exposed as the `cloud` PVE dir pool) and `nvr-data` LVM thin — bind-mounted into local CTs.
+- **CTs:** ct-tunnel (VMID 103), ct-nvr (VMID 104), ct-media (VMID 105), ct-photos (VMID 106), ct-files (VMID 107), ct-mgmt (VMID 108), ct-backup (VMID 109), ct-tools (VMID 110), ct-games (VMID 112), ct-portfolio (VMID 113), ct-workout (VMID 114), ct-chat (VMID 115)
+- **Storage:** See `docs/hardware.md` for full disk and storage layout.
+
+### proxmoxnode
+- **IP:** 192.168.3.3
+- **User:** root
+- **OS:** Proxmox VE
+- **SSH:** Port 22, key-based auth (no password)
+- **CPU:** Intel N100 (4C/4T)
+- **RAM:** 16GB
+- **Role:** Secondary Proxmox cluster node. Shares authorized_keys with proxmoxmain via pmxcfs.
+- **CTs:** ct-dns (VMID 102), ct-ha (VMID 111)
+- **Storage:** See `docs/hardware.md` for full disk and storage layout.
+
+
+### ct-dns (LXC — VMID 102 on proxmoxnode)
+- **IP:** 192.168.3.5
+- **User:** root
+- **OS:** Debian 13 (Trixie), unprivileged LXC
+- **SSH:** Port 22, key-based auth (no password)
+- **Resources:** 1 vCPU, 512MB RAM, 256MB swap, 4GB disk
+- **Role:** DNS server. Runs Pi-hole via Docker Compose.
+- **Stack:** `/opt/stacks/ct-dns/docker-compose.yml` (local copy: `stacks/ct-dns/`)
+- **Config notes:** AppArmor set to unconfined + proc/sys rw mounts for Docker compatibility. DNS listening mode set to ALL to accept queries from all subnets.
+
+### ct-tunnel (LXC — VMID 103 on proxmoxmain)
+- **IP:** 192.168.3.6
+- **User:** root
+- **OS:** Debian 13 (Trixie), unprivileged LXC
+- **SSH:** Port 22, key-based auth (no password)
+- **Resources:** 1 vCPU, 256MB RAM, 128MB swap, 2GB disk
+- **Role:** Cloudflare Tunnel endpoint. Runs cloudflared for selective public access to internal services, replacing the old nginx-proxy-manager + cloudflare-ddns + port forwarding setup.
+- **Stack:** `/opt/stacks/ct-tunnel/docker-compose.yml` (local copy: `stacks/ct-tunnel/`)
+- **Config notes:** AppArmor set to unconfined for Docker compatibility. Uses `network_mode: host` for cloudflared. Tunnel token stored in `/opt/stacks/ct-tunnel/.env`. **Remotely managed (2026-07-29):** ingress rules live in the Cloudflare dashboard, not on disk — there is no `config.yml` or `credentials.json` here. `stacks/ct-tunnel/ingress.yml` is a version-controlled *mirror* written by `infra tunnel export` (read-only against Cloudflare; needs a `Cloudflare Tunnel:Read` token per `CLAUDE.local.md`). Export sanitises the real domain to `<PERSONAL_DOMAIN>` and refuses to write if it survives. Runbook: `stacks/ct-tunnel/README.md`.
+
+### ct-nvr (LXC — VMID 104 on proxmoxmain)
+- **IP:** 192.168.3.7
+- **User:** root
+- **OS:** Debian 13 (Trixie), privileged LXC
+- **SSH:** Port 22, key-based auth (no password)
+- **Resources:** 2 vCPU, 6144MB RAM, 2048MB swap, 24GB disk
+- **Role:** NVR (Network Video Recorder). Runs Frigate with iGPU passthrough for hardware video decoding and AI object detection.
+- **Stack:** `/opt/stacks/ct-nvr/docker-compose.yml` (local copy: `stacks/ct-nvr/`)
+- **Ports:** 8971 (Frigate HTTPS UI), 8554 (RTSP), 8555 (WebRTC)
+- **Config notes:** Privileged CT for device access. iGPU passthrough via `lxc.cgroup2.devices.allow: c 226:* rwm` and `/dev/dri` bind mount. NVR data on LVM thin volume (`nvr-data:vm-100-disk-0`) mounted on host via kpartx at `/mnt/nvr-data` and bind-mounted into CT. AppArmor unconfined + proc/sys rw mount for Docker compatibility. Systemd service `mnt-nvr-data.service` on proxmoxmain handles persistent mount across reboots. **RAM was raised 4096→6144MB (2026-07-06)**: the continuous 24/7 recording + 3 QSV transcode ffmpeg processes pushed Frigate past the old 4GB cgroup limit, causing recurring OOM kills (~every 2-3 days) that crashed Frigate and made recordings unloadable. Do not drop below 6GB while continuous recording is enabled.
+
+### ct-media (LXC — VMID 105 on proxmoxmain)
+- **IP:** 192.168.3.8
+- **User:** root
+- **OS:** Debian 13 (Trixie), privileged LXC
+- **SSH:** Port 22, key-based auth (no password)
+- **Resources:** 4 vCPU, 8192MB RAM, 2048MB swap, 16GB disk
+- **Role:** Media server. Runs Jellyfin (with iGPU passthrough for hardware transcoding), Sonarr, Radarr, Deluge, Prowlarr, and FlareSolverr.
+- **Stack:** `/opt/stacks/ct-media/docker-compose.yml` (local copy: `stacks/ct-media/`)
+- **Ports:** 8096 (Jellyfin HTTP), 8920 (Jellyfin HTTPS), 8989 (Sonarr), 7878 (Radarr), 8112 (Deluge), 9696 (Prowlarr), 8191 (FlareSolverr)
+- **Config notes:** Privileged CT for device access. iGPU passthrough via `lxc.cgroup2.devices.allow: c 226:* rwm` and `/dev/dri` bind mount. Media data on mergerfs pool (`/mnt/cloud/volumes/mediaserver`) bind-mounted into CT at `/mnt/mediaserver`. AppArmor unconfined + proc/sys rw mount for Docker compatibility.
+
+### ct-files (LXC — VMID 107 on proxmoxmain)
+- **IP:** 192.168.3.11
+- **User:** root
+- **OS:** Debian 13 (Trixie), privileged LXC
+- **SSH:** Port 22, key-based auth (no password)
+- **Resources:** 2 vCPU, 2048MB RAM, 512MB swap, 16GB disk
+- **Role:** File server. Runs Samba for SMB shares plus two copyparty instances providing a Drive-like web UI over the same trees.
+- **Stack:** `/opt/stacks/ct-files/docker-compose.yml` (local copy: `stacks/ct-files/`)
+- **Ports:** 139/445 (Samba SMB), 3923 (copyparty psy), 3924 (copyparty family)
+- **Config notes:** Privileged CT for clean UID mapping on shared storage. Full mergerfs pool (`/mnt/cloud`) bind-mounted into CT. AppArmor unconfined for Docker compatibility. Samba config/data/users from `/mnt/cloud/volumes/samba/`. **copyparty (2026-07-28):** replaced FileBrowser, which exposed the *entire* pool. Two containers, one per uid — `copyparty-psy` (uid 1000, :3923, `drive.lan` / `drive.<PERSONAL_DOMAIN>`) and `copyparty-family` (uid 1001, :3924, `family.lan` / `family.<PERSONAL_DOMAIN>`). Each serves one Samba tree at its webroot with one account and no root volume, so neither can reach the other or the wider pool. Never run as root — the `uid` volflag would require it and this is a privileged CT. **The argon2 salt at `/opt/stacks/ct-files/copyparty/<name>/copyparty/ah-salt.txt` is load-bearing: changing a container's `user:` or losing that file silently invalidates every password hash.** Public path is cloudflared → copyparty *directly* (not via Caddy) so `CF-Connecting-IP` survives (verified: real public client IP reaches copyparty); Caddy serves only the `.lan` names and overwrites that header so a LAN client cannot forge it. Note that clients reaching ct-files **through the Tailscale subnet router** (`Main-Gateway`, which advertises both `192.168.1.0/24` and `192.168.3.0/24`) all arrive as `192.168.3.1` and therefore share one IP-ban bucket; same-subnet hosts log their real address. **WebDAV/PUT through the tunnel is capped at 100MB/file by Cloudflare's free plan** — the web UI's chunked up2k uploader is not. Regenerable index/thumbnail cache at `/var/lib/copyparty/` — deliberately outside `/opt/stacks` so ct-backup does not ship it. Web deletes are permanent and bypass Samba's recycle. Runbook: `stacks/ct-files/README.md`.
+
+### ct-games (LXC — VMID 112 on proxmoxmain)
+- **IP:** 192.168.3.14
+- **User:** root
+- **OS:** Debian 13 (Trixie), unprivileged LXC
+- **SSH:** Port 22, key-based auth (no password)
+- **Resources:** 6 vCPU, 24576MB RAM (with a 21GB `memory.high` throttle), 4096MB swap, 40GB disk
+- **Role:** Game server host. Runs two Minecraft servers (vanilla/Paper + heavy modded) plus two itzg/mc-backup sidecars (daily `.tgz` to mergerfs). Public reach for mc-vanilla is via UniFi port-forward → `mc.<PERSONAL_DOMAIN>:25565` (direct from static public IP — see top-level *Upstream / External Access*). A Playit.gg agent remains in the stack as transitional fallback since 2026-04-21 and will be removed once the direct endpoint is proven stable.
+- **Stack:** `/opt/stacks/ct-games/docker-compose.yml` (local copy: `stacks/ct-games/`)
+- **Ports:** 25565 (mc-vanilla game, also publicly reachable via UniFi PF), 25566 (mc-modded game), 25575 (mc-vanilla RCON, LAN-only), 25576 (mc-modded RCON, LAN-only)
+- **Config notes:** AppArmor unconfined + proc/sys rw for Docker-in-LXC. Shared `gamesnet` Docker bridge for agent→MC routing. Live world data on CT's NVMe at `/opt/stacks/ct-games/data/`. Archive bind mount: `/mnt/cloud/volumes/games/archives` → `/mnt/archives` (daily `.tgz` per server, 14-day retention via `PRUNE_BACKUPS_DAYS`). Playit agent (transitional): reads `SECRET_KEY` from `PLAYIT_SECRET` in `.env`; two tunnels attached server-side. **Heap sizing is the real control, not the CT limit:** the JVM never exceeds its `-Xmx` however much the container allows, so `MEMORY:` in compose is what matters. mc-vanilla is 4G, mc-modded 12G (raised from 8G on 2026-09-01 as it becomes the heavy modded server; ~12-16G is the practical ceiling before G1 pause times grow faster than the extra heap helps). **Both run `USE_AIKAR_FLAGS`** — a large heap on stock G1 settings collects lazily then stalls, so an unflagged 12G stutters worse than a flagged 8G. Aikar's flags include `AlwaysPreTouch`, so each server's full heap shows as resident immediately; that is expected, not a leak. Note mc-modded silently ran at `Xmx4G` from 2026-04-20 to 2026-09-01 because its container was never recreated after a compose edit — **check `docker inspect` env against compose after changing memory**, the file alone proves nothing.
+
+### ct-mgmt (LXC — VMID 108 on proxmoxmain)
+- **IP:** 192.168.3.12
+- **User:** root
+- **OS:** Debian 13 (Trixie), unprivileged LXC
+- **SSH:** Port 22, key-based auth (no password)
+- **Resources:** 1 vCPU, 512MB RAM, 256MB swap, 4GB disk
+- **Role:** Management and monitoring. Runs Portainer CE, the custom Home Lab dashboard, Gatus uptime monitoring, and Caddy reverse proxy for all `.lan` services.
+- **Stack:** `/opt/stacks/ct-mgmt/docker-compose.yml` (local copy: `stacks/ct-mgmt/`). Also runs the native systemd `infra-mirror.timer` from `stacks/ct-mgmt/infra-mirror/` for CLI release distribution at `infra-bin.lan`.
+- **Ports:** 80/443 (Caddy), 3000 (dashboard), 8080 (Gatus status page), 9443 (Portainer HTTPS UI), 8000 (Edge Agent communication)
+- **Dashboard:** Custom Preact + Bun SSR app with live health checks and Proxmox resource monitoring (source: `stacks/ct-mgmt/dashboard-src/`). Requires PVE API token in `dashboard-src/.env` (gitignored).
+- **Gatus:** Uptime monitoring with 3-tier checks (critical/important/background) and Telegram alerting. Config: `stacks/ct-mgmt/gatus/config.yaml`. Telegram credentials in `gatus/.env` (gitignored).
+- **Config notes:** AppArmor set to unconfined for Docker compatibility. Portainer manages remote environments via their portainer-agent (port 9001).
+
+### ct-ha (LXC — VMID 111 on proxmoxnode)
+- **IP:** 192.168.3.10 (inherited from retired HAOS VM — see note below)
+- **MAC:** `<HAOS_INHERITED_MAC>` (inherited from retired HAOS VM)
+- **User:** root
+- **OS:** Debian 13 (Trixie), unprivileged LXC
+- **SSH:** Port 22, key-based auth (no password)
+- **Resources:** 2 vCPU, 4096MB RAM, 1024MB swap, 16GB disk
+- **Role:** Home automation. Runs Home Assistant Container + Mosquitto MQTT broker.
+- **Stack:** `/opt/stacks/ct-ha/docker-compose.yml` (local copy: `stacks/ct-ha/`)
+- **Ports:** 8123 (HA HTTP UI), 1883 (Mosquitto MQTT)
+- **Config notes:** AppArmor unconfined + proc/sys rw mount for Docker compatibility. HA uses `network_mode: host` for mDNS/zeroconf. Mosquitto passwd file at `stacks/ct-ha/mosquitto/config/passwd` (gitignored). MQTT broker reachable from HA at `127.0.0.1:1883` and from LAN at `192.168.3.10:1883`.
+- **Network note:** The router has a per-client rule granting HAOS access to the IoT subnet (192.168.2.0/24). To inherit that access without router-side changes, ct-ha was given HAOS's original MAC + IP. Any replacement for ct-ha in the future should also inherit those identifiers (or update the router rule).
+
+### ct-tools (LXC — VMID 110 on proxmoxmain)
+- **IP:** 192.168.3.15
+- **User:** root
+- **OS:** Debian 13 (Trixie), unprivileged LXC
+- **SSH:** Port 22, key-based auth (no password)
+- **Resources:** 2 vCPU, 2048MB RAM, 512MB swap, 8GB disk
+- **Role:** Utility services. Runs ESPHome dashboard for IoT device firmware management.
+- **Stack:** `/opt/stacks/ct-tools/docker-compose.yml` (local copy: `stacks/ct-tools/`)
+- **Ports:** 6052 (ESPHome HTTP UI)
+- **Config notes:** AppArmor unconfined + proc/sys rw mount for Docker compatibility. ESPHome uses `network_mode: host` for mDNS device discovery. **IoT VLAN access (2026-07-07):** ct-tools (`192.168.3.15`) was added to the UniFi gateway allow-exception that grants access into the IoT VLAN (`192.168.2.0/24`), mirroring ct-ha's grant — so the ESPHome dashboard can reach/OTA the ESPHome devices there (8 thermostats + presence sensor `192.168.2.128`). Verified: ct-tools reaches all live devices on API port 6053. Note: mDNS auto-discovery still won't cross the VLAN (UniFi mDNS reflector is off) — manage devices by IP, and if OTA can't resolve a device by name add `use_address:`/`manual_ip` to its config. Device YAMLs + situation documented in `stacks/ct-tools/esphome/README.md`.
+
+### ct-portfolio (LXC — VMID 113 on proxmoxmain)
+- **IP:** 192.168.3.16
+- **User:** root
+- **OS:** Debian 13 (Trixie), unprivileged LXC
+- **SSH:** Port 22, key-based auth (no password)
+- **Resources:** 1 vCPU, 1024MB RAM, 256MB swap, 8GB disk
+- **Role:** Public-facing portfolio site at `portfolio.<PERSONAL_DOMAIN>`. Runs a Next.js standalone container built from the separate `psychonaut0/portfolio` GitHub repo, distributed via `ghcr.io/psychonaut0/portfolio`.
+- **Stack:** `/opt/stacks/ct-portfolio/docker-compose.yml` (local copy: `stacks/ct-portfolio/`). The application source lives in a **separate** repo (`psychonaut0/portfolio`); this repo only owns the deploy descriptor. Roll forward = bump the image tag in the compose file (or `docker compose pull && up -d` for `:latest`); roll back = pin a `:sha-<short>` tag.
+- **Ports:** 3000 (Next.js HTTP, also LAN entry via Caddy at http://portfolio.lan and public entry via Cloudflare Tunnel)
+- **Config notes:** AppArmor unconfined + proc/sys rw mount for Docker compatibility. Stateless container — no persistent volumes. Public exposure handled entirely by the existing cloudflared tunnel on ct-tunnel (no port-forward, no UniFi changes). Healthcheck targets `127.0.0.1` (not `localhost`) because busybox `wget` in the alpine runtime image doesn't fall back to IPv4 after a refused IPv6 connection.
+
+### ct-workout (LXC — VMID 114 on proxmoxmain)
+- **IP:** 192.168.3.17
+- **User:** root
+- **OS:** Debian 13 (Trixie), unprivileged LXC
+- **SSH:** Port 22, key-based auth (no password)
+- **Resources:** 2 vCPU, 2048MB RAM, 512MB swap, 16GB disk
+- **Role:** Workout-tracker backend (phone app). Runs a Go API server + its app Postgres, plus the PowerSync sync service + a dedicated PowerSync bucket-storage Postgres. LAN-only — no public exposure.
+- **Stack:** `/opt/stacks/ct-workout/docker-compose.yml` (local copy: `stacks/ct-workout/`). The server image is built from the **separate** `psychonaut0/workout-tracker` repo and pulled as `ghcr.io/psychonaut0/workout-tracker-server:sha-<short>`. Roll forward = bump the pinned tag; roll back = pin a previous one.
+- **Ports:** 8080 (Go API, LAN entry via Caddy at http://workout.lan), 8090 (PowerSync, http://workout-sync.lan)
+- **Config notes:** AppArmor unconfined + proc/sys rw mount for Docker compatibility. Server container runs as dedicated non-root user `workout` (UID 900), which owns `secrets/jwt_private_key.pem` (0600, delivered via compose `secrets:`). One-time `powersync_role` LOGIN+password grant required after fresh deploy *and* after DB restore (plain `pg_dump` doesn't capture roles) — runbook in `stacks/ct-workout/README.md`. Backed up nightly by ct-backup: full `/opt/stacks/ct-workout` tree (includes `.env` + JWT key) plus both Postgres dumps (`pg-dump-workout`, `pg-dump-powersync`).
+
+### ct-chat (LXC — VMID 115 on proxmoxmain)
+- **IP:** 192.168.3.18
+- **User:** root
+- **OS:** Debian 13 (Trixie), unprivileged LXC
+- **SSH:** Port 22, key-based auth (no password)
+- **Resources:** 2 vCPU, 2048MB RAM, 512MB swap, 32GB disk
+- **Role:** AI chat frontend — a self-hosted ChatGPT equivalent. Runs Open WebUI against a single OpenRouter account, publicly reachable at `chat.<PERSONAL_DOMAIN>` via the existing Cloudflare Tunnel and gated by Cloudflare Access. Native Android/iOS client is Conduit.
+- **Stack:** `/opt/stacks/ct-chat/docker-compose.yml` (local copy: `stacks/ct-chat/`)
+- **Ports:** 8080 (Open WebUI HTTP)
+- **Config notes:** AppArmor unconfined + proc/sys rw mount for Docker compatibility. Image pinned to `v0.11.0`; upstream ships breaking changes between minors and **Conduit v4.0.0 is the tested pair** — roll back to v0.10.2 only together with an older Conduit. **Disk is 32GB, not 16GB, deliberately:** the image unpacks to 7.16GB and `docker compose pull` fetches the new image before releasing the old, so an upgrade needs ~14GB of images at once; check `df -h /` before pulling. **`RAG_EMBEDDING_ENGINE=openai` and `AUDIO_STT_ENGINE=openai` are load-bearing RAM controls, not preferences** — their empty defaults load SentenceTransformers (~500MB *per worker*) and a local Whisper instance, and the 2GB allocation assumes neither ever loads. **Every OpenRouter slot is configured explicitly (8 vars):** the env docs claim per-slot base URLs inherit `${OPENAI_API_BASE_URL}`, which is **false at first-boot seeding** (verified on v0.11.0) — they seed to literal `https://api.openai.com/v1` with an empty key, so embeddings/STT/TTS/images would all fail while chat worked. **Most Open WebUI settings are persistent `ConfigVar`s:** env is read on *first boot only*, then `data/webui.db` wins, so change settings in the Admin Panel and mirror them back to compose — the compose file is a seed, not live state. TTS returns raw PCM from OpenRouter, which Open WebUI transcodes to mp3 via pydub+ffmpeg (works as-is, no config needed). Image generation costs ~$0.039 each — consider `USER_PERMISSIONS_FEATURES_IMAGE_GENERATION` to scope it. **`WEBUI_AUTH_TRUSTED_EMAIL_HEADER` is deliberately unset:** port 8080 is LAN-reachable, so trusting Cloudflare Access's email header would let any LAN host forge authentication (verified blocked). State is a `./data` bind mount, not a Docker volume, so ct-backup captures the full `/opt/stacks` tree plus an online SQLite `.backup`. Memory uses the Adaptive Memory community function because native Personalization memory only honours ~3 entries (upstream #19196) — re-test memory after every upgrade. No `.lan` hostname by design, so LAN traffic round-trips through the WAN and there is no access at all if the tunnel is down. Runbook: `stacks/ct-chat/README.md`.
+
+### ct-dev (LXC — VMID 116 on proxmoxmain)
+- **IP:** 192.168.3.19 (MagicDNS `ct-dev` on the tailnet)
+- **User:** psy (UID 1000) — **not root**, unlike the rest of the fleet
+- **OS:** Debian 13 (Trixie), unprivileged LXC
+- **SSH:** Port 22, key-based auth (no password)
+- **Resources:** 6 vCPU, 24576MB RAM (with a 20GB `memory.high` throttle), 4096MB swap, 120GB disk
+- **Role:** Always-on remote development workspace. Holds the work monorepo and
+  keeps long-lived Claude Code sessions alive across disconnects, so work
+  continues when the workstation sleeps or is away.
+- **Stack:** No Docker stack managed by this repo — provisioning is native
+  scripts at `stacks/ct-dev/` (`provision-host.sh` on the hypervisor,
+  `provision-ct.sh` inside). The work repo brings its own compose stack.
+- **Config notes:** AppArmor unconfined + `lxc.mount.auto: proc:rw sys:rw` (the
+  unprivileged-CT form; a `/proc/sys` bind-mount is the privileged-CT pattern
+  and fails `pct start` here) + `nesting=1,keyctl=1` for
+  Docker-in-LXC. **`/dev/net/tun` is passed through** (`lxc.cgroup2.devices.allow:
+  c 10:200 rwm`) — unique in this fleet, and required or Tailscale cannot start.
+  **`vm.max_map_count` is only asserted on proxmoxmain, not set:** provisioning
+  checks the floor the work stack's OpenSearch needs (262144) is met but writes
+  nothing — the host's systemd default is already 1048576, and a `99-` drop-in
+  forcing 262144 would have *lowered* a live hypervisor limit, so there is no
+  sysctl override to find. Tailscale runs **without** `--accept-routes`: ct-dev
+  sits on `192.168.3.0/24`, a subnet the tailnet advertises, and accepting it
+  black-holes the LAN.
+  The home path `~/Documents/work/travelware/<WORK_REPO>` is **load-bearing** —
+  it is byte-identical to the workstation so the git `includeIf` work identity
+  applies and Claude Code session directories migrate without rewriting.
+  Work happens inside `tmux`, which is the only session-persistence mechanism
+  on this box — `tmux` detach/reattach is how work survives a disconnect.
+  **`PATH` has three independent
+  contexts** on this box — login shells (`/etc/profile.d/`), non-interactive
+  `ssh host cmd` (`/etc/environment`, via pam_env), and systemd `--user` units
+  (`~/.config/environment.d/`) — any binary added must be verified in all
+  three; full detail in `stacks/ct-dev/README.md`.
+  **Not backed up, by design:** ct-dev is absent from `CT_IPS` in
+  `stacks/ct-backup/scripts/pre-backup.sh` so work source never reaches personal
+  B2 storage; the base setup is reproducible instead. Uncommitted work dies with
+  the container. **Memory limits on proxmoxmain are caps, not reservations, and the host
+  is oversubscribed on paper:** proxmoxmain has 64GB physical (upgraded from
+  32GB on 2026-09-01) against roughly 72GB of configured CT limits. The signal
+  to watch is *actual* usage (`free -g`), never the sum of limits.
+  **ct-dev carries a 20GB `memory.high` below its 24GB hard limit
+  (`lxc.cgroup2.memory.high` in the CT config, verified to survive a restart).**
+  That is not tuning, it is the fix for a real outage: on 2026-09-01 ct-dev
+  filled all 12GB of its old limit *and* all 4GB of its swap, then thrashed
+  reclaim — 21.6M `memory.events high` — until nothing inside could fork.
+  Both `ssh` and `pct exec` hung, and host load hit 142, degrading every other
+  container. Nothing was OOM-killed; it simply ground to a halt with no warning.
+  `memory.high` makes the kernel throttle the cgroup before that point, so it
+  slows down and stays reachable instead of freezing solid.
+  Restarting ct-nvr adds real usage (Frigate plus its transcodes) and
+  tightens actual headroom, so check `free -g` before running heavy builds
+  alongside it.
+  Runbook: `stacks/ct-dev/README.md`.
+
+### ct-photos (LXC — VMID 106 on proxmoxmain)
+- **IP:** 192.168.3.9
+- **User:** root
+- **OS:** Debian 13 (Trixie), privileged LXC
+- **SSH:** Port 22, key-based auth (no password)
+- **Resources:** 4 vCPU, 8192MB RAM, 2048MB swap, 16GB disk
+- **Role:** Photo management. Runs Immich with iGPU passthrough for ML inference.
+- **Stack:** `/opt/stacks/ct-photos/docker-compose.yml` (local copy: `stacks/ct-photos/`)
+- **Ports:** 2283 (Immich HTTP UI)
+- **Config notes:** Privileged CT for device access. iGPU passthrough for ML. Immich data on mergerfs pool (`/mnt/cloud/volumes/mediaserver/immich`) bind-mounted into CT at `/mnt/immich`. DB password in `/opt/stacks/ct-photos/.env`.
+
+### ct-backup (LXC — VMID 109 on proxmoxmain)
+- **IP:** 192.168.3.13
+- **User:** root
+- **OS:** Debian 13 (Trixie), privileged LXC
+- **SSH:** Port 22, key-based auth (no password)
+- **Resources:** 1 vCPU, 512MB RAM, 256MB swap, 4GB disk
+- **Role:** Off-site backup runner. Runs restic nightly against Backblaze B2, pulling .env files + Docker named volumes + Immich and workout Postgres dumps + /etc/pve + host config from all other CTs and both Proxmox nodes, plus bind-mounted bulk data (Immich, samba/psy, *arr configs, Jellyfin config, Frigate config) and the full /opt/stacks tree for ct-ha, ct-tools, ct-games, and ct-workout.
+- **Stack:** `/opt/stacks/ct-backup/` (local copy: `stacks/ct-backup/`) — no Docker; scripts + systemd units installed natively.
+- **Ports:** 80 (Caddy status endpoint at `backup.lan`)
+- **Schedule:** nightly 03:00, weekly prune Sun 04:00, monthly partial check 1st of month 05:00. Triggered by systemd timers; status.json served for Gatus freshness check.
+- **Config notes:** Privileged LXC (to read host files with arbitrary ownership without idmap gymnastics). Read-only bind mounts for bulk data sources. SSH key in `/root/.ssh/id_ed25519` with forced-command restrictions on every target via `backup-dispatch.sh`. Secrets in `/etc/restic/` (repo password, B2 creds, Telegram creds). Caddy systemd override at `/etc/systemd/system/caddy.service.d/lxc-override.conf` disables `PrivateTmp`/`ProtectSystem` for LXC compatibility.
+
+### Termux (Nothing Phone A024)
+- **User:** u0_a416
+- **OS:** Android 16 (API 36), Termux
+- **SSH key:** `ssh-ed25519 ...termux@nothing-a024`
+- **Role:** Mobile dev environment. Has passwordless SSH to all machines above.
+
+## Network Layout
+
+```
+Termux (phone)
+  ├── ssh blvckmain      → 192.168.1.110:22  (psy, key auth)
+  ├── ssh proxmoxmain    → 192.168.3.2:22    (root, key auth)
+  ├── ssh proxmoxnode    → 192.168.3.3:22    (root, key auth)
+blvckflow (ROG Flow Z13)
+  ├── ssh blvckmain      → 192.168.1.110:22  (psy, key auth)
+  └── (all ct-* below plus proxmoxmain/proxmoxnode, same aliases as blvckmain)
+blvckmain (main PC)
+  ├── ssh ct-dns         → 192.168.3.5:22    (root, key auth)
+  ├── ssh ct-tunnel      → 192.168.3.6:22    (root, key auth)
+  ├── ssh ct-nvr         → 192.168.3.7:22    (root, key auth)
+  ├── ssh ct-media       → 192.168.3.8:22    (root, key auth)
+  ├── ssh ct-photos      → 192.168.3.9:22    (root, key auth)
+  ├── ssh ct-files       → 192.168.3.11:22   (root, key auth)
+  ├── ssh ct-mgmt        → 192.168.3.12:22   (root, key auth)
+  ├── ssh ct-games       → 192.168.3.14:22   (root, key auth)
+  ├── ssh ct-ha          → 192.168.3.10:22   (root, key auth)
+  ├── ssh ct-tools       → 192.168.3.15:22   (root, key auth)
+  ├── ssh ct-portfolio   → 192.168.3.16:22   (root, key auth)
+  ├── ssh ct-workout     → 192.168.3.17:22   (root, key auth)
+  ├── ssh ct-chat        → 192.168.3.18:22   (root, key auth)
+  ├── ssh ct-dev         → 192.168.3.19:22   (psy, key auth)
+  └── ssh ct-backup      → 192.168.3.13:22   (root, key auth)
+```
+
+## Services
+
+Home Lab dashboard runs on ct-mgmt (http://home.lan) — custom Preact + Bun SSR app with service health checks and live Proxmox resource stats (node CPU/RAM, SSD + mergerfs storage).
+Portainer CE runs on ct-mgmt (https://portainer.lan or https://192.168.3.12:9443) and manages container environments across CTs via portainer-agent (port 9001).
+Gatus uptime monitoring runs on ct-mgmt (http://status.lan or http://192.168.3.12:8080) with 3-tier service checks and Telegram alerts via @blvckhomelab_bot.
+Frigate NVR runs on ct-nvr (https://nvr.lan or https://192.168.3.7:8971) with iGPU-accelerated video decoding.
+Jellyfin media server runs on ct-media (https://jellyfin.lan or http://192.168.3.8:8096) with iGPU hardware transcoding, alongside Sonarr, Radarr, Deluge, Prowlarr, and FlareSolverr.
+Samba runs on ct-files for SMB shares (`psy`, `family`). copyparty provides the web drive over the *same* trees — http://drive.lan / https://drive.<PERSONAL_DOMAIN> (psy) and http://family.lan / https://family.<PERSONAL_DOMAIN> (family), each jailed to one tree. Access-only, no sync client; no native mobile app (responsive web UI + WebDAV). Web deletes are permanent and bypass Samba's recycle.
+Home Assistant Container runs on ct-ha (https://homeassistant.lan or http://192.168.3.10:8123) for home automation, alongside Mosquitto MQTT broker on the same host.
+ESPHome dashboard runs on ct-tools (http://esphome.lan or http://192.168.3.15:6052) for IoT device firmware builds and OTA updates.
+Proxmox VE runs on proxmoxmain (https://proxmox.lan or https://192.168.3.2:8006) and proxmoxnode (https://proxmox-node.lan or https://192.168.3.3:8006).
+Immich photo management runs on ct-photos (https://immich.lan or http://192.168.3.9:2283) with iGPU ML inference.
+Minecraft servers run on ct-games (192.168.3.14:25565 for vanilla/Paper, :25566 for modded). Vanilla is publicly reachable at `mc.<PERSONAL_DOMAIN>:25565` via UniFi port-forward from the static public IP. Playit.gg agent remains as transitional fallback and will be retired. LAN RCON on :25575 (vanilla) / :25576 (modded). Daily `.tgz` archives on mergerfs at `/mnt/cloud/volumes/games/archives/<server>/`.
+Portfolio site runs on ct-portfolio (https://portfolio.<PERSONAL_DOMAIN> publicly, http://portfolio.lan on LAN). Stateless Next.js standalone container pulled from `ghcr.io/psychonaut0/portfolio:latest`. Source repo: `github.com/psychonaut0/portfolio` (separate from infra).
+Workout-tracker backend runs on ct-workout (http://workout.lan API, http://workout-sync.lan PowerSync). Go API + app Postgres + PowerSync service + dedicated bucket-storage Postgres, serving the phone app. LAN-only. Server image: `ghcr.io/psychonaut0/workout-tracker-server` (source repo `github.com/psychonaut0/workout-tracker`, separate from infra).
+Open WebUI runs on ct-chat (https://chat.<PERSONAL_DOMAIN> publicly, http://192.168.3.18:8080 on LAN) as a self-hosted ChatGPT equivalent over a single OpenRouter account — persistent memory, Brave-backed web search, embeddings/STT/TTS/image generation all through the same key. Public access is gated by Cloudflare Access; Conduit is the native Android/iOS client. There is deliberately no `.lan` hostname.
+Remote development container runs on ct-dev (ssh ct-dev). Holds the work
+monorepo; tmux keeps agent sessions alive across disconnects. Not backed up
+by design.
+infra CLI release mirror runs natively on ct-mgmt as a systemd timer (every 5 min) and is served via Caddy at http://infra-bin.lan. Pulls GitHub Release artifacts and re-publishes to the LAN. Source + deploy notes: `stacks/ct-mgmt/infra-mirror/`.
+Hardware and storage details in `docs/hardware.md`.
+
+## CLI
+
+`infra` is a Go CLI installed at `~/.local/bin/infra` (workstations) and `/usr/local/bin/infra` (every CT + Proxmox node). Source at `cli/`. Self-updates via the LAN release mirror (`http://infra-bin.lan`) — no repo checkout required on consumers. Bootstrap a fresh host with `curl -fsSL http://infra-bin.lan/install.sh | sh`. Build/install locally with `cd cli && make install`.
+
+**Prefer `infra` over raw SSH for fleet operations.** Common tasks:
+
+| Task | Command |
+|---|---|
+| List service → CT mapping | `infra ls` |
+| See container state across the fleet | `infra status` (add `--ct ct-X` to scope) |
+| Tail a service's logs | `infra logs <service>` |
+| Restart a service | `infra restart <service>` |
+| Pull + redeploy a service / whole CT | `infra deploy <service\|ct>` |
+| Proxmox CT overview (VMID, IP, CPU/RAM/disk) | `infra ct status` |
+| Add/remove a `<name>.lan` service (Caddy + Pi-hole at once) | `infra dns add <name>.lan <upstream-url>` / `infra dns rm <name>.lan` |
+| Audit DNS/Caddy drift                                       | `infra dns ls`, `infra dns sync` — both also flag unmanaged records in pihole.toml's `[dns] hosts` array (exit 1) |
+| Mirror + audit Cloudflare Tunnel ingress                    | `infra tunnel ls`, `infra tunnel export`, `infra tunnel diff` |
+| Self-update from the LAN mirror | `infra update [-y]` |
+| Build from a repo checkout instead | `infra update --from-source` |
+
+Fall back to raw SSH only for things `infra` doesn't yet wrap: Proxmox host operations (creating CTs, editing PCT configs), bind-mount tweaks, restic ops on ct-backup, and the like.
+
+Design specs: `docs/superpowers/specs/2026-04-18-infra-cli-design.md` (v1), `2026-04-29-infra-cli-cicd-design.md` (CI/CD pipeline + LAN mirror), and `2026-04-30-infra-dns-design.md` (Caddy + Pi-hole sync).
