@@ -35,7 +35,7 @@ Post-decomposition state (blvckserver VM retired 2026-04-12). All storage is now
 | 103 | ct-tunnel | vm-103-disk-0 | 2GB | 86% |
 | 104 | ct-nvr | vm-104-disk-0 | 24GB | 37% |
 | 105 | ct-media | vm-105-disk-0 | 16GB | 37% |
-| 106 | ct-photos | vm-106-disk-0 | 16GB | 51% |
+| 106 | ct-photos | vm-106-disk-0 | 32GB | 43% |
 | 107 | ct-files | vm-107-disk-0 | 16GB | 13% |
 | 108 | ct-mgmt | vm-108-disk-0 | 4GB | 91% |
 | 109 | ct-backup | vm-109-disk-0 | 8GB | 12% |

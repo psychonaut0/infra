@@ -1,6 +1,6 @@
 services:
   immich-server:
-    image: ghcr.io/immich-app/immich-server:release
+    image: ghcr.io/immich-app/immich-server:v3.1.0
     container_name: immich_server
     restart: unless-stopped
     ports:
@@ -11,6 +11,7 @@ services:
       DB_DATABASE_NAME: immich
       DB_PASSWORD: "${DB_PASSWORD}"
       REDIS_HOSTNAME: immich_redis
+      IMMICH_MEDIA_LOCATION: /usr/src/app/upload
       TZ: Europe/Rome
     volumes:
       - /mnt/immich/data:/usr/src/app/upload
@@ -19,7 +20,7 @@ services:
       - immich-redis
 
   immich-machine-learning:
-    image: ghcr.io/immich-app/immich-machine-learning:release
+    image: ghcr.io/immich-app/immich-machine-learning:v3.1.0
     container_name: immich_machine_learning
     restart: unless-stopped
     environment:
@@ -30,7 +31,7 @@ services:
       - /dev/dri/renderD128:/dev/dri/renderD128
 
   immich-postgres:
-    image: tensorchord/pgvecto-rs:pg14-v0.2.0
+    image: ghcr.io/immich-app/postgres:14-vectorchord0.4.3-pgvectors0.2.0
     container_name: immich_postgres
     restart: unless-stopped
     environment:
@@ -38,8 +39,11 @@ services:
       POSTGRES_USER: postgres
       POSTGRES_DB: immich
       POSTGRES_INITDB_ARGS: "--data-checksums"
+      # DB lives on the mergerfs HDD pool, not an SSD — see docs/hardware.md
+      DB_STORAGE_TYPE: "HDD"
     volumes:
       - /mnt/immich/db:/var/lib/postgresql/data
+    shm_size: 128mb
 
   immich-redis:
     image: redis:6.2-alpine
