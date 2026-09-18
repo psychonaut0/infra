@@ -33,12 +33,58 @@ things, all in place as of 2026-07-07:
    unprivileged-LXC user-namespace gid map — `2147483647` is rejected with `Invalid
    argument`).
 
+Adopting a device in Home Assistant is *slow* because of the same mDNS gap: the
+ESPHome config flow's host step takes roughly **two minutes** before it returns
+the encryption-key prompt, since HA tries to resolve `<name>.local` first and
+must wait for that to time out. It is not stuck — give it 3+ minutes before
+concluding anything is wrong. Driving the flow over the REST API needs the
+client timeout raised accordingly, or it fails while the flow succeeds
+server-side.
+
 Notes:
 - The dashboard's online dot only refreshes **while the dashboard is open in a browser**
   (it pings on demand for active subscribers) — that's normal ESPHome behavior, not a fault.
 - The dashboard's stored ping address (`config/.esphome/storage/<name>.yaml.json`) is
   written from `use_address` **on compile**. If you add `use_address` to an existing device,
   recompile it once (or the dot stays offline until you do).
+
+## Do not compile on ct-tools
+
+**Build firmware on the workstation and push OTA. Never run `esphome compile`
+— or trigger a dashboard build — inside the `esphome` container here.**
+
+On 2026-09-18 a single esp-idf build for an ESP32-WROOM-32 target exhausted the
+CT's 2 vCPU / 2048MB and wedged it solid. It still answered ping, but `sshd`
+could no longer fork (`Connection timed out during banner exchange`) and
+`pct exec 110` hung too — the same signature this repo documents for the ct-dev
+memory outage. Recovery needed a forced restart from the hypervisor:
+
+```sh
+ssh proxmoxmain 'pct stop 110; sleep 3; pct start 110'
+```
+
+ct-tools is sized for the dashboard's *editing and OTA* role, not for
+compilation. The dashboard UI offers an Install button that compiles here, so
+this is easy to trigger by accident.
+
+Build instead on a workstation:
+
+```sh
+uv tool install esphome                 # isolated, no system packages
+esphome run <device>.yaml --device /dev/ttyUSB0   # first flash, over USB
+esphome run <device>.yaml               # subsequent flashes, over OTA
+```
+
+Serial access on Arch needs the `uucp` group. `sg` does not exist there, so use
+`newgrp uucp` with a heredoc, or log out and back in after `usermod -aG uucp`.
+The device YAML uses `!secret`, so copy `secrets.yaml` from this CT next to it
+first — and delete it afterwards; it is gitignored but the repo is public.
+
+The one thing a dashboard-side compile does that a workstation build cannot is
+write `use_address` into `config/.esphome/storage/<name>.yaml.json`, which is
+what drives the dashboard's online dot. Without it the dot stays grey while the
+device works normally. That is cosmetic — do not wedge the container for it.
+Raise the CT's resources first if you really want it.
 
 ## Tracked devices
 
