@@ -44,8 +44,44 @@ Notes:
 
 | File | Device | Hardware | Status |
 |---|---|---|---|
-| `config/presence-sensor.yaml` | Presence sensor | ESP32-C3 + LD2420 mmWave | Live, dashboard-managed |
+| `config/presence-sensor-1.yaml` | Presence sensor 1 | ESP32-WROOM-32 + LD2420 mmWave | Live, dashboard-managed |
 | `config/archive/thermostat.yaml` | Thermostat (#1) | bk72xx (Beken, reflashed Tuya) | **Base stub only** — see below |
+
+## LD2420 wiring — read before building another one
+
+The HLK-LD2420's `OT1`/`OT2` labels do not mean what the datasheet implies. On
+the **V2.1** board running firmware **v1.6.1**, verified on hardware 2026-09-18:
+
+| Module pin | Actual function | ESP32-WROOM-32 |
+|---|---|---|
+| `3V3` / `GND` | power | `3V3` / `GND` |
+| **`OT2`** | **UART TX** (module → ESP) | `GPIO16` |
+| `RX` | UART RX (ESP → module) | `GPIO17` |
+| **`OT1`** | digital presence output | `GPIO4` |
+
+Wire `OT1` as TX — the documented reading — and you get a device that joins
+WiFi, reports healthy, and never receives one valid frame. The failure is
+silent: ESPHome logs `Reply frame too long` / `Communication failed` and the
+firmware version reads `v0.0.0`.
+
+Two diagnostics that settle it quickly:
+
+- **Add `debug:` to the `uart:` block** and compare `>>>` against `<<<`. If the
+  received bytes are your own transmitted bytes, TX and RX are shorted —
+  typically two jumpers sharing a breadboard row, or an unpowered module
+  bridging the lines through its clamp diodes. Silence instead means nothing is
+  driving RX at all.
+- **Watch the `OT1` GPIO binary sensor.** It's a plain digital pin, independent
+  of baud rate and protocol. If it never toggles when you move in front of the
+  module, the problem is power or contact — not configuration.
+
+Also pin `logger: hardware_uart:` explicitly. On the ESP32-C3 the obvious UART
+pins (`GPIO20`/`GPIO21`) *are* UART0, so the console and the radar contend for
+one peripheral. On the WROOM-32, `GPIO16`/`GPIO17` are UART2 and the console
+stays on `GPIO1`/`GPIO3`, which is why this board is the easier target.
+
+The earlier ESP32-C3 configs (`presence-sensor.yaml`, `presence-sensor-2.yaml`)
+were removed on 2026-09-18 when the fleet standardised on the WROOM-32.
 
 ## The thermostats — important
 

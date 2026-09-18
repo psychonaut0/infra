@@ -1,9 +1,9 @@
 esphome:
-  name: presence-sensor-2
-  friendly_name: Presence sensor 2
+  name: presence-sensor-1
+  friendly_name: Presence sensor 1
 
 esp32:
-  board: esp32-c3-devkitm-1
+  board: esp32dev
   framework:
     type: esp-idf
 
@@ -12,34 +12,48 @@ web_server:
 
 logger:
   level: DEBUG
+  # Pinned deliberately. The LD2420 sits on UART2 (GPIO16/17); leaving the
+  # console UART implicit is what lets it contend for the same peripheral.
+  hardware_uart: UART0
 
 api:
   encryption:
-    key: !secret presence2_api_key
+    key: !secret presence1_api_key
 
 ota:
   - platform: esphome
-    password: !secret presence2_ota_password
+    password: !secret presence1_ota_password
 
 wifi:
   ssid: !secret wifi_ssid
   password: !secret wifi_password
-  # Device is on the IoT VLAN; mDNS (presence-sensor-2.local) can't cross from
+  # Device is on the IoT VLAN; mDNS (presence-sensor-1.local) can't cross from
   # ct-tools' subnet, so the dashboard/CLI connect to this IP for logs/OTA.
-  use_address: 192.168.2.156
+  # Reserve it in UniFi so the lease can't drift.
+  use_address: 192.168.2.113
   ap:
-    ssid: "Presence-2 Fallback Hotspot"
-    password: !secret presence2_ap_password
+    ssid: "Presence-1 Fallback Hotspot"
+    password: !secret presence1_ap_password
 
 captive_portal:
 
-# UART LD2420 su ESP32-C3 Super Mini:
-# GPIO20 = RX (ESP)  <- TX sensore (OT1 se fw >=1.5.3, OT2 se fw <=1.5.2)
-# GPIO21 = TX (ESP)  -> RX sensore
+# LD2420 on ESP32-WROOM-32 DevKit (30-pin). Pinout VERIFIED on hardware
+# 2026-09-18 against an HLK-LD2420 V2.1 module running firmware v1.6.1:
+#
+#   module 3V3 -> 3V3
+#   module GND -> GND
+#   module OT2 -> GPIO16   UART TX out of the module  -> ESP RX
+#   module RX  -> GPIO17   UART RX into the module    <- ESP TX
+#   module OT1 -> GPIO4    digital presence output
+#
+# NOTE the OT1/OT2 roles: on this board revision OT2 is the UART transmitter
+# and OT1 is the presence pin — the opposite of what HLK's docs imply and of
+# the older ESP32-C3 configs in this repo. Wiring them the documented way
+# yields a healthy-looking device that never receives a single valid frame.
 uart:
   id: uart_ld2420
-  rx_pin: GPIO20
-  tx_pin: GPIO21
+  rx_pin: GPIO16
+  tx_pin: GPIO17
   baud_rate: 115200
   parity: NONE
   stop_bits: 1
@@ -58,16 +72,17 @@ sensor:
       name: "Moving Distance"
 
 binary_sensor:
-  # Presenza via UART (consigliata)
+  # Presence over UART (preferred — carries distance too)
   - platform: ld2420
     has_target:
       name: "Presence (LD2420)"
 
-  # Presenza via pin OUT del modulo (quello che hai messo su GPIO10)
+  # Module's own digital presence pin. Independent of the UART, so it still
+  # reports if the serial link ever breaks.
   - platform: gpio
-    name: "Presence OUT (GPIO10)"
+    name: "Presence OUT (GPIO4)"
     pin:
-      number: GPIO10
+      number: GPIO4
       mode: INPUT
     filters:
       - delayed_on: 50ms
