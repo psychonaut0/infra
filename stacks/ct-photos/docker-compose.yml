@@ -20,15 +20,30 @@ services:
       - immich-redis
 
   immich-machine-learning:
-    image: ghcr.io/immich-app/immich-machine-learning:v3.1.0
+    # -cuda variant: runs CLIP/face models on the GTX 1650 Super. The plain
+    # image is CPU-only, so the old renderD128 passthrough was never used.
+    image: ghcr.io/immich-app/immich-machine-learning:v3.1.0-cuda
     container_name: immich_machine_learning
     restart: unless-stopped
     environment:
       TZ: Europe/Rome
     volumes:
       - /mnt/immich/cache:/cache
+    # Explicit nodes, not just the reservation: with no-cgroups=true (required
+    # in LXC) the NVIDIA hook no longer whitelists the devices, so Docker's
+    # device cgroup blocks them and CUDA reports "no CUDA-capable device".
     devices:
-      - /dev/dri/renderD128:/dev/dri/renderD128
+      - /dev/nvidia0:/dev/nvidia0
+      - /dev/nvidiactl:/dev/nvidiactl
+      - /dev/nvidia-uvm:/dev/nvidia-uvm
+      - /dev/nvidia-uvm-tools:/dev/nvidia-uvm-tools
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
 
   immich-postgres:
     image: ghcr.io/immich-app/postgres:14-vectorchord0.4.3-pgvectors0.2.0

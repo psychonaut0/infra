@@ -1,5 +1,7 @@
 services:
   frigate:
+    # Plain :stable is enough for NVIDIA decode (preset-nvidia) and the NVENC
+    # transcodes; switch to :stable-tensorrt only for GPU object detection.
     image: ghcr.io/blakeblackshear/frigate:stable
     container_name: frigate
     restart: unless-stopped
@@ -17,6 +19,8 @@ services:
       TZ: Europe/Rome
       # Required for the user-defined go2rtc `exec:` transcode streams (camera_*_record)
       GO2RTC_ALLOW_ARBITRARY_EXEC: "true"
+      # "video" is what exposes NVDEC/NVENC; the default grants compute only
+      NVIDIA_DRIVER_CAPABILITIES: compute,video,utility
     volumes:
       - /mnt/nvr-data/config:/config
       - /mnt/nvr-data/data:/media/frigate
@@ -24,8 +28,13 @@ services:
         target: /tmp/cache
         tmpfs:
           size: 1000000000
-    devices:
-      - /dev/dri/renderD128:/dev/dri/renderD128
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
 
   portainer-agent:
     image: portainer/agent:latest

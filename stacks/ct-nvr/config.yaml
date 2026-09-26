@@ -8,9 +8,12 @@ mqtt:
   password: "{FRIGATE_MQTT_PASSWORD}"
 
 detectors:
+  # CPU, not GPU: the Intel iGPU is disabled in the BIOS since the GTX 1650
+  # Super went in (2026-09-26), and OpenVINO cannot target an NVIDIA card.
+  # Interim — GPU detection needs the onnx detector plus an exported YOLO model.
   ov:
     type: openvino
-    device: GPU
+    device: CPU
 
 model:
   width: 300
@@ -21,7 +24,7 @@ model:
   labelmap_path: /openvino-model/coco_91cl_bkgr.txt
 
 ffmpeg:
-  hwaccel_args: preset-vaapi
+  hwaccel_args: preset-nvidia
 
 objects:
   track:
@@ -36,21 +39,25 @@ live:
 
 record:
   enabled: true
-  # Continuous 24/7 recording, 4-day retention. Recordings are downscaled to
-  # 1080p by the go2rtc QSV transcode streams below (cameras expose no substream).
-  # Cut 7d -> 4d on 2026-08-26: at ~49GB/day the 7-day window filled the 393GB
-  # volume to 93% and left the thin volume 99.98% allocated, which thrashed
-  # ct-nvr's 6GiB memcg on page cache and wedged the CT. See docs/hardware.md for details.
+  # Continuous 24/7 recording for 3 days, then only person events for 30.
+  # Recordings are downscaled to 1080p by the go2rtc NVENC transcode streams
+  # below (cameras expose no substream). ~44GB/day continuous; only 2-6% of
+  # footage contains a person, so 30 days of events costs ~1-2GB/day.
+  # History: 7 days filled the 393GB volume to 93% and left the thin volume
+  # 99.98% allocated, which thrashed ct-nvr's 6GiB memcg on page cache and
+  # wedged the CT (2026-08-26, see docs/hardware.md). That cut to 4 days was
+  # made here but never reached the live file; tiered retention replaced it
+  # on 2026-09-26.
   continuous:
-    days: 4
-  # Object/motion review items (the timeline "checks") tracked for the same window.
+    days: 3
+  # Review items (the timeline "checks") keep their motion segments for 30 days.
   alerts:
     retain:
-      days: 4
+      days: 30
       mode: motion
   detections:
     retain:
-      days: 4
+      days: 30
       mode: motion
 
 snapshots:
@@ -75,21 +82,21 @@ go2rtc:
     camera_1:
       - rtsp://frigate:{FRIGATE_RTSP_PASSWORD}@192.168.2.10:554
       - "ffmpeg:camera_1#audio=opus"
-    # Downscaled record feed: GPU (Intel QSV) decode -> scale to 1080p -> H264.
+    # Downscaled record feed: GPU (NVIDIA NVDEC) decode -> scale to 1080p -> H264 (NVENC).
     # Sources the local restream (no extra camera connection). Used by the
     # camera's "record" role so 24/7 footage is ~1.5Mbps instead of full 2688x1520.
     camera_1_record:
-      - "exec:/usr/lib/ffmpeg/7.0/bin/ffmpeg -hide_banner -loglevel warning -hwaccel qsv -qsv_device /dev/dri/renderD128 -hwaccel_output_format qsv -rtsp_transport tcp -i rtsp://127.0.0.1:8554/camera_1 -an -vf vpp_qsv=w=1920:h=1080 -c:v h264_qsv -b:v 1.5M -g 50 -rtsp_transport tcp -f rtsp {{output}}"
+      - "exec:/usr/lib/ffmpeg/7.0/bin/ffmpeg -hide_banner -loglevel warning -hwaccel cuda -hwaccel_output_format cuda -rtsp_transport tcp -i rtsp://127.0.0.1:8554/camera_1 -an -vf scale_cuda=1920:1080 -c:v h264_nvenc -b:v 1.5M -g 50 -rtsp_transport tcp -f rtsp {{output}}"
     camera_2:
       - rtsp://frigate:{FRIGATE_RTSP_PASSWORD}@192.168.2.11:554
       - "ffmpeg:camera_2#audio=opus"
     camera_2_record:
-      - "exec:/usr/lib/ffmpeg/7.0/bin/ffmpeg -hide_banner -loglevel warning -hwaccel qsv -qsv_device /dev/dri/renderD128 -hwaccel_output_format qsv -rtsp_transport tcp -i rtsp://127.0.0.1:8554/camera_2 -an -vf vpp_qsv=w=1920:h=1080 -c:v h264_qsv -b:v 1.5M -g 50 -rtsp_transport tcp -f rtsp {{output}}"
+      - "exec:/usr/lib/ffmpeg/7.0/bin/ffmpeg -hide_banner -loglevel warning -hwaccel cuda -hwaccel_output_format cuda -rtsp_transport tcp -i rtsp://127.0.0.1:8554/camera_2 -an -vf scale_cuda=1920:1080 -c:v h264_nvenc -b:v 1.5M -g 50 -rtsp_transport tcp -f rtsp {{output}}"
     camera_3:
       - rtsp://frigate:{FRIGATE_RTSP_PASSWORD}@192.168.2.12:554
       - "ffmpeg:camera_3#audio=opus"
     camera_3_record:
-      - "exec:/usr/lib/ffmpeg/7.0/bin/ffmpeg -hide_banner -loglevel warning -hwaccel qsv -qsv_device /dev/dri/renderD128 -hwaccel_output_format qsv -rtsp_transport tcp -i rtsp://127.0.0.1:8554/camera_3 -an -vf vpp_qsv=w=1920:h=1080 -c:v h264_qsv -b:v 1.5M -g 50 -rtsp_transport tcp -f rtsp {{output}}"
+      - "exec:/usr/lib/ffmpeg/7.0/bin/ffmpeg -hide_banner -loglevel warning -hwaccel cuda -hwaccel_output_format cuda -rtsp_transport tcp -i rtsp://127.0.0.1:8554/camera_3 -an -vf scale_cuda=1920:1080 -c:v h264_nvenc -b:v 1.5M -g 50 -rtsp_transport tcp -f rtsp {{output}}"
 
 cameras:
   camera_1:

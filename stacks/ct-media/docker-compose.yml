@@ -12,13 +12,28 @@ services:
       PUID: "1000"
       PGID: "1000"
       TZ: Europe/Rome
-      DOCKER_MODS: linuxserver/mods:jellyfin-opencl-intel
+      # NVENC/NVDEC on the GTX 1650 Super; the Intel iGPU is disabled in BIOS
+      NVIDIA_VISIBLE_DEVICES: all
+      NVIDIA_DRIVER_CAPABILITIES: compute,video,utility
     volumes:
       - /mnt/mediaserver/jellyfin/config:/config
       - /mnt/mediaserver/movies:/data/movies
       - /mnt/mediaserver/series:/data/tvshows
+    # Explicit nodes, not just the reservation: with no-cgroups=true (required
+    # in LXC) the NVIDIA hook no longer whitelists the devices, so Docker's
+    # device cgroup blocks them and CUDA reports "no CUDA-capable device".
     devices:
-      - /dev/dri/renderD128:/dev/dri/renderD128
+      - /dev/nvidia0:/dev/nvidia0
+      - /dev/nvidiactl:/dev/nvidiactl
+      - /dev/nvidia-uvm:/dev/nvidia-uvm
+      - /dev/nvidia-uvm-tools:/dev/nvidia-uvm-tools
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
 
   sonarr:
     image: lscr.io/linuxserver/sonarr:latest
