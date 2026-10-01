@@ -1,12 +1,13 @@
 # ct-dev — remote development container
 
-> Deployed to `~/CLAUDE.md` on ct-dev. `<WORK_REPO>` is substituted at provision
-> time from `CLAUDE.local.md` (this infra repo is public).
+> Deployed to `~/AGENTS.md` on ct-dev (`~/CLAUDE.md` points at it).
+> `<WORK_ORG>`, `<WORK_REPO>` and `<WORK_CLI>` are substituted at provision time
+> from operator-supplied values (this infra repo is public).
 
 ## Machine
 - Unprivileged LXC, **VMID 116 on proxmoxmain**, Debian 13 (Trixie)
 - **IP:** 192.168.3.19 · MagicDNS `ct-dev` on the tailnet
-- 6 vCPU, 12 GB RAM, 4 GB swap, 120 GB disk
+- 6 vCPU, 24 GB RAM (20 GB `memory.high` throttle), 4 GB swap, 120 GB disk
 - **Role:** always-on remote workspace. Long-lived agent sessions live here so
   they survive the workstation sleeping or the SSH connection dropping.
 
@@ -49,10 +50,10 @@ Never set a repo-local git identity.
 Go 1.26 · Node 26 · Bun 1.3.13 · Docker + compose · tmux · git · git-lfs
 
 AWS tooling is four separate binaries — `aws` (CLI v2), `session-manager-plugin`,
-`pgcli`, and the project's own **`<WORK_CLI>` CLI** (a Go binary distributed via
-Bitbucket downloads, self-updating with `<WORK_CLI> update`; it refuses to run if
-`aws` is not on PATH). The `<WORK_CLI>` CLI is *not* part of the monorepo and is
-not installed by `bun install`.
+`pgcli`, and the project's own **`<WORK_CLI>` CLI** (a self-updating binary
+distributed outside the monorepo; it refuses to run if `aws` is not on PATH).
+The `<WORK_CLI>` CLI is *not* part of the monorepo and is not installed by
+`bun install`.
 
 Unlike BLVCKFlow, these are installed **system-wide** here — root is available,
 so the userland `~/.local` workaround that machine uses is unnecessary.

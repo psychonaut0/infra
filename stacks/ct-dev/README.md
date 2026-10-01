@@ -54,7 +54,7 @@ be reorderable, it shouldn't: don't move key generation before the first
 
    # 2. AWS SSO profile config (start URL, account IDs, role names — no
    #    credentials, those are never stored on disk).
-   #    Skip it and `aws sso login` / <WORK_CLI> have no profile to target.
+   #    Skip it and `aws sso login` / the work CLI have no profile to target.
    scp ~/.aws/config proxmoxmain:/root/aws-config
    ssh proxmoxmain "pct push 116 /root/aws-config /root/aws-config"
 
@@ -69,22 +69,25 @@ be reorderable, it shouldn't: don't move key generation before the first
    scp <path-to-includeIf-gitconfig> proxmoxmain:/root/gitconfig-<WORK_ORG>
    ssh proxmoxmain "pct push 116 /root/gitconfig-<WORK_ORG> /root/gitconfig-<WORK_ORG>"
 
-   # 5. The `<WORK_CLI>` CLI binary itself — Bitbucket-hosted, requires org
-   #    auth to fetch, so the script cannot pull it; copy it from a
+   # 5. The `<WORK_CLI>` CLI binary itself — fetching it requires work
+   #    credentials, so the script cannot pull it; copy it from a
    #    workstation that already has it.
    #    Skip it and `<WORK_CLI>`/deploy commands are simply absent.
    scp ~/<WORK_CLI> proxmoxmain:/root/<WORK_CLI>
    ssh proxmoxmain "pct push 116 /root/<WORK_CLI> /root/<WORK_CLI>"
 
-   # 6. Shell environment + host CLAUDE.md (this repo's copies).
-   #    Skip tmux.conf and psy gets tmux's bare defaults; skip CLAUDE.md and
-   #    psy gets no project-context file at all (not a broken placeholder —
-   #    the file is simply never installed).
+   # 6. Shell environment + host CLAUDE.md/AGENTS.md (this repo's copies).
+   #    CLAUDE.md is only an `@AGENTS.md` pointer, so stage both; the script
+   #    installs them as a pair. Skip tmux.conf and psy gets tmux's bare
+   #    defaults; skip the pair and psy gets no project-context file at all
+   #    (not a broken placeholder — the files are simply never installed).
    ssh proxmoxmain "pct exec 116 -- mkdir -p /root/ct-dev-files"
    scp stacks/ct-dev/home/tmux.conf proxmoxmain:/root/tmux.conf
    ssh proxmoxmain "pct push 116 /root/tmux.conf /root/ct-dev-files/tmux.conf"
    scp stacks/ct-dev/home/CLAUDE.md proxmoxmain:/root/CLAUDE.md
    ssh proxmoxmain "pct push 116 /root/CLAUDE.md /root/ct-dev-files/CLAUDE.md"
+   scp stacks/ct-dev/home/AGENTS.md proxmoxmain:/root/AGENTS.md
+   ssh proxmoxmain "pct push 116 /root/AGENTS.md /root/ct-dev-files/AGENTS.md"
 
    # 7. The two intermediate CLAUDE.md levels. Claude Code merges CLAUDE.md
    #    from every ancestor directory, so the work repo's own committed file is
@@ -97,11 +100,11 @@ be reorderable, it shouldn't: don't move key generation before the first
    ssh proxmoxmain "pct push 116 /root/documents-claude.md /root/documents-claude.md"
    scp ~/Documents/work/CLAUDE.md proxmoxmain:/root/work-claude.md
    ssh proxmoxmain "pct push 116 /root/work-claude.md /root/work-claude.md"
-   scp ~/Documents/work/<WORK_ORG>/CLAUDE.md proxmoxmain:/root/<WORK_ORG>-claude.md
-   ssh proxmoxmain "pct push 116 /root/<WORK_ORG>-claude.md /root/<WORK_ORG>-claude.md"
+   scp ~/Documents/work/<WORK_ORG>/CLAUDE.md proxmoxmain:/root/org-claude.md
+   ssh proxmoxmain "pct push 116 /root/org-claude.md /root/org-claude.md"
    ```
 
-   The <WORK_ORG>-level file is the one that matters most of the three: it
+   The org-level file is the one that matters most of the three: it
    carries the commit conventions and the rules for reading issues by author.
    Without it an agent commits in one lump instead of many small commits, and
    treats a non-developer's proposed solution as authoritative.
@@ -113,7 +116,7 @@ be reorderable, it shouldn't: don't move key generation before the first
 
    Note both are copied **verbatim** from the workstation rather than adapted,
    so there is only one version of each to maintain. They mention `personal/`
-   and `<WORK_ORG>-old/`, neither of which exists on ct-dev — harmless, and
+   and an old checkout directory, neither of which exists on ct-dev — harmless, and
    preferable to a second divergent copy.
 
 3. Push `provision-ct.sh` itself, then run it inside the CT — **first
@@ -121,11 +124,12 @@ be reorderable, it shouldn't: don't move key generation before the first
    ```bash
    scp stacks/ct-dev/provision-ct.sh proxmoxmain:/root/provision-ct.sh
    ssh proxmoxmain "pct push 116 /root/provision-ct.sh /root/provision-ct.sh"
-   ssh proxmoxmain "pct exec 116 -- env WORK_REPO=<real-repo-name> WORK_REPO_URL=<real-repo-git-url> bash /root/provision-ct.sh"
+   ssh proxmoxmain "pct exec 116 -- env WORK_ORG=<WORK_ORG> WORK_CLI=<WORK_CLI> WORK_REPO=<real-repo-name> WORK_REPO_URL=<real-repo-git-url> bash /root/provision-ct.sh"
    ```
-   (`WORK_REPO`/`WORK_REPO_URL` are operator-supplied per invocation too —
-   see `CLAUDE.local.md` for the real values — because the repo name and URL
-   are exactly the kind of employer specifics this public repo never commits.)
+   (`WORK_ORG`/`WORK_CLI`/`WORK_REPO`/`WORK_REPO_URL` are operator-supplied
+   per invocation too — see `CLAUDE.local.md` for the real values — because
+   the employer, its tooling and the repo are exactly the kind of specifics
+   this public repo never commits.)
    This pass creates the `psy` user, installs `authorized_keys`, and switches
    sshd to key-only auth — so key-based `ssh ct-dev` works for the first
    time only once this pass has completed. **The work-repo clone will
@@ -156,7 +160,7 @@ be reorderable, it shouldn't: don't move key generation before the first
    are idempotent, so re-running is cheap and everything already done
    simply logs "already installed, skipping"):
    ```bash
-   ssh proxmoxmain "pct exec 116 -- env WORK_REPO=<real-repo-name> WORK_REPO_URL=<real-repo-git-url> bash /root/provision-ct.sh"
+   ssh proxmoxmain "pct exec 116 -- env WORK_ORG=<WORK_ORG> WORK_CLI=<WORK_CLI> WORK_REPO=<real-repo-name> WORK_REPO_URL=<real-repo-git-url> bash /root/provision-ct.sh"
    ```
    The GitHub SSH key now exists and is registered, so the work-repo clone
    succeeds this time.

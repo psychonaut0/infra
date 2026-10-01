@@ -5,7 +5,16 @@ set -euo pipefail
 
 USER_NAME=psy
 USER_UID=1000
-REPO_PARENT="/home/${USER_NAME}/Documents/work/<WORK_ORG>"
+
+# Employer specifics are operator-supplied, never committed: this repo is
+# public. WORK_ORG is the employer's directory under ~/Documents/work (and the
+# suffix of its ~/.gitconfig-<org> identity file); WORK_CLI is the project's
+# own CLI binary; WORK_REPO/WORK_REPO_URL are read in section 9. Real values
+# live in CLAUDE.local.md. Each is a log-and-skip when absent, like the staged
+# files below.
+WORK_ORG="${WORK_ORG:-}"
+WORK_CLI="${WORK_CLI:-}"
+REPO_PARENT="${WORK_ORG:+/home/${USER_NAME}/Documents/work/${WORK_ORG}}"
 
 log() { echo "[ct-dev] $*" >&2; }
 as_user() { runuser -u "$USER_NAME" -- "$@"; }
@@ -38,7 +47,11 @@ if ! id "$USER_NAME" >/dev/null 2>&1; then
   log "creating user $USER_NAME"
   useradd -m -u "$USER_UID" -s /bin/bash "$USER_NAME"
 fi
-install -d -m 755 -o "$USER_NAME" -g "$USER_NAME" "$REPO_PARENT"
+if [ -n "$REPO_PARENT" ]; then
+  install -d -m 755 -o "$USER_NAME" -g "$USER_NAME" "$REPO_PARENT"
+else
+  log "no WORK_ORG supplied, skipping work tree creation"
+fi
 
 # Validate the generated sudoers content in a scratch file before installing
 # it: a syntax error in a live sudoers.d file breaks sudo for the whole
@@ -362,13 +375,12 @@ usermod -aG docker "$USER_NAME"
 # --- 8. AWS tooling --------------------------------------------------------
 # Four separate binaries. ct-dev has root, so all install system-wide.
 #
-# <WORK_CLI>: a separate Go binary distributed via Bitbucket downloads, not
-# in any monorepo/registry. Its download URL requires Bitbucket credentials,
-# so this script does not fetch it — the operator stages /root/<WORK_CLI>
-# on the CT beforehand (e.g. scp from a workstation that already has it via
-# `pct push`), and this section only installs what's already staged. It
-# self-updates via `<WORK_CLI> update` once installed and requires `aws` on
-# PATH to run.
+# $WORK_CLI: the project's own CLI, a separate binary that is not in any
+# monorepo/registry. Fetching it requires work credentials, so this script
+# does not — the operator stages /root/$WORK_CLI on the CT beforehand (e.g.
+# scp from a workstation that already has it via `pct push`), and this
+# section only installs what's already staged. It self-updates once installed
+# and requires `aws` on PATH to run.
 #
 # ~/.aws/config (SSO profiles: start URL, account IDs, role names — no
 # credentials) is likewise an operator-supplied input, copied in the same
@@ -410,12 +422,14 @@ else
   log "pgcli already installed, skipping"
 fi
 
-# <WORK_CLI> CLI: staged in by the operator (see README), then self-updating.
-if [ -f /root/<WORK_CLI> ] && [ ! -x /usr/local/bin/<WORK_CLI> ]; then
-  log "installing <WORK_CLI> cli"
-  install -m 755 /root/<WORK_CLI> /usr/local/bin/<WORK_CLI>
+# $WORK_CLI: staged in by the operator (see README), then self-updating.
+if [ -z "$WORK_CLI" ]; then
+  log "no WORK_CLI supplied, skipping work cli install"
+elif [ -f "/root/$WORK_CLI" ] && [ ! -x "/usr/local/bin/$WORK_CLI" ]; then
+  log "installing $WORK_CLI cli"
+  install -m 755 "/root/$WORK_CLI" "/usr/local/bin/$WORK_CLI"
 else
-  log "<WORK_CLI> already installed (or not staged), skipping"
+  log "$WORK_CLI already installed (or not staged), skipping"
 fi
 
 # ~/.aws/config: staged in by the operator (SSO profiles, no credentials).
@@ -428,19 +442,19 @@ else
 fi
 
 # --- 9. Work repo ---------------------------------------------------------
-# ~/.gitconfig / ~/.gitconfig-<WORK_ORG>: staged in by the operator (same
-# pattern as the <WORK_CLI> binary and aws-config above), never generated or
+# ~/.gitconfig / ~/.gitconfig-$WORK_ORG: staged in by the operator (same
+# pattern as the work CLI binary and aws-config above), never generated or
 # guessed by this script. A wrong git identity is worse than a missing one,
 # so absence is a log-and-skip, not a synthesized fallback. Contents are the
 # work name/email and are NOT committed to this public repo (see
 # CLAUDE.local.md) — only ever staged host-to-host as /root/gitconfig and
-# /root/gitconfig-<WORK_ORG>.
-if [ -f /root/gitconfig ] && [ -f /root/gitconfig-<WORK_ORG> ]; then
+# /root/gitconfig-$WORK_ORG.
+if [ -n "$WORK_ORG" ] && [ -f /root/gitconfig ] && [ -f "/root/gitconfig-$WORK_ORG" ]; then
   install -m 644 -o "$USER_NAME" -g "$USER_NAME" /root/gitconfig "/home/${USER_NAME}/.gitconfig"
-  install -m 644 -o "$USER_NAME" -g "$USER_NAME" /root/gitconfig-<WORK_ORG> "/home/${USER_NAME}/.gitconfig-<WORK_ORG>"
-  log "installed ~/.gitconfig and ~/.gitconfig-<WORK_ORG> for ${USER_NAME}"
+  install -m 644 -o "$USER_NAME" -g "$USER_NAME" "/root/gitconfig-$WORK_ORG" "/home/${USER_NAME}/.gitconfig-$WORK_ORG"
+  log "installed ~/.gitconfig and ~/.gitconfig-$WORK_ORG for ${USER_NAME}"
 else
-  log "no /root/gitconfig + /root/gitconfig-<WORK_ORG> staged, skipping git identity install"
+  log "no WORK_ORG, or no /root/gitconfig + /root/gitconfig-<org> staged, skipping git identity install"
 fi
 
 # WORK_REPO is passed in by the operator; it is deliberately not committed to
@@ -459,7 +473,7 @@ fi
 # problem that has nothing to do with them. So: try, log clearly on failure,
 # and always continue — matching the log-and-skip pattern the staged-input
 # sections already use.
-if [ -n "${WORK_REPO:-}" ] && [ -n "${WORK_REPO_URL:-}" ]; then
+if [ -n "$REPO_PARENT" ] && [ -n "${WORK_REPO:-}" ] && [ -n "${WORK_REPO_URL:-}" ]; then
   work_repo_ok=yes
   if [ ! -d "$REPO_PARENT/$WORK_REPO/.git" ]; then
     log "cloning $WORK_REPO"
@@ -474,7 +488,7 @@ if [ -n "${WORK_REPO:-}" ] && [ -n "${WORK_REPO_URL:-}" ]; then
     fi
   fi
 else
-  log "no WORK_REPO/WORK_REPO_URL supplied, skipping work-repo checkout"
+  log "no WORK_ORG/WORK_REPO/WORK_REPO_URL supplied, skipping work-repo checkout"
 fi
 
 # --- 10. Shell environment ------------------------------------------------
@@ -486,20 +500,25 @@ else
   log "no /root/ct-dev-files/tmux.conf staged, skipping ~/.tmux.conf install"
 fi
 
-# CLAUDE.md carries a <WORK_REPO> placeholder because the infra repo is public;
-# substitute the real name at deploy time.
-if [ -f /root/ct-dev-files/CLAUDE.md ]; then
-  if [ -n "${WORK_REPO:-}" ]; then
-    sed "s|<WORK_REPO>|${WORK_REPO}|g" /root/ct-dev-files/CLAUDE.md \
-      > "/home/$USER_NAME/CLAUDE.md"
-    chown "$USER_NAME:$USER_NAME" "/home/$USER_NAME/CLAUDE.md"
-    log "installed ~/CLAUDE.md for ${USER_NAME} (WORK_REPO substituted)"
+# AGENTS.md carries <WORK_ORG>/<WORK_REPO>/<WORK_CLI> placeholders because the
+# infra repo is public; substitute the real values at deploy time. CLAUDE.md is
+# only an `@AGENTS.md` pointer, so both are gated identically — installing one
+# without the other leaves either a dangling pointer or an unread file.
+for f in CLAUDE.md AGENTS.md; do
+  src="/root/ct-dev-files/$f"
+  if [ ! -f "$src" ]; then
+    log "no $src staged, skipping ~/$f install"
+  elif [ -z "$WORK_ORG" ] || [ -z "${WORK_REPO:-}" ] || [ -z "$WORK_CLI" ]; then
+    log "WORK_ORG/WORK_REPO/WORK_CLI not all supplied, skipping ~/$f install (would leave placeholders in place)"
   else
-    log "no WORK_REPO supplied, skipping ~/CLAUDE.md install (would leave placeholder in place)"
+    sed -e "s|<WORK_ORG>|${WORK_ORG}|g" \
+        -e "s|<WORK_REPO>|${WORK_REPO}|g" \
+        -e "s|<WORK_CLI>|${WORK_CLI}|g" \
+        "$src" > "/home/$USER_NAME/$f"
+    chown "$USER_NAME:$USER_NAME" "/home/$USER_NAME/$f"
+    log "installed ~/$f for ${USER_NAME} (placeholders substituted)"
   fi
-else
-  log "no /root/ct-dev-files/CLAUDE.md staged, skipping ~/CLAUDE.md install"
-fi
+done
 
 # --- 11. Claude Code -------------------------------------------------------
 if as_user bash -lc 'command -v claude' >/dev/null 2>&1; then
@@ -542,7 +561,7 @@ apt-get install -y -qq ncurses-term
 # clone, and these three are the levels in between.
 for pair in "documents-claude.md:/home/$USER_NAME/Documents/CLAUDE.md" \
             "work-claude.md:/home/$USER_NAME/Documents/work/CLAUDE.md" \
-            "<WORK_ORG>-claude.md:/home/$USER_NAME/Documents/work/<WORK_ORG>/CLAUDE.md"; do
+            ${WORK_ORG:+"org-claude.md:/home/$USER_NAME/Documents/work/$WORK_ORG/CLAUDE.md"}; do
   src="/root/${pair%%:*}"
   dst="${pair#*:}"
   if [ -f "$src" ]; then
