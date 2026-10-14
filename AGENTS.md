@@ -45,7 +45,7 @@
 - **RAM:** 64GB (upgraded from 32GB on 2026-09-01)
 - **GPU:** NVIDIA GTX 1650 SUPER, passed into ct-nvr, ct-media and ct-photos. The Intel UHD 630 iGPU is **disabled in BIOS** (since 2026-09-26) — nothing on this host has `/dev/dri/renderD128` any more. **Driver is NVIDIA's `.run` 595.91.07, not Debian's `nvidia-driver`:** Debian trixie ships 550, and the PVE repo's default kernel is moving to 7.0, which 550 is unlikely to build against. The host has the kernel module via DKMS (`--dkms`, so a new PVE kernel rebuilds it — install that kernel's `proxmox-headers-*` alongside it, or DKMS silently has nothing to build against). **Do not install `proxmox-default-headers` casually** — it drags in the whole next kernel series. Each of the three CTs has the *same* `.run` installed with `--no-kernel-module`; **host and CT driver versions must match exactly** or `nvidia-smi` fails inside the CT with a version-mismatch error, so upgrade all four together. Device nodes are created before guests start by `nvidia-devices.service` (also enables persistence mode); nouveau is blacklisted in `/etc/modprobe.d/blacklist-nouveau.conf`. CTs get the devices via PVE `dev0..dev3:` entries (`/dev/nvidia0`, `nvidiactl`, `nvidia-uvm`, `nvidia-uvm-tools`), not `lxc.cgroup2.devices.allow` — `nvidia-uvm`'s major number is allocated dynamically (506 today), and `devN` resolves it at CT start. Inside each CT, `nvidia-container-toolkit` runs with `no-cgroups = true` (LXC cannot manage device cgroups; PVE already does). Containers request the GPU with a compose `deploy.resources.reservations.devices` block (which makes the hook mount the driver libraries) **plus an explicit `devices:` list of the four nodes** — with `no-cgroups` the hook no longer whitelists them, so a non-privileged container otherwise fails with `CUDA_ERROR_NO_DEVICE` / `Failed to initialize NVML: Unknown Error`. Set `NVIDIA_DRIVER_CAPABILITIES: compute,video,utility` — `video` is what exposes NVDEC/NVENC, and **`all` breaks container start** because it includes `display`, which demands a `/dev/nvidia-modeset` this headless host does not have.
 - **Role:** Primary Proxmox hypervisor node. Clustered with proxmoxnode. Authorized keys are shared across the cluster. Hosts all bulk storage — mergerfs pool `/mnt/cloud` (exposed as the `cloud` PVE dir pool) and `nvr-data` LVM thin — bind-mounted into local CTs.
-- **CTs:** ct-tunnel (VMID 103), ct-nvr (VMID 104), ct-media (VMID 105), ct-photos (VMID 106), ct-files (VMID 107), ct-mgmt (VMID 108), ct-backup (VMID 109), ct-tools (VMID 110), ct-games (VMID 112), ct-portfolio (VMID 113), ct-workout (VMID 114), ct-chat (VMID 115)
+- **CTs:** ct-tunnel (VMID 103), ct-nvr (VMID 104), ct-media (VMID 105), ct-photos (VMID 106), ct-files (VMID 107), ct-backup (VMID 109), ct-tools (VMID 110), ct-games (VMID 112), ct-portfolio (VMID 113), ct-workout (VMID 114), ct-chat (VMID 115)
 - **Storage:** See `docs/hardware.md` for full disk and storage layout.
 
 ### proxmoxnode
@@ -56,7 +56,7 @@
 - **CPU:** Intel N100 (4C/4T)
 - **RAM:** 16GB
 - **Role:** Secondary Proxmox cluster node. Shares authorized_keys with proxmoxmain via pmxcfs.
-- **CTs:** ct-dns (VMID 102), ct-ha (VMID 111)
+- **CTs:** ct-dns (VMID 102), ct-mgmt (VMID 108), ct-ha (VMID 111)
 - **Storage:** See `docs/hardware.md` for full disk and storage layout.
 
 
@@ -124,7 +124,7 @@
 - **Ports:** 25565 (mc-vanilla game, also publicly reachable via UniFi PF), 25566 (mc-modded game), 25575 (mc-vanilla RCON, LAN-only), 25576 (mc-modded RCON, LAN-only)
 - **Config notes:** AppArmor unconfined + proc/sys rw for Docker-in-LXC. Shared `gamesnet` Docker bridge for agent→MC routing. Live world data on CT's NVMe at `/opt/stacks/ct-games/data/`. Archive bind mount: `/mnt/cloud/volumes/games/archives` → `/mnt/archives` (daily `.tgz` per server, 14-day retention via `PRUNE_BACKUPS_DAYS`). Playit agent (transitional): reads `SECRET_KEY` from `PLAYIT_SECRET` in `.env`; two tunnels attached server-side. **Heap sizing is the real control, not the CT limit:** the JVM never exceeds its `-Xmx` however much the container allows, so `MEMORY:` in compose is what matters. mc-vanilla is 4G, mc-modded 12G (raised from 8G on 2026-09-01 as it becomes the heavy modded server; ~12-16G is the practical ceiling before G1 pause times grow faster than the extra heap helps). **Both run `USE_AIKAR_FLAGS`** — a large heap on stock G1 settings collects lazily then stalls, so an unflagged 12G stutters worse than a flagged 8G. Aikar's flags include `AlwaysPreTouch`, so each server's full heap shows as resident immediately; that is expected, not a leak. Note mc-modded silently ran at `Xmx4G` from 2026-04-20 to 2026-09-01 because its container was never recreated after a compose edit — **check `docker inspect` env against compose after changing memory**, the file alone proves nothing.
 
-### ct-mgmt (LXC — VMID 108 on proxmoxmain)
+### ct-mgmt (LXC — VMID 108 on proxmoxnode)
 - **IP:** 192.168.3.12
 - **User:** root
 - **OS:** Debian 13 (Trixie), unprivileged LXC
@@ -135,7 +135,7 @@
 - **Ports:** 80/443 (Caddy), 3000 (dashboard), 8080 (Gatus status page), 9443 (Portainer HTTPS UI), 8000 (Edge Agent communication)
 - **Dashboard:** Custom Preact + Bun SSR app with live health checks and Proxmox resource monitoring (source: `stacks/ct-mgmt/dashboard-src/`). Requires PVE API token in `dashboard-src/.env` (gitignored).
 - **Gatus:** Uptime monitoring with 3-tier checks (critical/important/background) and Telegram alerting. Config: `stacks/ct-mgmt/gatus/config.yaml`. Telegram credentials in `gatus/.env` (gitignored).
-- **Config notes:** AppArmor set to unconfined for Docker compatibility. Portainer manages remote environments via their portainer-agent (port 9001).
+- **Config notes:** AppArmor set to unconfined for Docker compatibility. Portainer manages remote environments via their portainer-agent (port 9001). **Moved to proxmoxnode 2026-09-29** (`pct migrate 108 proxmoxnode --restart`, from proxmoxmain) after proxmoxmain began hard-freezing: Gatus had lived on the host it was meant to watch, so both freezes that day produced no Telegram alert. With Pi-hole already on proxmoxnode, DNS, `.lan` routing for proxmoxnode's services, and monitoring now all survive a proxmoxmain outage. IP and MAC are unchanged, so nothing downstream moved. The dashboard's `PVE_API_URL` now points at proxmoxnode (`192.168.3.3`) — either node serves the cluster-wide API, and this one is the one that stays up. **Caveat:** in the two-node cluster proxmoxnode alone is not quorate, and `pve-guests` autostart waits for quorum — if proxmoxnode reboots while proxmoxmain is down, ct-dns, ct-mgmt and ct-ha stay stopped until `pvecm expected 1` is run on it (a QDevice would fix this properly).
 
 ### ct-ha (LXC — VMID 111 on proxmoxnode)
 - **IP:** 192.168.3.10 (inherited from retired HAOS VM — see note below)

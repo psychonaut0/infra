@@ -38,7 +38,6 @@ Post-decomposition state (blvckserver VM retired 2026-04-12). All storage is now
 | 105 | ct-media | vm-105-disk-0 | 16GB | 37% |
 | 106 | ct-photos | vm-106-disk-0 | 32GB | 43% |
 | 107 | ct-files | vm-107-disk-0 | 16GB | 13% |
-| 108 | ct-mgmt | vm-108-disk-0 | 4GB | 91% |
 | 109 | ct-backup | vm-109-disk-0 | 8GB | 12% |
 | 110 | ct-tools | vm-110-disk-0 | 8GB | 35% |
 | 112 | ct-games | vm-112-disk-0 | 40GB | 11% |
@@ -73,6 +72,7 @@ Post-decomposition state (blvckserver VM retired 2026-04-12). All storage is now
 | 101 | homeassistant (VM) | vm-101-disk-0 | 50GB | 27% | HAOS root |
 | 101 | homeassistant (VM) | vm-101-disk-1 | 4MB | — | EFI |
 | 102 | ct-dns | vm-102-disk-0 | 4GB | 49% | |
+| 108 | ct-mgmt | vm-108-disk-0 | 4GB | 53% | migrated from proxmoxmain 2026-09-29 |
 
 ## Bulk Storage — mergerfs `/mnt/cloud`
 
@@ -126,6 +126,6 @@ Two things to keep in mind:
 ## Notes & Capacity Concerns
 
 - `nvr-data` thin pool at 87.6%; the `vm-100-disk-0` LV reads 99.98% allocated and will stay there (no discard). Filesystem is the real signal: 287GB/393GB used (77%) after the retention cut. See *Retention* above.
-- `ct-mgmt` boot disk at 91%, `ct-tunnel` at 86% — both 4GB and 2GB respectively. Candidates for disk resize via `pct resize` if they grow further.
+- `ct-mgmt` boot disk was at 91% (53% after its 2026-09-29 migration + `pct fstrim`), `ct-tunnel` at 86% — both 4GB and 2GB respectively. Candidates for disk resize via `pct resize` if they grow further.
 - No off-box backup target configured (`pvesm status` has no PBS or remote pool). 2.7TB of mergerfs data is single-point-of-failure on two non-RAID HDDs.
 - proxmoxnode is heavily underutilized (4% local-lvm) — capacity headroom for future workloads, but no shared storage to live-migrate from proxmoxmain.
