@@ -123,6 +123,32 @@ Two things to keep in mind:
   needed right now. `onboot: 1` is still set, so it will come back on the next
   proxmoxmain reboot unless that is changed.
 
+## UPS — Atlantis A03-HP2003
+
+Installed 2026-10-14. Line-interactive, pure sine on battery, 1500VA / 900W,
+2× 12V 9Ah standard lead-acid blocks (user-replaceable). Software side (NUT,
+shutdown sequence, test results): *Power (UPS)* in `AGENTS.md`.
+
+| Outlet | Load |
+|---|---|
+| Schuko 1 | Power strip → proxmoxnode (DC brick), switch, UniFi gateway, ISP router, FWA antenna PoE, access point |
+| Schuko 2 | proxmoxmain (direct; a smart plug goes in between once bought) |
+| IEC 1–3 | Free |
+
+All outlets sit on the same inverter output — position does not matter
+electrically, and none can be switched individually. USB goes to proxmoxnode.
+
+| Measured 2026-10-14 | Load | Runtime (UPS estimate) |
+|---|---|---|
+| Both nodes + network | ~14% (~126W) | ~31 min |
+| proxmoxmain off | ~6% (~54W) | ~58 min |
+
+The 126W figure matches the pre-purchase estimate (90–150W idle/typical);
+peak with GPU transcodes and Minecraft busy is estimated at 300–350W, still
+under 40% of the rating. The UPS beeper is disabled (`ups.beeper.status`).
+Lead-acid blocks typically last 3–5 years; NUT raises `REPLBATT` when the UPS
+flags them.
+
 ## Notes & Capacity Concerns
 
 - `nvr-data` thin pool at 87.6%; the `vm-100-disk-0` LV reads 99.98% allocated and will stay there (no discard). Filesystem is the real signal: 287GB/393GB used (77%) after the retention cut. See *Retention* above.

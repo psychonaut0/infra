@@ -20,6 +20,13 @@ install -d "$EXPORT/systemd-system"
 find /etc/systemd/system -maxdepth 1 -type f \( -name "*.service" -o -name "*.timer" \) \
   -exec cp -a {} "$EXPORT/systemd-system/" \;
 
+# NUT (UPS) config — holds the upsd passwords, which exist nowhere else.
+# Present on both nodes; the repo copy under hosts/ is sanitised.
+if [ -d /etc/nut ]; then
+  install -d -m 750 "$EXPORT/nut"
+  cp -a /etc/nut/. "$EXPORT/nut/"
+fi
+
 # Root crontab
 crontab -l > "$EXPORT/root-crontab" 2>/dev/null || : > "$EXPORT/root-crontab"
 

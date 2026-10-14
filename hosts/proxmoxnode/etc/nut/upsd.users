@@ -1,0 +1,7 @@
+[upsmon-primary]
+  password = <NUT_PRIMARY_PASSWORD>
+  upsmon primary
+
+[upsmon-secondary]
+  password = <NUT_SECONDARY_PASSWORD>
+  upsmon secondary

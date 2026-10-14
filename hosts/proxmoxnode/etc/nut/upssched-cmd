@@ -1,0 +1,23 @@
+#!/bin/sh
+# Runs as the nut user, called by upssched with the timer name.
+MAIN_IP=192.168.3.2
+MAIN_MAC=<PROXMOXMAIN_MAC>
+
+case "$1" in
+  wake-main)
+    # proxmoxmain may still be finishing its own shutdown when this fires,
+    # so keep trying for ~10 min; WoL to a running host is ignored.
+    setsid sh -c "
+      for i in 1 2 3 4 5 6 7 8 9 10; do
+        ping -c1 -W2 $MAIN_IP >/dev/null 2>&1 && exit 0
+        logger -t upssched-cmd \"proxmoxmain down after power return, sending WoL (\$i/10)\"
+        wakeonlan -i 192.168.3.255 $MAIN_MAC >/dev/null
+        sleep 60
+      done
+      logger -t upssched-cmd \"proxmoxmain still down after 10 WoL attempts - needs a manual power cycle\"
+    " >/dev/null 2>&1 &
+    ;;
+  *)
+    logger -t upssched-cmd "unknown timer: $1"
+    ;;
+esac

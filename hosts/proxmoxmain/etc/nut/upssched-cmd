@@ -1,0 +1,13 @@
+#!/bin/sh
+# Runs as the nut user, called by upssched with the timer name.
+case "$1" in
+  onbatt-shutdown)
+    logger -t upssched-cmd "3 min on battery - shutting proxmoxmain down"
+    # On a secondary, "fsd" shuts down this host only; it cannot set FSD
+    # on proxmoxnode's upsd.
+    /usr/sbin/upsmon -c fsd
+    ;;
+  *)
+    logger -t upssched-cmd "unknown timer: $1"
+    ;;
+esac

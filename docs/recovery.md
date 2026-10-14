@@ -102,9 +102,17 @@ cp /recovery/var/backup-staging/host-cfg-main/systemd-system/*.service \
    /recovery/var/backup-staging/host-cfg-main/systemd-system/*.timer \
    /etc/systemd/system/
 systemctl daemon-reload
+
+# NUT (UPS) — proxmoxmain is a netclient, proxmoxnode the netserver.
+# proxmoxmain: apt-get install -y nut-client
+# proxmoxnode: apt-get install -y nut-server nut-client wakeonlan
+#              udevadm trigger --subsystem-match=usb --action=add
+cp -a /recovery/var/backup-staging/host-cfg-main/nut/. /etc/nut/
+systemctl enable --now nut-monitor   # proxmoxnode: also nut-server
 ```
 
 Repeat Phase 4 on proxmoxnode using `host-cfg-node/` instead of `host-cfg-main/`.
+See `hosts/README.md` for NUT verification.
 
 ## Phase 5 — Restore Proxmox cluster config
 
