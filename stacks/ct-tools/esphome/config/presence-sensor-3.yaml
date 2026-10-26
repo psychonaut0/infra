@@ -1,0 +1,124 @@
+esphome:
+  name: presence-sensor-3
+  friendly_name: Presence sensor 3
+
+esp32:
+  board: esp32dev
+  framework:
+    type: esp-idf
+
+web_server:
+  port: 80
+
+logger:
+  level: DEBUG
+  # Pinned deliberately. The LD2420 sits on UART2 (GPIO16/17); leaving the
+  # console UART implicit is what lets it contend for the same peripheral.
+  hardware_uart: UART0
+
+api:
+  encryption:
+    key: !secret presence3_api_key
+
+ota:
+  - platform: esphome
+    password: !secret presence3_ota_password
+
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+  # DHCP address used for cross-VLAN logs/OTA; reserve this lease in UniFi.
+  use_address: 192.168.2.163
+  ap:
+    ssid: "Presence-3 Fallback Hotspot"
+    password: !secret presence3_ap_password
+
+captive_portal:
+
+# LD2420 on ESP32-WROOM-32 DevKit (30-pin). Pinout VERIFIED on hardware
+# 2026-09-18 against an HLK-LD2420 V2.1 module running firmware v1.6.1:
+#
+#   module 3V3 -> 3V3
+#   module GND -> GND
+#   module OT2 -> GPIO16   UART TX out of the module  -> ESP RX
+#   module RX  -> GPIO17   UART RX into the module    <- ESP TX
+#   module OT1 -> GPIO4    digital presence output
+#
+# NOTE the OT1/OT2 roles: on this board revision OT2 is the UART transmitter
+# and OT1 is the presence pin — the opposite of what HLK's docs imply and of
+# the older ESP32-C3 configs in this repo. Wiring them the documented way
+# yields a healthy-looking device that never receives a single valid frame.
+uart:
+  id: uart_ld2420
+  rx_pin: GPIO16
+  tx_pin: GPIO17
+  baud_rate: 115200
+  parity: NONE
+  stop_bits: 1
+
+ld2420:
+  uart_id: uart_ld2420
+
+text_sensor:
+  - platform: ld2420
+    fw_version:
+      name: "LD2420 Firmware"
+
+sensor:
+  - platform: ld2420
+    moving_distance:
+      name: "Moving Distance"
+
+binary_sensor:
+  # Presence over UART (preferred — carries distance too)
+  - platform: ld2420
+    has_target:
+      name: "Presence (LD2420)"
+
+  # Module's own digital presence pin. Independent of the UART, so it still
+  # reports if the serial link ever breaks.
+  - platform: gpio
+    name: "Presence OUT (GPIO4)"
+    pin:
+      number: GPIO4
+      mode: INPUT
+    filters:
+      - delayed_on: 50ms
+      - delayed_off: 500ms
+
+select:
+  - platform: ld2420
+    operating_mode:
+      name: "Operating Mode"
+
+number:
+  - platform: ld2420
+    presence_timeout:
+      name: "Detection Presence Timeout"
+    min_gate_distance:
+      name: "Detection Gate Minimum"
+    max_gate_distance:
+      name: "Detection Gate Maximum"
+
+    gate_select:
+      name: "Select Gate to Set"
+    still_threshold:
+      name: "Set Still Threshold Value"
+    move_threshold:
+      name: "Set Move Threshold Value"
+
+    gate_move_sensitivity:
+      name: "Move Calibration Sensitivity Factor"
+    gate_still_sensitivity:
+      name: "Still Calibration Sensitivity Factor"
+
+button:
+  - platform: ld2420
+    apply_config:
+      name: "Apply Config"
+    revert_config:
+      name: "Undo Edits"
+    restart_module:
+      name: "Restart Module"
+    factory_reset:
+      name: "Factory Reset"

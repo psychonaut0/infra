@@ -91,7 +91,36 @@ Raise the CT's resources first if you really want it.
 | File | Device | Hardware | Status |
 |---|---|---|---|
 | `config/presence-sensor-1.yaml` | Presence sensor 1 | ESP32-WROOM-32 + LD2420 mmWave | Live, dashboard-managed |
+| `config/presence-sensor-2.yaml` | Presence sensor 2 | ESP32-WROOM-32 + LD2420 mmWave | Live, dashboard-managed |
+| `config/presence-sensor-3.yaml` | Presence sensor 3 | ESP32-WROOM-32 + LD2420 mmWave | Live, dashboard-managed |
+| `config/presence-sensor-4.yaml` | Presence sensor 4 | ESP32-WROOM-32 + LD2420 mmWave | Live, dashboard-managed |
 | `config/archive/thermostat.yaml` | Thermostat (#1) | bk72xx (Beken, reflashed Tuya) | **Base stub only** — see below |
+
+### Presence fleet — provisioned 2026-10-26
+
+| Device | Current DHCP address | USB port during provisioning |
+|---|---|---|
+| Presence sensor 1 | `192.168.2.113` | `/dev/ttyUSB0` |
+| Presence sensor 2 | `192.168.2.170` | `/dev/ttyUSB1` |
+| Presence sensor 3 | `192.168.2.163` | `/dev/ttyUSB2` |
+| Presence sensor 4 | `192.168.2.156` | `/dev/ttyUSB3` |
+
+Sensor 1 was already running the saved configuration and was retained. Sensors
+2–4 were built on BLVCKFlow with ESPHome 2026.9.0 and flashed over USB, each with
+its own API key, OTA password and fallback-AP password. All four are integrated
+in Home Assistant and report LD2420 firmware `v1.6.1`, presence and distance.
+Credentials are in the live `secrets.yaml`; sanitized YAMLs are tracked here.
+
+The addresses above are DHCP leases, not static assignments: `use_address`
+only selects the logs/OTA target. Reserve these leases in UniFi to keep them
+stable. USB device numbers can change after reconnecting.
+
+Dashboard metadata was populated from the workstation builds with each
+device's IP, so online status does not require a compile on ct-tools. The
+factory and OTA images are also saved under the live config directory's
+`.esphome/build/presence-sensor-<n>/` for sensors 2–4. Pre-flash backups and
+firmware images are retained locally in the gitignored, private
+`config/.esphome/provisioning-20261026/` directory.
 
 ## LD2420 wiring — read before building another one
 
