@@ -1,8 +1,8 @@
 services:
   frigate:
-    # Plain :stable is enough for NVIDIA decode (preset-nvidia) and the NVENC
-    # transcodes; switch to :stable-tensorrt only for GPU object detection.
-    image: ghcr.io/blakeblackshear/frigate:stable
+    # Pinned; the plain image is enough for NVIDIA decode (preset-nvidia) and the NVENC
+    # transcodes; switch to the -tensorrt variant only for GPU object detection.
+    image: ghcr.io/blakeblackshear/frigate:0.18.2
     container_name: frigate
     restart: unless-stopped
     privileged: true
@@ -37,7 +37,7 @@ services:
               capabilities: [gpu]
 
   portainer-agent:
-    image: portainer/agent:latest
+    image: portainer/agent:2.45.3
     container_name: portainer-agent
     restart: unless-stopped
     ports:

@@ -62,7 +62,6 @@ record:
 
 snapshots:
   enabled: true
-  clean_copy: true
   timestamp: true
   bounding_box: true
   crop: false
@@ -150,4 +149,4 @@ cameras:
       width: 640
       height: 360
 
-version: 0.17-0
+version: 0.18-0

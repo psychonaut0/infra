@@ -1,6 +1,6 @@
 services:
   jellyfin:
-    image: lscr.io/linuxserver/jellyfin:latest
+    image: lscr.io/linuxserver/jellyfin:12.4ubu2604-ls57
     container_name: jellyfin
     restart: unless-stopped
     ports:
@@ -107,7 +107,7 @@ services:
       TZ: Europe/Rome
 
   portainer-agent:
-    image: portainer/agent:latest
+    image: portainer/agent:2.45.3
     container_name: portainer-agent
     restart: unless-stopped
     ports:

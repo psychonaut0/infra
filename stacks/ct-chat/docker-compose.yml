@@ -2,7 +2,7 @@ name: ct-chat
 
 services:
   open-webui:
-    image: ghcr.io/open-webui/open-webui:v0.11.0
+    image: ghcr.io/open-webui/open-webui:v0.12.4
     container_name: open-webui
     restart: unless-stopped
     ports:
@@ -114,7 +114,7 @@ services:
       start_period: 60s
 
   portainer-agent:
-    image: portainer/agent:latest
+    image: portainer/agent:2.45.3
     container_name: portainer-agent
     restart: unless-stopped
     ports:

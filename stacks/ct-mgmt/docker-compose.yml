@@ -1,6 +1,6 @@
 services:
   portainer:
-    image: portainer/portainer-ce:latest
+    image: portainer/portainer-ce:2.45.3
     container_name: portainer
     restart: unless-stopped
     command: --http-enabled --base-url /
@@ -35,7 +35,7 @@ services:
       - /var/www/infra-bin:/srv/infra-bin:ro
 
   gatus:
-    image: twinproduction/gatus:v5.35.0
+    image: twinproduction/gatus:v5.37.0
     container_name: gatus
     restart: unless-stopped
     ports:

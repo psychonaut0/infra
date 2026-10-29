@@ -2,7 +2,7 @@ name: workout-tracker
 
 services:
   postgres:
-    image: postgres:16.4-alpine
+    image: postgres:16.15-alpine
     restart: unless-stopped
     environment:
       POSTGRES_USER: ${POSTGRES_USER}
@@ -41,7 +41,7 @@ services:
       retries: 10
 
   powersync-storage:
-    image: postgres:16.4-alpine
+    image: postgres:16.15-alpine
     restart: unless-stopped
     environment:
       POSTGRES_USER: ${POWERSYNC_STORAGE_USER}
@@ -56,7 +56,7 @@ services:
       retries: 10
 
   powersync:
-    image: journeyapps/powersync-service:1.21.0
+    image: journeyapps/powersync-service:1.27.2
     restart: unless-stopped
     command: ["start", "-r", "unified"]
     ports:
@@ -85,7 +85,7 @@ services:
       start_period: 30s
 
   portainer-agent:
-    image: portainer/agent:latest
+    image: portainer/agent:2.45.3
     container_name: portainer-agent
     restart: unless-stopped
     ports:

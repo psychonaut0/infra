@@ -69,7 +69,7 @@ services:
       PYTHONUNBUFFERED: "1"
 
   portainer-agent:
-    image: portainer/agent:latest
+    image: portainer/agent:2.45.3
     container_name: portainer-agent
     restart: unless-stopped
     ports:
