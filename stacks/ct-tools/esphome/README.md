@@ -94,7 +94,7 @@ Raise the CT's resources first if you really want it.
 | `config/presence-sensor-2.yaml` | Presence sensor 2 | ESP32-WROOM-32 + LD2420 mmWave | Live, dashboard-managed |
 | `config/presence-sensor-3.yaml` | Presence sensor 3 | ESP32-WROOM-32 + LD2420 mmWave | Live, dashboard-managed |
 | `config/presence-sensor-4.yaml` | Presence sensor 4 | ESP32-WROOM-32 + LD2420 mmWave | Live, dashboard-managed |
-| `config/window-sensor-1.yaml` | Door sensor (tilt-and-turn) | ESP32-C3 + 2 reed contacts | Flashed and tested, not yet installed or in HA |
+| `config/kitchen-window.yaml` | Kitchen window (tilt-and-turn) | ESP32-C3 + 2 reed contacts | Live in HA, not yet mounted |
 | `config/archive/thermostat.yaml` | Thermostat (#1) | bk72xx (Beken, reflashed Tuya) | **Base stub only** — see below |
 
 ### Presence fleet — provisioned 2026-10-26
@@ -122,10 +122,10 @@ change after reconnecting.
 ### Window/door sensors — reed contacts
 
 `config/common/window.yaml` is a package for one tilt-and-turn sash (vasistas):
-two reeds give `<name> tilted`, `<name> open` and a derived `<name> position`
+two reeds give `Tilted`, `Open` and a derived `Position` (prefixed by `name_prefix`)
 (`closed` / `tilted` / `open`). Include it once per sash with its own
 `window_id` and pin pair; the pin budget and the pins to avoid are in
-`config/window-sensor-1.yaml`.
+`config/kitchen-window.yaml`.
 
 - **Wiring:** each reed between its GPIO and GND, no resistors (internal
   pull-up). Add an external 10kΩ to 3V3 only if long runs pick up noise.

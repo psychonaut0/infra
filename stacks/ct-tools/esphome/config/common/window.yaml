@@ -6,7 +6,9 @@
 #       file: common/window.yaml
 #       vars:
 #         window_id: w1                  # unique per device, used for ids
-#         window_name: "Window 1"        # prefix for the HA entity names
+#         name_prefix: ""                # "" on a one-sash board, since HA
+#                                        # already prefixes the device name;
+#                                        # e.g. "Left " when a board has several
 #         tilt_pin: GPIO5                # reed that opens when tilted
 #         open_pin: GPIO6                # reed that opens when swung open
 #         magnet_at_position: "false"    # see below
@@ -23,7 +25,7 @@
 binary_sensor:
   - platform: gpio
     id: ${window_id}_tilt
-    name: "${window_name} tilted"
+    name: "${name_prefix}Tilted"
     device_class: window
     pin:
       number: ${tilt_pin}
@@ -41,7 +43,7 @@ binary_sensor:
 
   - platform: gpio
     id: ${window_id}_open
-    name: "${window_name} open"
+    name: "${name_prefix}Open"
     device_class: window
     pin:
       number: ${open_pin}
@@ -60,7 +62,7 @@ text_sensor:
   # reed too, and if it ever doesn't, the sash is still open.
   - platform: template
     id: ${window_id}_position
-    name: "${window_name} position"
+    name: "${name_prefix}Position"
     icon: mdi:window-open-variant
     update_interval: never
     lambda: |-
