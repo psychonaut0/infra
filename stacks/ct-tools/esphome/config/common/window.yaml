@@ -1,0 +1,69 @@
+# One tilt-and-turn sash (vasistas) = two reed contacts + a derived
+# three-state position. Include once per sash from a device YAML:
+#
+#   packages:
+#     window_1: !include
+#       file: common/window.yaml
+#       vars:
+#         window_id: w1                  # unique per device, used for ids
+#         window_name: "Window 1"        # prefix for the HA entity names
+#         tilt_pin: GPIO5                # reed that opens when tilted
+#         open_pin: GPIO6                # reed that opens when swung open
+#         magnet_at_position: "false"    # see below
+#
+# Wiring: each reed between its GPIO and GND, internal pull-up on, so a
+# closed reed reads LOW.
+#
+# Each binary sensor is ON when the sash has reached that stage.
+# `magnet_at_position` says how the magnets are mounted:
+#   "false" — classic contact mounting: the magnet sits on the reed while
+#             the sash is shut, and leaving it means "opened this far".
+#             A swung-open sash leaves both reeds, so both read ON.
+#   "true"  — the magnet sits on the reed when the sash IS at that stage
+binary_sensor:
+  - platform: gpio
+    id: ${window_id}_tilt
+    name: "${window_name} tilted"
+    device_class: window
+    pin:
+      number: ${tilt_pin}
+      mode:
+        input: true
+        pullup: true
+      inverted: ${magnet_at_position}
+    filters:
+      # Contact bounce, plus noise picked up by long runs to the frame.
+      - delayed_on_off: 100ms
+    # Without this the boot-time state never reaches the position sensor.
+    trigger_on_initial_state: true
+    on_state:
+      - component.update: ${window_id}_position
+
+  - platform: gpio
+    id: ${window_id}_open
+    name: "${window_name} open"
+    device_class: window
+    pin:
+      number: ${open_pin}
+      mode:
+        input: true
+        pullup: true
+      inverted: ${magnet_at_position}
+    filters:
+      - delayed_on_off: 100ms
+    trigger_on_initial_state: true
+    on_state:
+      - component.update: ${window_id}_position
+
+text_sensor:
+  # Open wins over tilted: swinging the sash open normally clears the tilt
+  # reed too, and if it ever doesn't, the sash is still open.
+  - platform: template
+    id: ${window_id}_position
+    name: "${window_name} position"
+    icon: mdi:window-open-variant
+    update_interval: never
+    lambda: |-
+      if (id(${window_id}_open).state) return {"open"};
+      if (id(${window_id}_tilt).state) return {"tilted"};
+      return {"closed"};

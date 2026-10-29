@@ -94,11 +94,12 @@ Raise the CT's resources first if you really want it.
 | `config/presence-sensor-2.yaml` | Presence sensor 2 | ESP32-WROOM-32 + LD2420 mmWave | Live, dashboard-managed |
 | `config/presence-sensor-3.yaml` | Presence sensor 3 | ESP32-WROOM-32 + LD2420 mmWave | Live, dashboard-managed |
 | `config/presence-sensor-4.yaml` | Presence sensor 4 | ESP32-WROOM-32 + LD2420 mmWave | Live, dashboard-managed |
+| `config/window-sensor-1.yaml` | Door sensor (tilt-and-turn) | ESP32-C3 + 2 reed contacts | Flashed and tested, not yet installed or in HA |
 | `config/archive/thermostat.yaml` | Thermostat (#1) | bk72xx (Beken, reflashed Tuya) | **Base stub only** — see below |
 
 ### Presence fleet — provisioned 2026-10-26
 
-| Device | Current DHCP address | USB port during provisioning |
+| Device | Reserved address | USB port during provisioning |
 |---|---|---|
 | Presence sensor 1 | `192.168.2.113` | `/dev/ttyUSB0` |
 | Presence sensor 2 | `192.168.2.170` | `/dev/ttyUSB1` |
@@ -111,9 +112,32 @@ its own API key, OTA password and fallback-AP password. All four are integrated
 in Home Assistant and report LD2420 firmware `v1.6.1`, presence and distance.
 Credentials are in the live `secrets.yaml`; sanitized YAMLs are tracked here.
 
-The addresses above are DHCP leases, not static assignments: `use_address`
-only selects the logs/OTA target. Reserve these leases in UniFi to keep them
-stable. USB device numbers can change after reconnecting.
+These addresses are fixed-IP reservations in UniFi (2026-10-29), as is every
+other client on the IoT VLAN — Home Assistant reaches Shelly and ESPHome
+devices by IP, so a drifting lease silently breaks an integration. `use_address`
+only selects the logs/OTA target; the reservation is what keeps it true. Give
+any new IoT device a reservation before adding it to HA. USB device numbers can
+change after reconnecting.
+
+### Window/door sensors — reed contacts
+
+`config/common/window.yaml` is a package for one tilt-and-turn sash (vasistas):
+two reeds give `<name> tilted`, `<name> open` and a derived `<name> position`
+(`closed` / `tilted` / `open`). Include it once per sash with its own
+`window_id` and pin pair; the pin budget and the pins to avoid are in
+`config/window-sensor-1.yaml`.
+
+- **Wiring:** each reed between its GPIO and GND, no resistors (internal
+  pull-up). Add an external 10kΩ to 3V3 only if long runs pick up noise.
+- **`magnet_at_position: "false"`** is classic contact mounting — magnet on the
+  reed while shut. Swinging the sash open releases both reeds, tilting only
+  the tilt reed. A jumper to GND simulates a magnet when bench-testing.
+- **`trigger_on_initial_state: true` is load-bearing:** without it the boot
+  state of the reeds never reaches the position sensor, which then reports
+  `closed` with both reeds open.
+- **Powered from a 5V supply on the `5V` pin:** on the C3 SuperMini that pin is
+  USB VBUS with no diode, so never connect USB while the supply is on. Flash
+  over USB before soldering the supply, OTA after.
 
 Dashboard metadata was populated from the workstation builds with each
 device's IP, so online status does not require a compile on ct-tools. The
@@ -164,6 +188,10 @@ Home Assistant (ct-ha) integrates **8 thermostats** (`Thermostat`, `Thermostat 2
 the IoT subnet `192.168.2.x` via the ESPHome native API. **Their functional source YAML no
 longer exists anywhere on this infra.** A running ESPHome device stores only compiled
 firmware, never its source, so the configs cannot be recovered from the devices.
+
+**Thermostat 2 is dead** (`thermo-2`, last seen on the network 2026-10-14). It is
+a cheap unit and will not be repaired; 7 are live. Its UniFi reservation
+(`192.168.2.126`) and its HA entry can be dropped whenever convenient.
 
 - The only artifact is `config/archive/thermostat.yaml` — a bare adoption stub for device
   #1 (base + wifi + api key + OTA password, **no `climate:` block**). It is not the
