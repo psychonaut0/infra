@@ -124,6 +124,20 @@ only selects the logs/OTA target; the reservation is what keeps it true. Give
 any new IoT device a reservation before adding it to HA. USB device numbers can
 change after reconnecting.
 
+**Clear-time tuning (2026-10-26):** sensor 1's radar timeout was reduced from
+30 seconds to 5 seconds through Home Assistant: set **Detection Presence
+Timeout**, then press **Apply Config**. This saves the setting in the LD2420;
+no firmware build is needed. Sensors 2–4 were powered off and were not changed.
+Apply the same setting when they are powered again. Any new radar detection
+restarts the countdown; the GPIO presence entity adds a further 500ms off-delay.
+
+Dashboard metadata was populated from the workstation builds with each
+device's IP, so online status does not require a compile on ct-tools. The
+factory and OTA images are also saved under the live config directory's
+`.esphome/build/presence-sensor-<n>/` for sensors 2–4. Pre-flash backups and
+firmware images are retained locally in the gitignored, private
+`config/.esphome/provisioning-20261026/` directory.
+
 ### Window/door sensors — reed contacts
 
 `config/common/window.yaml` is a package for one tilt-and-turn sash (vasistas):
@@ -177,13 +191,6 @@ changes its hostname and every entity ID, so rename in HA.
 
 `window-sensor-2` and `-3` are the ESP32-C3 boards that were presence sensors
 3 and 2 before the radar fleet moved to the WROOM-32.
-
-Dashboard metadata was populated from the workstation builds with each
-device's IP, so online status does not require a compile on ct-tools. The
-factory and OTA images are also saved under the live config directory's
-`.esphome/build/presence-sensor-<n>/` for sensors 2–4. Pre-flash backups and
-firmware images are retained locally in the gitignored, private
-`config/.esphome/provisioning-20261026/` directory.
 
 ## LD2420 wiring — read before building another one
 
