@@ -1,0 +1,64 @@
+esphome:
+  name: window-sensor-1
+  friendly_name: Window sensor 1
+# Room not decided yet: the area is assigned in Home Assistant.
+
+esp32:
+  board: esp32dev
+  framework:
+    type: esp-idf
+
+web_server:
+  port: 80
+
+logger:
+
+api:
+  encryption:
+    key: !secret window_sensor_1_api_key
+
+ota:
+  - platform: esphome
+    password: !secret window_sensor_1_ota_password
+
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+  # IoT VLAN: mDNS can't cross from ct-tools' subnet, so the dashboard/CLI
+  # connect to this IP for logs/OTA. Fixed-IP reservation in UniFi (2026-10-30).
+  use_address: 192.168.2.115
+  ap:
+    ssid: "Window sensor 1 Fallback"
+    password: !secret window_sensor_1_ap_password
+
+captive_portal:
+
+sensor:
+  - platform: wifi_signal
+    name: "WiFi Signal"
+    update_interval: 60s
+
+# ESP32-WROOM-32 pin budget for reeds (input, pull-up, reed to GND):
+#   safe:  GPIO4, 13, 14, 16-19, 21-23, 25-27, 32, 33  -> up to 7 windows
+#   avoid: GPIO34-39    input-only with no internal pull-up: a reed floats
+#                       open (needs an external 10k to 3V3)
+#          GPIO0, 2, 5, 12, 15  strapping pins
+#          GPIO6-11     internal flash
+#          GPIO1, 3     UART0, the USB console
+packages:
+  window_1: !include
+    file: common/window-subdevice.yaml
+    vars:
+      window_id: w1
+      device_name: "Window sensor 1 - Window 1"
+      tilt_pin: GPIO16
+      open_pin: GPIO17
+      magnet_at_position: "false"
+  window_2: !include
+    file: common/window-subdevice.yaml
+    vars:
+      window_id: w2
+      device_name: "Window sensor 1 - Window 2"
+      tilt_pin: GPIO14
+      open_pin: GPIO27
+      magnet_at_position: "false"
