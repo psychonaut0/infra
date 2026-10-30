@@ -1,5 +1,8 @@
 {
   "hosts": {
+    "ct-animus": {
+      "ip": "192.168.3.20"
+    },
     "ct-backup": {
       "ip": "192.168.3.13"
     },
@@ -53,6 +56,21 @@
     }
   },
   "services": {
+    "api": [
+      "ct-animus"
+    ],
+    "app-postgres": [
+      "ct-animus"
+    ],
+    "auth-postgres": [
+      "ct-animus"
+    ],
+    "auth-server": [
+      "ct-animus"
+    ],
+    "auth-worker": [
+      "ct-animus"
+    ],
     "backup-modded": [
       "ct-games"
     ],

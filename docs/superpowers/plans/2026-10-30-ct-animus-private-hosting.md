@@ -1,6 +1,7 @@
 # ct-animus LAN commissioning
 
-Status: configuration implementation; no provisioning or real-data opening.
+Status: guest containment and IdP initialization qualified; LAN route/fleet
+integration prepared; real-data opening CLOSED.
 
 ## Outcome and scope
 
@@ -60,6 +61,34 @@ coherent backup and isolated restore qualification and an owner opening decision
 
 ## Checks and current limits
 
+Implementation state, 2026-10-30: the new guest's containment/source matrix,
+missing-guard startup denial, valid Docker restart, database initialization/forward
+migrations and Authentik one-time hashed bootstrap/initial-setup closure passed in
+private operator evidence. The bootstrap override/environment was removed and
+base worker/server health passed. No application owner binding or grants exist.
+
+Local integration now adds only HTTP `hub.lan`/`auth.lan` Caddy blocks and the
+new host with its five globally unique Compose service names in the embedded
+fleet inventory; operator migration is excluded. Existing entries remain intact.
+Live DNS/Caddy reconciliation requires coordinator verification of the fresh
+shared-file base and review of the exact appended routes. This configuration edit
+does not perform the reload or prove authenticated API/client readiness.
+
+Fleet inventory is embedded at CLI build time. No new CLI release, fleet-wide
+update, public push or deployment publication has been performed. Monitoring,
+coherent backup/restore and admission/real-device recovery remain separate gates;
+configuration or liveness does not authorize real personal data.
+The existing repo-mode discovery/snapshot generator enumerates all Compose keys,
+including operator-profile migration; review that behavior before a future CLI
+release. The prepared embedded inventory intentionally registers only long-lived
+services and does not change discovery code in this mechanical integration.
+
+Local mechanical integration checks → PASS: focused Go discovery/DNS package
+tests; actual repo and embedded inventory resolve all five services and the host;
+the actual Caddy parser classifies both new blocks as managed HTTP routes; exact
+append-only/shared-entry preservation, unique names and whitespace checks pass.
+This is local parser evidence, not a live shared-service reload or CLI rollout.
+
 `python3 stacks/ct-animus/check-config.py --self-test` → PASS: Compose render and
 positive policy checks; wildcard bind/public image/reused DB-role secret rejection.
 `bash -n stacks/ct-animus/{provision-host,bootstrap-ct,check-private}.sh stacks/ct-animus/db/*.sh`
@@ -93,8 +122,8 @@ allowlist, base-bootstrap and writable-mount rejection, temporary hashed-bootstr
 canonical serialization and runbook shell syntax. These are configuration checks;
 Create-only local Engine sentinel → PASS: the quoted private env-file hash reached
 container configuration exactly; network disabled, process never started and owned
-test container removed. Actual first-setup closure/provider state/S256 negative
-cases remain separately qualified before use.
+test container removed. Live initial-setup denial and bootstrap-environment removal
+subsequently passed; provider-state/S256 negative cases remain unqualified.
 
 Compose checks parse configuration only; the isolated kernel harness tests the
 guard without exercising an actual LXC, systemd boot or Docker daemon. Those
