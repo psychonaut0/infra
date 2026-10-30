@@ -70,6 +70,13 @@ migrated public tables; runtime/Auth roles are non-superusers; runtime schema DD
 was denied; tables survived a DB restart. Unique synthetic resources were removed.
 This establishes no provider, authenticated-read or production recovery readiness.
 
+Host preflight dependency correction, 2026-10-30: the first live preflight stopped
+before mutations because `jq` was absent. Host JSON parsing now uses existing
+Python 3, with bounded missing-tool diagnostics; no host package was installed.
+`bash -n` and 11 fake-CLI preflight cases → PASS, covering fresh/existing VMIDs,
+malformed JSON, exact/below memory/storage floors and missing-tool rejection.
+Live preflight retry remains pending mechanical review.
+
 Compose checks parse configuration only; the isolated kernel harness tests the
 guard without exercising an actual LXC, systemd boot or Docker daemon. No CT, host firewall, DNS, shared Caddy,
 account, image registry or backup service was changed. API LAN-HTTP compatibility,

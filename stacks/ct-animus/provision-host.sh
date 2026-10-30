@@ -4,7 +4,9 @@
 set -euo pipefail
 mode=${1:---preflight}
 [[ "$mode" == --preflight || "$mode" == --create-stopped ]] || { echo 'Use --preflight or --create-stopped' >&2; exit 2; }
-for tool in pct pvesh pvesm jq python3 hostname; do command -v "$tool" >/dev/null; done
+for tool in pct pvesh pvesm python3 hostname id awk; do
+  command -v "$tool" >/dev/null || { echo "Missing required host tool: $tool" >&2; exit 1; }
+done
 for key in TARGET_NODE VMID CT_IPV4 CT_GATEWAY PRIVATE_DNS_IPV4 PROXY_IPV4 BACKUP_IPV4 ADMIN_CIDR TEMPLATE SSH_PUBLIC_KEY_FILE; do
   [[ -n ${!key:-} ]] || { echo "Missing operator input: $key" >&2; exit 1; }
 done
@@ -23,14 +25,27 @@ assert n.version == 4 and n.is_private and n.prefixlen >= 24
 assert ipaddress.ip_address(os.environ['CT_GATEWAY']) in ipaddress.ip_network(os.environ['CT_IPV4']+'/24', strict=False)
 PY
 resources=$(pvesh get /cluster/resources --type vm --output-format json)
-[[ $(jq --argjson id "$VMID" '[.[] | select(.vmid == $id)] | length' <<< "$resources") == 0 ]] || { echo 'VMID already exists; refusing any existing-guest mutation' >&2; exit 1; }
+existing_vmid=$(python3 -c '
+import json, sys
+rows = json.load(sys.stdin)
+assert isinstance(rows, list) and all(isinstance(row, dict) and type(row.get("vmid")) is int for row in rows)
+print(sum(row["vmid"] == int(sys.argv[1]) for row in rows))
+' "$VMID" <<< "$resources" 2>/dev/null) || { echo 'Unable to parse cluster VM inventory' >&2; exit 1; }
+[[ "$existing_vmid" == 0 ]] || { echo 'VMID already exists; refusing any existing-guest mutation' >&2; exit 1; }
 template_path=$(pvesm path "$TEMPLATE")
 [[ -s "$template_path" ]] || { echo 'Cached template not found' >&2; exit 1; }
 # Live available memory/storage, never sum of configured CT limits.
 available_kib=$(awk '/MemAvailable:/ {print $2}' /proc/meminfo)
 (( available_kib >= 10 * 1024 * 1024 )) || { echo 'Less than 10 GiB available; re-evaluate 6 GiB CT plus host headroom' >&2; exit 1; }
 storage=$(pvesh get "/nodes/${TARGET_NODE}/storage/local-lvm/status" --output-format json)
-available_disk=$(jq -r '.avail // 0' <<< "$storage")
+available_disk=$(python3 -c '
+import json, sys
+status = json.load(sys.stdin)
+assert isinstance(status, dict)
+value = status.get("avail", 0)
+assert type(value) is int and value >= 0
+print(value)
+' <<< "$storage" 2>/dev/null) || { echo 'Unable to parse storage availability' >&2; exit 1; }
 (( available_disk >= 48 * 1024 * 1024 * 1024 )) || { echo 'Less than 48 GiB free local-lvm; re-evaluate 32 GiB rootfs plus upgrade margin' >&2; exit 1; }
 echo 'PASS: fresh VMID, cached template, snapshot memory/storage floors'
 echo 'Reservation remains an operator gate: verify DHCP/IPAM, existing DNS and routing conflicts; a silent ping/empty neighbor table does not prove address availability.'
