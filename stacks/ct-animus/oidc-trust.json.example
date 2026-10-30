@@ -1,0 +1,14 @@
+{
+  "version": 1,
+  "providers": [
+    {
+      "issuer": "http://auth.lan/application/o/REPLACE_APPROVED_SLUG/",
+      "discovery_url": "http://auth.lan/application/o/REPLACE_APPROVED_SLUG/.well-known/openid-configuration",
+      "client_id": "REPLACE_APPROVED_CLIENT_ID",
+      "audience": "REPLACE_APPROVED_CLIENT_ID",
+      "profile": "rs256-exact-issuer-singleton-client-audience-online-userinfo",
+      "jwks_uri": "http://auth.lan/application/o/REPLACE_APPROVED_SLUG/jwks/",
+      "userinfo_endpoint": "http://auth.lan/application/o/userinfo/"
+    }
+  ]
+}

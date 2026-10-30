@@ -1,0 +1,144 @@
+# Synthetic commissioning only. Personal-data opening remains CLOSED.
+name: ct-animus
+x-postgres: &postgres
+  image: postgres:17.11-bookworm@sha256:839fbb5a4942a7758dd93e18b42ea5649807491a0545b5eeeb8f0b8bb11857a5
+  restart: unless-stopped
+  networks: [database]
+  healthcheck:
+    test: [CMD-SHELL, 'pg_isready -U "$${POSTGRES_USER}" -d "$${POSTGRES_DB}"']
+    interval: 15s
+    timeout: 5s
+    retries: 10
+    start_period: 30s
+  logging: &logs
+    driver: local
+    options: {max-size: 10m, max-file: "3"}
+x-auth-env: &auth-env
+  AUTHENTIK_POSTGRESQL__HOST: auth-postgres
+  AUTHENTIK_POSTGRESQL__NAME: authentik
+  AUTHENTIK_POSTGRESQL__USER: authentik
+  AUTHENTIK_POSTGRESQL__PASSWORD: ${AUTH_DB_PASSWORD:?private unique hex secret required}
+  AUTHENTIK_SECRET_KEY: ${AUTHENTIK_SECRET_KEY:?private unique secret required}
+  AUTHENTIK_WEB__BASE_URL: http://${LOGIN_FQDN:?temporary LAN login hostname required}
+  AUTHENTIK_LISTEN__HTTP: 0.0.0.0:9000
+  AUTHENTIK_LISTEN__TRUSTED_PROXY_CIDRS: ${PROXY_IPV4:?central proxy address required}/32
+  AUTHENTIK_ERROR_REPORTING__ENABLED: "false"
+  AUTHENTIK_DISABLE_UPDATE_CHECK: "true"
+x-api-env: &api-env
+  HUB_ADDR: 0.0.0.0:8095
+  HUB_DATABASE_URL: postgres://animus_runtime:${APP_RUNTIME_DB_PASSWORD:?hex secret required}@app-postgres:5432/animus?sslmode=disable
+  HUB_OIDC_TRUST_CONFIG: /run/animus/oidc-trust.json
+  # Requires the separately reviewed compatible API image; older images do not
+  # support private HTTP. This opt-in is confined to the exact configured origin.
+  HUB_OIDC_PRIVATE_HTTP_ORIGIN: http://${LOGIN_FQDN}
+  HUB_TRAINING_SUMMARY_READS_ENABLED: "false"
+  HUB_TRAINING_SUMMARY_WORKERS_ENABLED: "false"
+  HUB_USER_WORKOUT_PURGE_ENABLED: "false"
+x-api-image: &api-image
+  image: ${API_IMAGE:?checksummed privately loaded image required}
+  pull_policy: never
+  user: "65532:65532"
+  read_only: true
+  cap_drop: [ALL]
+  security_opt: [no-new-privileges:true]
+  logging: *logs
+services:
+  app-postgres:
+    <<: *postgres
+    environment:
+      POSTGRES_DB: animus
+      POSTGRES_USER: animus_admin
+      POSTGRES_PASSWORD: ${APP_ADMIN_DB_PASSWORD:?separate hex migration secret required}
+      APP_RUNTIME_DB_PASSWORD: ${APP_RUNTIME_DB_PASSWORD}
+      POSTGRES_INITDB_ARGS: --auth-host=scram-sha-256
+    volumes:
+      - app-database:/var/lib/postgresql/data
+      - ./db/init-app.sh:/docker-entrypoint-initdb.d/10-runtime-role.sh:ro
+  auth-postgres:
+    <<: *postgres
+    environment:
+      POSTGRES_DB: postgres
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${AUTH_ADMIN_DB_PASSWORD:?separate hex bootstrap secret required}
+      AUTH_DB_PASSWORD: ${AUTH_DB_PASSWORD}
+      POSTGRES_INITDB_ARGS: --auth-host=scram-sha-256
+    volumes:
+      - auth-database:/var/lib/postgresql/data
+      - ./db/init-auth.sh:/docker-entrypoint-initdb.d/10-auth-role.sh:ro
+  auth-server:
+    image: ghcr.io/goauthentik/server:2026.8.5@sha256:602227a86455d6772e3d16b7d852713c4f864f40df5df894abd1285bb53979a5
+    command: server
+    user: "1000:1000"
+    restart: unless-stopped
+    environment: *auth-env
+    ports: ["${CT_IPV4:?private CT interface required}:9000:9000"]
+    dns: ["${PRIVATE_DNS_IPV4:?split DNS resolver required}"]
+    networks: [database, egress]
+    volumes: [auth-data:/data, auth-templates:/templates]
+    shm_size: 512mb
+    depends_on:
+      auth-postgres: {condition: service_healthy}
+    healthcheck:
+      test: [CMD, ak, healthcheck]
+      interval: 30s
+      timeout: 10s
+      retries: 10
+      start_period: 90s
+    # Provider challenge failures can contain credentials. Use secret-safe
+    # upstream event/audit views for commissioning, never docker log exports.
+    logging: {driver: none}
+  auth-worker:
+    image: ghcr.io/goauthentik/server:2026.8.5@sha256:602227a86455d6772e3d16b7d852713c4f864f40df5df894abd1285bb53979a5
+    command: worker
+    user: "1000:1000"
+    restart: unless-stopped
+    environment: *auth-env
+    dns: ["${PRIVATE_DNS_IPV4}"]
+    networks: [database, egress]
+    volumes: [auth-data:/data, auth-templates:/templates, auth-certs:/certs]
+    shm_size: 512mb
+    depends_on:
+      auth-postgres: {condition: service_healthy}
+    healthcheck:
+      test: [CMD, ak, healthcheck]
+      interval: 30s
+      timeout: 10s
+      retries: 10
+      start_period: 90s
+    logging: {driver: none}
+  migrate:
+    <<: *api-image
+    profiles: [operator]
+    command: [db, migrate]
+    environment:
+      HUB_DATABASE_URL: postgres://animus_admin:${APP_ADMIN_DB_PASSWORD}@app-postgres:5432/animus?sslmode=disable
+    networks: [database]
+    depends_on:
+      app-postgres: {condition: service_healthy}
+    restart: "no"
+  api:
+    <<: *api-image
+    profiles: [commissioning]
+    restart: unless-stopped
+    environment: *api-env
+    ports: ["${CT_IPV4}:8095:8095"]
+    dns: ["${PRIVATE_DNS_IPV4}"]
+    networks: [database, egress]
+    volumes:
+      - ${OIDC_TRUST_FILE:?private exact provider registry required}:/run/animus/oidc-trust.json:ro
+    depends_on:
+      app-postgres: {condition: service_healthy}
+      auth-server: {condition: service_healthy}
+    stop_grace_period: 30s
+    # The non-root scratch image has no shell/curl/health subcommand.
+    # External HTTP /healthz + authenticated readiness probes are required.
+    healthcheck: {disable: true}
+volumes:
+  app-database:
+  auth-database:
+  auth-data:
+  auth-templates:
+  auth-certs:
+networks:
+  database: {internal: true}
+  egress:

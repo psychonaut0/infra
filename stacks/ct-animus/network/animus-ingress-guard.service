@@ -1,0 +1,15 @@
+[Unit]
+Description=Animus guest ingress guard before Docker port DNAT
+Wants=network-online.target
+After=network-online.target
+Before=docker.service ssh.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/libexec/animus-ingress-guard apply
+ExecReload=/usr/local/libexec/animus-ingress-guard apply
+RemainAfterExit=yes
+# No ExecStop: stopping/restarting this unit never removes the existing rules.
+
+[Install]
+WantedBy=multi-user.target

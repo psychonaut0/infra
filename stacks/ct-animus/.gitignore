@@ -1,0 +1,8 @@
+.env
+*.local.*
+secrets/
+evidence/
+*.tar
+*.tar.gz
+*.sha256
+__pycache__/
