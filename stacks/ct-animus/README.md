@@ -273,8 +273,9 @@ UUID subject, ten-minute access tokens and the default RSA signing certificate.
 It creates no user, group, flow, policy binding or application grant. The existing
 default consent/authentication/invalidation flows are references for synthetic
 commissioning; password/TOTP/recovery qualification is separate and passkeys wait
-for HTTPS. Refresh-token grant support does not add the `offline_access` scope or
-establish refresh/recovery readiness.
+for HTTPS. The provider maps `openid profile offline_access` to match the native
+client request; the built-in `offline_access` mapping permits requested refresh
+tokens. Refresh/rotation/revocation and recovery readiness remain unqualified.
 
 After blueprint application, verify the actual provider fields and RSA/RS256 key
 from the running instance, not just a successful worker healthcheck. The exact API
