@@ -37,9 +37,10 @@ The required new switch is `HUB_OIDC_PRIVATE_HTTP_ORIGIN=http://auth.lan`
 The earlier API accepted plain HTTP only on loopback; this deployment cannot
 work around that by inventing a different issuer. A registry example does not
 prove compatibility. Until a reviewed compatible image/configuration is supplied,
-leave the `commissioning` profile stopped. Exact client ID, callback list, PKCE
-policy, provider slug and production registration remain operator-qualified inputs;
-no default Authentik flow/provider is represented as accepted.
+leave the `commissioning` profile stopped. The static commissioning blueprint
+selects public client/application `alkion-lan`, its exact development callback and
+standard provider fields. Default flows, PKCE enforcement, recovery and any
+production registration remain unqualified; no admission follows from this file.
 
 ## Host reservation, offline creation and containment
 
@@ -117,14 +118,16 @@ TLS and no host-published database port.
 
 ## Synthetic startup, migrations and roles
 
-Default `docker compose up -d` starts only the two databases and Auth processes.
-First prepare Auth volume permissions before starting the long-lived non-root
-processes, using the pinned image as a one-shot root tool:
+Do not use an unrestricted first `docker compose up -d`: it would publish login
+before an operator password was established. Keep `auth-server` stopped until the
+one-time hashed bootstrap below has succeeded and been removed. First prepare
+Auth volume permissions and start only the databases, using the pinned image as
+a one-shot root tool:
 
 ```sh
 docker compose run --rm --no-deps --user 0 --entrypoint /bin/sh auth-worker \
   -c 'chown -R 1000:1000 /data /templates /certs'
-docker compose up -d app-postgres auth-postgres auth-server auth-worker
+docker compose up -d app-postgres auth-postgres
 docker compose --profile operator run --rm migrate
 ```
 
@@ -137,18 +140,166 @@ non-superuser role; its cluster bootstrap password never reaches server/worker.
 Init scripts run only on **empty** volumes. They neither upgrade existing clusters
 nor repair restored roles. Changing `.env` does not rotate existing DB passwords.
 
-Set up Authentik through its initial-setup flow only after Caddy/DNS/firewall review.
-Use fresh synthetic operator credentials with password, TOTP and recovery codes;
-passkeys require the later HTTPS phase. Disable self-enrollment and qualify
-the exact provider: RS256, PKCE S256, exact allowed redirect URIs, singleton
-client/audience, correct issuer/JWKS/UserInfo. Do not blindly accept default flows.
-Do not use automated bootstrap tokens/password hashes or owner/grant provisioning.
-After registering the provider and validating a compatible API configuration:
+## One-time operator bootstrap before opening login
+
+Use the supported [Authentik hashed automated installation](https://docs.goauthentik.io/install-config/automated-install)
+on a **fresh** Auth database. This creates only Authentik's default `akadmin`
+operator account with a new opaque password; it is not a personal identity and is
+never automatically bound to the application owner. Do not supply a bootstrap API
+token/email, create users in the blueprint or seed application grants. The base
+Compose file contains no bootstrap variables, and its validator forbids them.
+If an unknown initial setup has already run, keep login stopped and investigate
+through the console rather than resetting credentials automatically.
+
+Run privately in the deployment directory with shell tracing disabled. These
+commands generate files, never print the raw password or hash, and use stdin for
+the supported `hash_password` command (not argv or a plaintext environment value):
+
+```sh
+set -euo pipefail
+set +x
+umask 077
+python3 - <<'PY'
+import secrets
+from pathlib import Path
+# secrets/ already exists for the private registry; never replace an old password.
+with Path("secrets/initial-akadmin-password").open("x") as output:
+    output.write(secrets.token_urlsafe(48) + "\n")
+PY
+docker compose run --rm --no-deps -T auth-worker hash_password \
+  < secrets/initial-akadmin-password > secrets/initial-akadmin-password.hash
+python3 - <<'PY'
+import json
+from pathlib import Path
+value = Path("secrets/initial-akadmin-password.hash").read_text().strip()
+if len(value.splitlines()) != 1 or not value.startswith("pbkdf2_sha256$") or len(value.split("$")) != 4:
+    raise SystemExit("Unexpected hash output; keep auth-server stopped")
+# Keep Django's dollar separators literal using the supported quoted env-file form.
+with Path("secrets/initial-akadmin.env").open("x") as output:
+    output.write("ANIMUS_INITIAL_ADMIN_HASH='" + value + "'\n")
+# JSON is valid YAML. The hash is read only for this explicit one-time invocation.
+override = {"services": {"auth-worker": {"environment": {
+    "AUTHENTIK_BOOTSTRAP_PASSWORD_HASH": "${ANIMUS_INITIAL_ADMIN_HASH:?private initial hash required}"}}}}
+with Path("auth-bootstrap.local.yaml").open("x") as output:
+    json.dump(override, output)
+PY
+docker compose --env-file .env --env-file secrets/initial-akadmin.env \
+  -f docker-compose.yml -f auth-bootstrap.local.yaml \
+  up -d --wait --wait-timeout 180 auth-worker
+```
+
+Keep the final network-facing server stopped. Start one owned temporary server
+without `--service-ports`; Compose `run` does not publish the service's port mapping.
+The guest guard also denies direct access to its Docker address. Check closure
+through the supported [public flow executor](https://api.goauthentik.io/flow-executor/),
+using a fresh anonymous request to loopback inside that server with the canonical
+Host. The probe prints only HTTP status and a whitelisted component, never response
+headers, cookies, URLs, error messages, password/hash or challenge fields. The exact
+2026.8.5 response remains a runtime check: only documented access denial passes;
+any other component/unavailable response keeps final login stopped for inspection.
+
+```sh
+animus_setup_probe=$(docker compose run -d --no-deps auth-server)
+[[ "$animus_setup_probe" =~ ^[0-9a-f]{64}$ ]]
+trap 'docker rm -f "$animus_setup_probe" >/dev/null 2>&1 || true' EXIT
+[[ -z "$(docker port "$animus_setup_probe")" ]]
+# Wait/retry this healthcheck until it succeeds before the anonymous HTTP probe.
+docker exec "$animus_setup_probe" ak healthcheck >/dev/null
+check_initial_setup_closed() {
+  docker exec -i "$animus_setup_probe" python - <<'PY'
+import json, sys, urllib.error, urllib.request
+class NoRedirect(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, *args, **kwargs):
+        return None
+opener = urllib.request.build_opener(urllib.request.ProxyHandler({}), NoRedirect())
+request = urllib.request.Request(
+    "http://127.0.0.1:9000/api/v3/flows/executor/initial-setup/",
+    headers={"Host": "auth.lan", "Accept": "application/json"})
+status, component = 0, None
+try:
+    try:
+        response = opener.open(request, timeout=15)
+    except urllib.error.HTTPError as error:
+        response = error
+    status = response.code
+    document = json.loads(response.read(1048576))
+    component = document.get("component") if isinstance(document, dict) else None
+except (OSError, ValueError):
+    component = None
+allowed = {"ak-stage-access-denied", "ak-stage-prompt", "ak-stage-identification",
+           "ak-stage-password", "xak-flow-redirect"}
+print(json.dumps({"http_status": status, "component": component if component in allowed else "unrecognized"}))
+sys.exit(0 if component == "ak-stage-access-denied" and status < 500 else 1)
+PY
+}
+check_initial_setup_closed
+# Recreate the worker with BASE configuration only; the hash leaves its environment.
+docker compose up -d --no-deps --force-recreate --wait --wait-timeout 180 auth-worker
+rm auth-bootstrap.local.yaml secrets/initial-akadmin.env secrets/initial-akadmin-password.hash
+animus_worker_id=$(docker compose ps -q auth-worker)
+docker inspect --format '{{range .Config.Env}}{{println (index (split . "=") 0)}}{{end}}' \
+  "$animus_worker_id" | python3 -c \
+  'import sys; sys.exit(any(key.startswith("AUTHENTIK_BOOTSTRAP") for key in sys.stdin.read().splitlines()))'
+check_initial_setup_closed
+python3 check-config.py --inspect-image
+docker rm -f "$animus_setup_probe" >/dev/null
+trap - EXIT
+# Only now may the reviewed, network-facing login process start.
+docker compose up -d --wait --wait-timeout 180 auth-server
+```
+
+This gate proves initial-setup denial, not successful operator login or factor
+recovery. Do not query provider database tables to infer account/provider state.
+Anonymous discovery/JWKS may verify issuer, endpoint and RSA/RS256 metadata; use
+supported configuration/APIs for other provider fields. Do not add the final LAN
+route or open admission while any of these required runtime gates is unresolved.
+
+The temporary override is mode 0600 and ignored by `*.local.*`; never commit it,
+render it to shared output, export container inspect environments or persist its
+bootstrap variable in `.env`/base Compose. Keep the initial password file private
+until the operator has transferred it into private credential custody; do not
+paste it into logs or assistant output. The unpublished-server checks must pass
+before final login starts; inspect only environment key names to confirm bootstrap
+removal. If any check fails, keep `auth-server` stopped; no owner or user admission
+is authorized by bootstrap.
+Confirm self-enrollment is unavailable before any ordinary-user commissioning.
+
+## LAN provider and API startup
+
+The worker mounts only `blueprints/alkion-lan.yaml` read-only. It declares a
+public authorization-code client and application with client ID/slug `alkion-lan`,
+strict callback `dev.animusstudio.alkion.dev:/oauth2redirect`, per-provider issuer,
+UUID subject, ten-minute access tokens and the default RSA signing certificate.
+It creates no user, group, flow, policy binding or application grant. The existing
+default consent/authentication/invalidation flows are references for synthetic
+commissioning; password/TOTP/recovery qualification is separate and passkeys wait
+for HTTPS. Refresh-token grant support does not add the `offline_access` scope or
+establish refresh/recovery readiness.
+
+After blueprint application, verify the actual provider fields and RSA/RS256 key
+from the running instance, not just a successful worker healthcheck. The exact API
+registry must select `http://auth.lan/application/o/alkion-lan/`, singleton
+client/audience `alkion-lan`, matching discovery/JWKS and same-origin UserInfo.
+Verify discovery through the canonical host from clients and application containers.
+Do not replace the issuer with a container name or loopback URL.
+
+The provider supports client PKCE flows, but `client_type: public` alone does not
+establish a requirement for S256 or rejection of omitted/plain challenges in
+this version; see the pinned [authorization implementation](https://github.com/goauthentik/authentik/blob/version/2026.8.5/authentik/providers/oauth2/views/authorize.py).
+Do not invent a `require_pkce` field. Real-device S256, wrong/missing verifier,
+wrong callback, missing/plain challenge and no-grant/wrong-space denial remain
+qualification checks before any application admission or real-data opening.
+
+After the supported bootstrap, verified provider and compatible API configuration:
 
 ```sh
 python3 check-config.py --inspect-image
 docker compose --profile commissioning up -d api
 ```
+
+No owner bind, grants, source/writer/reader registration, ingestion or real data is
+automatically created. An authenticated identity without application admission
+must still be denied; all disabled summary/purge capabilities remain off.
 
 No API shell/curl/health subcommand exists in the scratch image: the API's Compose
 healthcheck is explicitly disabled. This is an exception to the new-CT checklist;

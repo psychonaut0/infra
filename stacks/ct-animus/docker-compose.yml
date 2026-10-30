@@ -95,7 +95,11 @@ services:
     environment: *auth-env
     dns: ["${PRIVATE_DNS_IPV4}"]
     networks: [database, egress]
-    volumes: [auth-data:/data, auth-templates:/templates, auth-certs:/certs]
+    volumes:
+      - auth-data:/data
+      - auth-templates:/templates
+      - auth-certs:/certs
+      - ./blueprints:/blueprints/ct-animus:ro
     shm_size: 512mb
     depends_on:
       auth-postgres: {condition: service_healthy}

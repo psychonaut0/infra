@@ -90,6 +90,13 @@ def validate(env_path, synthetic=False, inspect_image=False):
                     "automatic production bootstrap prohibited")
             require(service["environment"]["AUTHENTIK_LISTEN__TRUSTED_PROXY_CIDRS"] == values["PROXY_IPV4"] + "/32",
                     "Auth may trust only the central proxy")
+    blueprint_mounts = [mount for mount in services["auth-worker"].get("volumes", []) if mount.get("type") == "bind"]
+    require(len(blueprint_mounts) == 1 and blueprint_mounts[0].get("read_only") and
+            blueprint_mounts[0]["target"] == "/blueprints/ct-animus" and
+            Path(blueprint_mounts[0]["source"]).resolve() == ROOT / "blueprints",
+            "worker must mount only the approved static blueprint directory, read-only")
+    require({path.name for path in (ROOT / "blueprints").iterdir()} == {"alkion-lan.yaml"},
+            "unexpected commissioning blueprint file")
     for name, port in (("api", 8095), ("auth-server", 9000)):
         ports = services[name].get("ports", [])
         require(len(ports) == 1 and ports[0]["host_ip"] == values["CT_IPV4"]
@@ -118,6 +125,8 @@ def validate(env_path, synthetic=False, inspect_image=False):
             "exactly one deliberately qualified provider required")
     provider = registry["providers"][0]
     issuer = provider["issuer"]
+    require(provider["client_id"] == "alkion-lan" and issuer == "http://" + hostname + "/application/o/alkion-lan/",
+            "registry must match the approved LAN commissioning provider")
     require(re.fullmatch(r"http://" + re.escape(hostname) + r"/application/o/[a-z0-9-]+/", issuer), "issuer must use the canonical login host/path")
     require(provider["profile"] == PROFILE and provider["client_id"] == provider["audience"], "unsupported trust profile/audience")
     require(provider["discovery_url"] == issuer + ".well-known/openid-configuration" and
@@ -136,7 +145,7 @@ def validate(env_path, synthetic=False, inspect_image=False):
 def self_test():
     with tempfile.TemporaryDirectory(prefix="animus-config-") as directory:
         root = Path(directory)
-        trust = json.loads((ROOT / "oidc-trust.json.example").read_text().replace("REPLACE_APPROVED_SLUG", "synthetic").replace("REPLACE_APPROVED_CLIENT_ID", "synthetic"))
+        trust = json.loads((ROOT / "oidc-trust.json.example").read_text().replace("REPLACE_APPROVED_SLUG", "alkion-lan").replace("REPLACE_APPROVED_CLIENT_ID", "alkion-lan"))
         registry = root / "oidc.json"
         registry.write_text(json.dumps(trust))
         registry.chmod(0o600)

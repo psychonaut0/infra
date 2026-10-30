@@ -27,7 +27,9 @@ coherent backup and isolated restore qualification and an owner opening decision
   are separate from migration credentials; Authentik is not a DB superuser.
 - Default startup excludes API and application migrations. Deliberate commissioning
   uses an exact OIDC registry and a compatible explicitly reviewed LAN-HTTP API
-  configuration; no issuer substitution, bootstrap identity or automatic grants.
+  configuration; no issuer substitution or automatic application identities/grants.
+  A fresh IdP's opaque operator password is initialized through an explicit private
+  temporary hashed bootstrap before login listens, then removed from worker config.
 - Stock Caddy and the existing `.lan` DNS CLI provide temporary LAN names.
   Clients and containers resolve the same issuer. Remote client DNS configuration
   is explicit; accepting subnet routes does not automatically configure DNS.
@@ -51,6 +53,10 @@ coherent backup and isolated restore qualification and an owner opening decision
 4. Commission only synthetic identities/data. Qualify LAN/remote DNS, trust,
    firewall denies, admission/recovery, coherent off-host backup and isolated
    restoration before proposing any real-data opening.
+5. Add only the static LAN public-client/application blueprint (`alkion-lan`), exact
+   development callback and read-only worker mount. Document one-time supported
+   operator initialization with network-facing login stopped; no user, grant or
+   application owner seed. Default flows and PKCE enforcement remain unqualified.
 
 ## Checks and current limits
 
@@ -75,11 +81,25 @@ before mutations because `jq` was absent. Host JSON parsing now uses existing
 Python 3, with bounded missing-tool diagnostics; no host package was installed.
 `bash -n` and 11 fake-CLI preflight cases → PASS, covering fresh/existing VMIDs,
 malformed JSON, exact/below memory/storage floors and missing-tool rejection.
-Live preflight retry remains pending mechanical review.
+The parser correction preceded the subsequent reviewed new-guest operations.
+
+Live guest containment qualification is recorded privately: intended-source matrix,
+missing-guard Docker startup denial and valid-guard daemon restart → PASS. No
+application container or credential was initialized by that qualification.
+
+LAN provider preparation → PASS for Compose policy, standard-only blueprint models
+and exact client/callback/issuer/subject/signing references, read-only mount
+allowlist, base-bootstrap and writable-mount rejection, temporary hashed-bootstrap
+canonical serialization and runbook shell syntax. These are configuration checks;
+Create-only local Engine sentinel → PASS: the quoted private env-file hash reached
+container configuration exactly; network disabled, process never started and owned
+test container removed. Actual first-setup closure/provider state/S256 negative
+cases remain separately qualified before use.
 
 Compose checks parse configuration only; the isolated kernel harness tests the
-guard without exercising an actual LXC, systemd boot or Docker daemon. No CT, host firewall, DNS, shared Caddy,
-account, image registry or backup service was changed. API LAN-HTTP compatibility,
+guard without exercising an actual LXC, systemd boot or Docker daemon. Those
+configuration checks do not mutate hosts, DNS, shared Caddy, accounts, registries
+or backups. API LAN-HTTP compatibility,
 loaded image verification, non-root Auth volume ownership, DB initialization and
 health checks require actual runtime qualification. Configuration is not evidence
 of backup coverage or real-data readiness.

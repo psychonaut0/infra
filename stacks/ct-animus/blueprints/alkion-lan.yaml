@@ -1,0 +1,33 @@
+# LAN synthetic commissioning only; creates no user, group or application grant.
+version: 1
+metadata:
+  name: Alkion LAN commissioning public client
+entries:
+  - model: authentik_providers_oauth2.oauth2provider
+    id: alkion-lan-provider
+    identifiers:
+      name: Alkion LAN commissioning
+    attrs:
+      authorization_flow: !Find [authentik_flows.flow, [slug, default-provider-authorization-explicit-consent]]
+      authentication_flow: !Find [authentik_flows.flow, [slug, default-authentication-flow]]
+      invalidation_flow: !Find [authentik_flows.flow, [slug, default-provider-invalidation-flow]]
+      client_type: public
+      client_id: alkion-lan
+      issuer_mode: per_provider
+      sub_mode: user_uuid
+      signing_key: !Find [authentik_crypto.certificatekeypair, [name, authentik Self-signed Certificate]]
+      access_token_validity: minutes=10
+      grant_types: [authorization_code, refresh_token]
+      redirect_uris:
+        - matching_mode: strict
+          redirect_uri_type: authorization
+          url: dev.animusstudio.alkion.dev:/oauth2redirect
+      property_mappings:
+        - !Find [authentik_providers_oauth2.scopemapping, [scope_name, openid]]
+        - !Find [authentik_providers_oauth2.scopemapping, [scope_name, profile]]
+  - model: authentik_core.application
+    identifiers:
+      slug: alkion-lan
+    attrs:
+      name: Alkion LAN commissioning
+      provider: !KeyOf alkion-lan-provider
