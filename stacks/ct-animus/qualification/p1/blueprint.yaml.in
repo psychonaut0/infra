@@ -1,0 +1,121 @@
+# SYNTHETIC EXPERIMENT ONLY. Outside deployed blueprint mounts.
+# __PHASE__
+version: 1
+metadata:
+  name: Animus P1 mandatory Prompt mechanism experiment
+entries:
+  - model: authentik_core.group
+    id: bootstrap-group
+    identifiers: {name: p1-mechanism-bootstrap}
+    attrs: {is_superuser: false}
+  - model: authentik_core.group
+    id: repair-group
+    identifiers: {name: p1-mechanism-repair}
+    attrs: {is_superuser: false}
+  - model: authentik_core.group
+    id: normal-group
+    identifiers: {name: p1-mechanism-normal}
+    attrs: {is_superuser: false}
+  - model: authentik_flows.flow
+    id: normal-flow
+    identifiers: {slug: p1-mechanism-normal}
+    attrs: {name: P1 normal experiment, title: Synthetic password and TOTP, designation: authentication, authentication: none}
+  - model: authentik_flows.flow
+    id: enrollment-flow
+    identifiers: {slug: p1-mechanism-enrollment}
+    attrs: {name: P1 enrollment experiment, title: Controlled synthetic enrollment, designation: stage_configuration, authentication: none}
+  - model: authentik_flows.flow
+    id: repair-flow
+    identifiers: {slug: p1-mechanism-repair}
+    attrs: {name: P1 repair experiment, title: Controlled synthetic repair, designation: recovery, authentication: none}
+  - model: authentik_flows.flow
+    id: authorization-flow
+    identifiers: {slug: p1-mechanism-authorization}
+    attrs: {name: P1 authorization experiment, title: Synthetic consent, designation: authorization, authentication: require_authenticated}
+  - model: authentik_stages_prompt.prompt
+    id: prompt-continue
+    identifiers: {name: p1-mechanism-continue}
+    attrs: {field_key: p1_continue, label: Continue synthetic experiment, type: checkbox, required: true, order: 0}
+  - model: authentik_stages_identification.identificationstage
+    id: identification
+    identifiers: {name: p1-mechanism-identification}
+    attrs: {user_fields: [username], show_matched_user: false, enrollment_flow: null, recovery_flow: null, passwordless_flow: null}
+  - model: authentik_stages_password.passwordstage
+    id: password
+    identifiers: {name: p1-mechanism-password}
+    attrs: {backends: [authentik.core.auth.InbuiltBackend], configure_flow: null}
+  - model: authentik_stages_authenticator_validate.authenticatorvalidatestage
+    id: totp-validation
+    identifiers: {name: p1-mechanism-totp-validation}
+    attrs: {device_classes: [totp], not_configured_action: deny, last_auth_threshold: 'seconds=0', configuration_stages: []}
+  - model: authentik_stages_authenticator_validate.authenticatorvalidatestage
+    id: static-validation
+    identifiers: {name: p1-mechanism-static-validation}
+    attrs: {device_classes: [static], not_configured_action: deny, last_auth_threshold: 'seconds=0', configuration_stages: []}
+  - model: authentik_stages_authenticator_totp.authenticatortotpstage
+    id: totp-setup
+    identifiers: {name: p1-mechanism-totp-setup}
+    attrs: {configure_flow: null, digits: '6', friendly_name: Synthetic TOTP}
+  - model: authentik_stages_authenticator_static.authenticatorstaticstage
+    id: static-setup
+    identifiers: {name: p1-mechanism-static-setup}
+    attrs: {configure_flow: null, token_count: 10, token_length: 16, friendly_name: Synthetic recovery codes}
+  - model: authentik_stages_user_login.userloginstage
+    id: login
+    identifiers: {name: p1-mechanism-login}
+    attrs: {session_duration: 'minutes=30', remember_device: 'seconds=0', remember_me_offset: 'seconds=0', terminate_other_sessions: false}
+  - model: authentik_stages_user_logout.userlogoutstage
+    id: logout
+    identifiers: {name: p1-mechanism-logout}
+  - model: authentik_stages_consent.consentstage
+    id: consent
+    identifiers: {name: p1-mechanism-consent}
+    attrs: {mode: always_require}
+__PROMPT_STAGES__
+__POLICIES__
+  - model: authentik_providers_oauth2.scopemapping
+    id: assurance-mapping
+    identifiers: {managed: animus.p1/mechanism-openid-v2}
+    attrs:
+      name: P1 experiment only conservative proof
+      scope_name: openid
+      description: Synthetic qualification only
+      expression: |
+__CLAIMS__
+__BINDINGS__
+  - model: authentik_providers_oauth2.oauth2provider
+    id: provider
+    identifiers: {name: P1 isolated mechanism experiment}
+    attrs:
+      authorization_flow: !KeyOf authorization-flow
+      authentication_flow: !KeyOf normal-flow
+      invalidation_flow: !Find [authentik_flows.flow, [slug, default-provider-invalidation-flow]]
+      client_type: public
+      client_id: alkion-lan
+      issuer_mode: per_provider
+      sub_mode: user_uuid
+      signing_key: !Find [authentik_crypto.certificatekeypair, [name, authentik Self-signed Certificate]]
+      access_token_validity: minutes=10
+      include_claims_in_id_token: true
+      grant_types: [authorization_code, refresh_token]
+      redirect_uris:
+        - matching_mode: strict
+          redirect_uri_type: authorization
+          url: dev.animusstudio.alkion.dev:/oauth2redirect
+      property_mappings:
+        - !KeyOf assurance-mapping
+        - !Find [authentik_providers_oauth2.scopemapping, [managed, goauthentik.io/providers/oauth2/scope-profile]]
+        - !Find [authentik_providers_oauth2.scopemapping, [managed, goauthentik.io/providers/oauth2/scope-offline_access]]
+  - model: authentik_core.application
+    id: application
+    identifiers: {slug: alkion-lan}
+    attrs: {name: P1 isolated mechanism experiment, provider: !KeyOf provider, policy_engine_mode: all}
+  - model: authentik_policies.policybinding
+    identifiers: {target: !KeyOf application, policy: !KeyOf pkce-policy, order: 0}
+    attrs: {negate: false, failure_result: false}
+  - model: authentik_policies.policybinding
+    identifiers: {target: !KeyOf application, policy: !KeyOf application-policy, order: 1}
+    attrs: {negate: false, failure_result: false}
+  - model: authentik_policies.policybinding
+    identifiers: {target: !KeyOf application, policy: !KeyOf issuance-closed-policy, order: 2}
+    attrs: {negate: false, failure_result: false}

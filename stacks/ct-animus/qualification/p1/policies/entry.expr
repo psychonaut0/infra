@@ -1,0 +1,35 @@
+# Mandatory Prompt validation: True advances, False/error cannot advance.
+try:
+    import multiprocessing
+    import re
+    import time
+    import uuid
+    from authentik.events.signals import get_login_event
+    from authentik.flows.views.executor import SESSION_KEY_PLAN
+    process = multiprocessing.current_process()
+    if type(process).__name__ != "_MainProcess" or process.daemon:
+        return False
+    http = request.http_request
+    plan = http.session[SESSION_KEY_PLAN]
+    binding = plan.bindings[0]
+    flow = str(plan.flow_pk)
+    if binding.stage.name != "p1-mechanism-normal-entry" or binding.order != 0 or binding.target_id.hex != flow:
+        return False
+    context = plan.context
+    if not isinstance(context, dict) or not re.fullmatch(r"[0-9a-f]{32}", flow):
+        return False
+    if any(key in context for key in ("hub_p1_execution", "auth_method", "auth_method_args", "is_restored", "is_redirected")):
+        return False
+    principal = http.user.pk if http.user.is_authenticated else None
+    event = get_login_event(http) if principal is not None else None
+    if principal is not None and (event is None or event.user.get("pk") != principal):
+        return False
+    context["hub_p1_execution"] = {
+        "policy": "animus-password-totp-mechanism-v2", "flow": flow,
+        "nonce": uuid.uuid4().hex, "factor_time": int(time.time()),
+        "initial_session_user": principal, "initial_login_event": str(event.pk) if event else None,
+    }
+    http.session[SESSION_KEY_PLAN] = plan
+    return True
+except Exception:
+    return False

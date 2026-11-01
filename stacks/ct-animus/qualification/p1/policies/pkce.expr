@@ -1,0 +1,24 @@
+# The token endpoint separately validates code ownership/verifier or refresh.
+try:
+    context = request.context
+    path = request.http_request.path
+    grant = context.get("oauth_grant_type")
+    alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_"
+    if path == "/application/o/authorize/":
+        challenge = context.get("oauth_code_challenge")
+        return (
+            grant == "authorization_code"
+            and context.get("oauth_response_type") == "code"
+            and context.get("oauth_redirect_uri") == "dev.animusstudio.alkion.dev:/oauth2redirect"
+            and context.get("oauth_code_challenge_method") == "S256"
+            and isinstance(challenge, str) and len(challenge) == 43
+            and all(c in alphabet for c in challenge)
+        )
+    if path == "/application/o/token/":
+        if grant == "authorization_code":
+            verifier = context.get("oauth_code_verifier")
+            return isinstance(verifier, str) and 43 <= len(verifier) <= 128 and all(c in alphabet + ".~" for c in verifier)
+        return grant == "refresh_token"
+    return False
+except Exception:
+    return False

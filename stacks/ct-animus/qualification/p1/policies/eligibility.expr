@@ -1,0 +1,17 @@
+# Supported operator group control; positive Prompt validation, no grants.
+try:
+    import multiprocessing
+    from authentik.flows.views.executor import SESSION_KEY_PLAN
+    process = multiprocessing.current_process()
+    if type(process).__name__ != "_MainProcess" or process.daemon:
+        return False
+    user = request.http_request.session[SESSION_KEY_PLAN].context.get("pending_user")
+    if user is None or not user.pk or not user.is_active or user.is_superuser:
+        return False
+    if not ak_is_group_member(user, name="__ELIGIBILITY_GROUP__"):
+        return False
+    if __REQUIRE_NO_TOTP__ and ak_user_has_authenticator(user, device_type="totp"):
+        return False
+    return True
+except Exception:
+    return False

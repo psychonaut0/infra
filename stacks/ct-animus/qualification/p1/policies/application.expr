@@ -1,0 +1,9 @@
+__EVENT_PROOF_HELPER__
+try:
+    from authentik.events.signals import get_login_event
+    http = request.http_request
+    if http.path != "/application/o/authorize/" or not http.user.is_authenticated or http.user.pk != request.user.pk:
+        return False
+    return event_proof(get_login_event(http), request.user, request.obj.provider, True) is not None
+except Exception:
+    return False
