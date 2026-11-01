@@ -13,6 +13,7 @@ import tempfile
 import tarfile
 import time
 import uuid
+from urllib.parse import urlsplit
 
 sys.dont_write_bytecode = True
 
@@ -91,10 +92,37 @@ def digest_dump(snapshot, path):
     return result.hexdigest()
 
 
+def b2_repository(repository):
+    """Native B2 or TLS path-style S3 at Backblaze's regional endpoint only."""
+    if not isinstance(repository, str) or re.search(r'[\s\\?#%]', repository):
+        return False
+    bucket_pattern = r'[A-Za-z0-9][A-Za-z0-9.-]{1,61}[A-Za-z0-9]'
+    if repository.startswith('b2:'):
+        match = re.fullmatch(r'b2:(' + bucket_pattern + r'):([A-Za-z0-9._/-]*)', repository)
+        return bool(match and '..' not in match[1] and not re.fullmatch(r'[0-9.]+', match[1]))
+    if not repository.startswith('s3:'):
+        return False
+    location = repository[3:]
+    try:
+        value = urlsplit(location if '://' in location else 'https://' + location)
+        if (value.scheme != 'https' or value.username is not None or value.password is not None
+                or value.query or value.fragment or value.port not in (None, 443)
+                or not re.fullmatch(r's3\.[a-z]+(?:-[a-z]+)*-[0-9]{3}\.backblazeb2\.com', value.hostname or '')):
+            return False
+        parts = value.path.split('/')
+        bucket = parts[1] if len(parts) > 1 else ''
+        return bool(re.fullmatch(bucket_pattern, bucket) and bucket == bucket.lower()
+                    and '..' not in bucket and not re.fullmatch(r'[0-9.]+', bucket)
+                    and all(re.fullmatch(r'[A-Za-z0-9._-]*', part) and part not in ('.', '..')
+                            for part in parts[2:]))
+    except ValueError:
+        return False
+
+
 def protect(value):
     # This command is for the installed encrypted B2 destination only. A local
     # rehearsal has separate evidence and must not update off-host protection.
-    need(os.environ.get('RESTIC_REPOSITORY', '').startswith('b2:'), 'off-host B2 repository required')
+    need(b2_repository(os.environ.get('RESTIC_REPOSITORY', '')), 'off-host B2 repository required')
     directory = Path(value['staging'])
     manifest = verify(directory, max_age=value['max_age_seconds'])
     prior = json.loads(Path(value['status']).read_text())

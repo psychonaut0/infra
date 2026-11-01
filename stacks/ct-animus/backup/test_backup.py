@@ -68,6 +68,33 @@ def fixture(root):
     return manifest
 
 
+class RepositoryTests(unittest.TestCase):
+    def test_native_and_tls_backblaze_s3_profiles(self):
+        for value in ('b2:synthetic:repo', 'b2:synthetic:',
+                      's3:s3.eu-central-003.backblazeb2.com/synthetic/backup',
+                      's3:https://s3.eu-central-003.backblazeb2.com/synthetic/backup',
+                      's3:https://s3.us-west-004.backblazeb2.com:443/synthetic'):
+            with self.subTest(value=value):
+                self.assertTrue(copy_module.b2_repository(value))
+
+    def test_other_backends_and_ambiguous_or_insecure_profiles_fail_closed(self):
+        for value in ('', '/tmp/local', 'b2:', 'b2::repo', 'b2:synthetic',
+                      's3:http://s3.eu-central-003.backblazeb2.com/synthetic',
+                      's3:https://localhost/synthetic', 's3:127.0.0.1/synthetic',
+                      's3:s3.us-east-1.amazonaws.com/synthetic',
+                      's3:s3.eu-central-003.backblazeb2.com.evil.invalid/synthetic',
+                      's3:s3.eu-central-003.backblazeb2.com/',
+                      's3:https://user:secret@s3.eu-central-003.backblazeb2.com/synthetic',
+                      's3:s3.eu-central-003.backblazeb2.com/synthetic#fragment',
+                      's3:s3.eu-central-003.backblazeb2.com/synthetic?query',
+                      's3:s3.eu-central-003.backblazeb2.com:80/synthetic',
+                      's3:s3.eu-central-003.backblazeb2.com/%73ynthetic',
+                      's3:s3.eu-central-003.backblazeb2.com/synthetic/../other',
+                      's3:s3.eu-central-003.backblazeb2.com/synthetic\n'):
+            with self.subTest(value=value):
+                self.assertFalse(copy_module.b2_repository(value))
+
+
 class BundleTests(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
