@@ -306,5 +306,103 @@ class CaptureTests(unittest.TestCase):
 
 
 
+class ProviderVolumeTests(unittest.TestCase):
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.root = Path(self.temp.name)
+        self.subject = capture.Capture({'project': 'ct-animus', 'spool': str(self.root), 'stop_seconds': 30,
+            'config_sources': [{'name': 'blueprints', 'source': str(self.root / 'blueprints')}]})
+        self.items = {}
+        self.volumes = {}
+        self.calls = []
+        for name in ('auth-data', 'auth-templates', 'auth-certs'):
+            self.volumes[name] = {'Name': name, 'Mountpoint': str(self.root / name), 'Labels': {
+                'com.docker.compose.project': 'ct-animus', 'com.docker.compose.volume': name}}
+        for service in capture.WRITERS:
+            mounts = []
+            if service != 'api':
+                for name, destination in [('auth-data', '/data'), ('auth-templates', '/templates')]:
+                    mounts.append({'Type': 'volume', 'Name': name, 'Source': str(self.root / name),
+                                   'Destination': destination, 'RW': True})
+            if service == 'auth-worker':
+                mounts += [{'Type': 'volume', 'Name': 'auth-certs', 'Source': str(self.root / 'auth-certs'),
+                            'Destination': '/certs', 'RW': True},
+                           {'Type': 'bind', 'Source': str(self.root / 'blueprints'),
+                            'Destination': '/blueprints/ct-animus', 'RW': False}]
+            self.items[service] = {'Id': service, 'Config': {'Labels': {'com.docker.compose.project': 'ct-animus',
+                'com.docker.compose.service': service}}, 'Mounts': mounts,
+                'State': {'Running': False, 'ExitCode': 0}, 'HostConfig': {'RestartPolicy': {'Name': 'no'}}}
+        self.subject.containers = self.items.copy()
+
+    def tearDown(self):
+        self.temp.cleanup()
+
+    def command(self, args):
+        self.calls.append(args)
+        if args == ['docker', 'ps', '-aq']:
+            return '\n'.join(self.items).encode()
+        if args[:3] == ['docker', 'volume', 'inspect']:
+            return json.dumps([self.volumes[args[3]]]).encode()
+        if args[1] in ('stop', 'update'):
+            return b''
+        raise AssertionError('unexpected fake command')
+
+    def foreign(self, writable):
+        self.items['foreign'] = {'Id': 'foreign', 'Mounts': [{'Type': 'volume', 'Name': 'auth-data',
+            'Source': str(self.root / 'auth-data'), 'Destination': '/unrelated', 'RW': writable}],
+            'State': {'Running': False}, 'NetworkSettings': {'Networks': {'other-network': {}}}}
+
+    def test_foreign_even_stopped_other_network_consumer_blocks_copy_without_mutation(self):
+        for writable in (True, False):
+            with self.subTest(writable=writable):
+                self.foreign(writable)
+                with patch.object(capture, 'command', side_effect=self.command):
+                    with patch.object(self.subject, 'inspect', side_effect=lambda identifier: self.items[identifier]):
+                        with patch.object(self.subject, 'archive', side_effect=AssertionError('must not copy')):
+                            with self.assertRaises(ValueError):
+                                self.subject.copy_provider('auth-data', self.root / 'never.tar')
+                self.assertFalse(any('foreign' in row and row[1] in ('stop', 'update', 'start') for row in self.calls))
+        self.assertFalse((self.root / 'never.tar').exists())
+
+    def test_foreign_bind_of_provider_path_or_parent_is_also_denied(self):
+        for source in (self.root / 'auth-data', self.root):
+            self.foreign(True)
+            self.items['foreign']['Mounts'] = [{'Type': 'bind', 'Source': str(source),
+                                              'Destination': '/foreign', 'RW': True}]
+            with patch.object(capture, 'command', side_effect=self.command):
+                with patch.object(self.subject, 'inspect', side_effect=lambda identifier: self.items[identifier]):
+                    with self.assertRaises(ValueError):
+                        self.subject.provider_volumes()
+
+    def test_foreign_discovered_after_stop_preserves_hold(self):
+        self.foreign(True)
+        with patch.object(capture, 'command', side_effect=self.command):
+            with patch.object(self.subject, 'inspect', side_effect=lambda identifier: self.items[identifier]):
+                with patch.object(self.subject, 'sql', return_value='0'):
+                    with self.assertRaises(ValueError):
+                        self.subject.quiesce({'phase': 'holding'})
+        self.assertTrue(self.subject.hold.exists())
+        self.assertFalse(any('foreign' in row and row[1] in ('stop', 'update', 'start') for row in self.calls))
+
+    def test_unexpected_persistent_mount_or_wrong_rw_is_rejected(self):
+        for change in ('extra', 'readonly'):
+            original = copy.deepcopy(self.items['auth-server']['Mounts'])
+            if change == 'extra':
+                self.items['auth-server']['Mounts'].append({'Type': 'bind', 'Source': '/unaccounted',
+                    'Destination': '/unaccounted', 'RW': True})
+            else:
+                self.items['auth-server']['Mounts'][0]['RW'] = False
+            with patch.object(capture, 'command', side_effect=self.command):
+                with patch.object(self.subject, 'inspect', side_effect=lambda identifier: self.items[identifier]):
+                    with self.assertRaises(ValueError):
+                        self.subject.provider_volumes()
+            self.items['auth-server']['Mounts'] = original
+
+    def test_only_known_topology_and_consumers_pass(self):
+        with patch.object(capture, 'command', side_effect=self.command):
+            with patch.object(self.subject, 'inspect', side_effect=lambda identifier: self.items[identifier]):
+                self.assertEqual(set(self.subject.provider_volumes(held=True)), {'auth-data', 'auth-templates', 'auth-certs'})
+
+
 if __name__ == '__main__':
     unittest.main()

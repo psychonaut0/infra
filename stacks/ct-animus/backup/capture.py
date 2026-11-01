@@ -112,6 +112,7 @@ class Capture:
         for which in ('app', 'auth'):
             need(self.sql(which, "SELECT count(*) FROM pg_stat_activity WHERE pid <> pg_backend_pid() "
                           "AND backend_type = 'client backend'") == '0', 'remaining database client')
+        self.provider_volumes(held=True)
         record['phase'] = 'quiesced'
         self.save_hold(record)
 
@@ -129,20 +130,77 @@ class Capture:
                     raise
         destination.chmod(0o600)
 
-    def volume(self, name):
-        matching = []
-        for service in ('auth-server', 'auth-worker'):
-            for mount in self.containers[service]['Mounts']:
-                if mount['Destination'] == {'auth-data': '/data', 'auth-templates': '/templates',
-                                             'auth-certs': '/certs'}[name]:
-                    need(mount['Type'] == 'volume', 'provider named volume required')
-                    matching.append(mount['Name'])
-        need(matching and len(set(matching)) == 1, 'provider volume missing or ambiguous')
-        value = json.loads(command(['docker', 'volume', 'inspect', matching[0]]))[0]
-        labels = value.get('Labels') or {}
-        need(labels.get('com.docker.compose.project') == self.c['project']
-             and labels.get('com.docker.compose.volume') == name, 'foreign provider volume')
-        return Path(value['Mountpoint'])
+    def provider_volumes(self, held=False):
+        expected = {'auth-server': {'/data': 'auth-data', '/templates': 'auth-templates'},
+                    'auth-worker': {'/data': 'auth-data', '/templates': 'auth-templates', '/certs': 'auth-certs'}}
+        blueprints = next(Path(item['source']).resolve() for item in self.c['config_sources']
+                          if item['name'] == 'blueprints')
+        providers = {}
+        volumes = {}
+        for service, topology in expected.items():
+            item = self.inspect(self.containers[service]['Id'])
+            labels = item['Config']['Labels']
+            need(item['Id'] == self.containers[service]['Id']
+                 and labels.get('com.docker.compose.project') == self.c['project']
+                 and labels.get('com.docker.compose.service') == service, 'provider identity changed')
+            providers[item['Id']] = item
+            need(all(mount['Type'] in ('volume', 'bind', 'tmpfs') for mount in item['Mounts']),
+                 'unsupported provider mount type')
+            persistent = [mount for mount in item['Mounts'] if mount['Type'] != 'tmpfs']
+            destinations = [mount['Destination'] for mount in persistent]
+            required = set(topology) | ({'/blueprints/ct-animus'} if service == 'auth-worker' else set())
+            need(len(destinations) == len(required) and set(destinations) == required,
+                 'unexpected persistent provider mount')
+            for mount in persistent:
+                destination = mount['Destination']
+                if destination == '/blueprints/ct-animus':
+                    need(mount['Type'] == 'bind' and mount['RW'] is False
+                         and Path(mount['Source']).resolve() == blueprints, 'unexpected blueprint mount')
+                    continue
+                name = topology[destination]
+                need(mount['Type'] == 'volume' and mount['RW'] is True, 'provider writable named volume required')
+                value = json.loads(command(['docker', 'volume', 'inspect', mount['Name']]))[0]
+                labels = value.get('Labels') or {}
+                need(value['Name'] == mount['Name']
+                     and labels.get('com.docker.compose.project') == self.c['project']
+                     and labels.get('com.docker.compose.volume') == name
+                     and Path(mount['Source']).resolve() == Path(value['Mountpoint']).resolve(),
+                     'foreign provider volume or changed mount source')
+                identity = (value['Name'], Path(value['Mountpoint']))
+                need(name not in volumes or volumes[name] == identity, 'ambiguous provider volume')
+                volumes[name] = identity
+        need(set(volumes) == {'auth-data', 'auth-templates', 'auth-certs'}, 'provider volume omitted')
+        captured = {name for name, _ in volumes.values()}
+        # Include stopped containers and every network/project: labels and network
+        # isolation alone cannot prove no other process owns a writable mount.
+        ids = command(['docker', 'ps', '-aq']).decode().split()
+        seen = set()
+        for identifier in ids:
+            item = self.inspect(identifier)
+            seen.add(item['Id'])
+            if item['Id'] in providers:
+                need(item['Mounts'] == providers[item['Id']]['Mounts'], 'provider mount topology changed during check')
+            for mount in item['Mounts']:
+                source = Path(mount['Source']).resolve() if mount.get('Source') else None
+                overlaps = source is not None and any(source.is_relative_to(point.resolve())
+                    or point.resolve().is_relative_to(source) for _, point in volumes.values())
+                if (mount.get('Type') == 'volume' and mount.get('Name') in captured) or overlaps:
+                    need(item['Id'] in providers and mount in providers[item['Id']]['Mounts'],
+                         'foreign provider volume consumer')
+        need(set(providers) <= seen, 'provider container disappeared during volume check')
+        if held:
+            for service in WRITERS:
+                item = self.inspect(self.containers[service]['Id'])
+                need(not item['State']['Running'] and item['HostConfig']['RestartPolicy']['Name'] == 'no',
+                     'writer resumed during capture')
+                if item['Id'] in providers:
+                    need(item['Mounts'] == providers[item['Id']]['Mounts'], 'held provider mount topology changed')
+        return {name: point for name, (_, point) in volumes.items()}
+
+    def copy_provider(self, name, target):
+        # Reinspect all consumers/topology immediately before each file copy.
+        volumes = self.provider_volumes(held=True)
+        return self.archive([(volumes[name], name)], target)
 
     def archive(self, sources, target, env=False):
         names = set()
@@ -205,7 +263,7 @@ class Capture:
              and api_environment.get('HUB_RECOVERY_GENERATION') == prior_generation,
              'API must use this independently held enforced control')
         estimate = sum(int(self.sql(which, 'SELECT pg_database_size(current_database())')) for which in ('app', 'auth')) * 3
-        sources = [self.volume(name) for name in ('auth-data', 'auth-templates', 'auth-certs')]
+        sources = list(self.provider_volumes().values())
         sources += [Path(item['source']) for item in self.c['config_sources']]
         for source in sources:
             for entry in ([source] + list(source.rglob('*')) if source.is_dir() else [source]):
@@ -238,7 +296,7 @@ class Capture:
                                         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
                 need(result.returncode == 0, 'invalid logical archive')
         for name in ('auth-data', 'auth-templates', 'auth-certs'):
-            self.archive([(self.volume(name), name)], partial / (name + '.tar'))
+            self.copy_provider(name, partial / (name + '.tar'))
         members = self.archive([(item['source'], item['name']) for item in self.c['config_sources']],
                                partial / 'private-config.tar', env=True)
         manifest = {'format': FORMAT, 'capture_id': capture_id, 'project': self.c['project'],

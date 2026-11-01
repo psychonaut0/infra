@@ -9,7 +9,10 @@ The legacy workout/PowerSync and other fleet paths are unchanged.
 
 `capture.py` accepts only the configured Compose project, one running container
 per API, Authentik server/worker and both PostgreSQL services, no foreign network
-peer, no database host port and internal-only database networks. Stopped operator
+peer, no database host port and internal-only database networks. Every provider
+volume consumer (including stopped containers on other networks and overlapping
+bind mounts) must be an approved owner with the exact mount topology. Rechecks
+after writer stop and immediately before each copy retain the hold on uncertainty. Stopped operator
 migration containers are excluded. It records each exact image ID/reference, the
 private API source revision and actual logical-dump versions; images themselves
 are not archived. Keep those exact pinned images/rebuild inputs separately
