@@ -10,10 +10,15 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import tarfile
 import time
 import uuid
 
+sys.dont_write_bytecode = True
+
 from bundle import HEX, REQUIRED, need, private_file, sha, unpack, verify
+
+DEFAULT_STATUS = Path('/var/lib/backup-status/animus.json')
 
 
 def run(args):
@@ -41,6 +46,7 @@ def config(path):
          'bounded reserve/freshness required')
     for key in ('ssh_key', 'known_hosts', 'staging', 'status'):
         need(Path(value[key]).is_absolute(), 'absolute collector paths required')
+    need(value['status'] == str(DEFAULT_STATUS), 'fixed Animus status path required')
     return value
 
 
@@ -91,6 +97,10 @@ def protect(value):
     need(os.environ.get('RESTIC_REPOSITORY', '').startswith('b2:'), 'off-host B2 repository required')
     directory = Path(value['staging'])
     manifest = verify(directory, max_age=value['max_age_seconds'])
+    prior = json.loads(Path(value['status']).read_text())
+    need(prior.get('state') == 'local-only' and prior.get('capture_id') == manifest['capture_id'],
+         'this run has no successful coherent capture')
+    status(Path(value['status']), 'uploading', capture_id=manifest['capture_id'])
     manifest_hash = sha(directory / 'manifest.json')
     tag = 'animus-capture-' + manifest['capture_id']
     run(['restic', 'backup', str(directory), '--tag', 'animus-coherent', '--tag', tag,
@@ -123,16 +133,20 @@ def main():
                  and 0 <= int(time.time()) - prior.get('timestamp_unix', 0) <= value['max_age_seconds'],
                  'Animus protection stale or missing')
         else:
-            status(Path(value['status']), 'capturing' if args.action == 'collect' else 'uploading')
+            if args.action == 'collect':
+                status(Path(value['status']), 'capturing')
             if args.action == 'collect':
                 manifest = collect(value)
                 status(Path(value['status']), 'local-only', capture_id=manifest['capture_id'])
             else:
                 protect(value)
         print('PASS: Animus ' + args.action)
-    except (OSError, ValueError, KeyError, TypeError, subprocess.SubprocessError):
-        if value:
-            status(Path(value['status']), 'stale' if args.action == 'freshness' else 'failed')
+    except (OSError, ValueError, KeyError, TypeError, subprocess.SubprocessError, tarfile.TarError):
+        try:
+            status(Path(value['status']) if value else DEFAULT_STATUS,
+                   'stale' if args.action == 'freshness' else 'failed')
+        except OSError:
+            pass  # Nonzero exit still fails the installed job if status storage itself failed.
         print('FAIL: Animus ' + args.action + '; no fresh off-host protection', file=sys.stderr)
         return 1
     return 0

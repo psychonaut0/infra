@@ -107,7 +107,7 @@ and build tools off the CT. No TUN or local Tailscale daemon is required.
    Keep the provider's real signing keys and bootstrap/recovery credentials private.
 4. Use `python3 check-config.py` for secret-safe validation; once the image is
    loaded, use `python3 check-config.py --inspect-image`. These never print the
-   rendered Compose environment. Do not paste `docker compose config`, container
+   rendered Compose environment. Do not paste `/usr/local/lib/animus-backup/compose.py config`, container
    inspect output, bearer tokens or provider challenge logs into public records.
 
 Compose explicitly selects environment values rather than passing all of `.env`
@@ -118,17 +118,24 @@ TLS and no host-published database port.
 
 ## Synthetic startup, migrations and roles
 
-Do not use an unrestricted first `docker compose up -d`: it would publish login
+All supported operator Compose commands below use the guarded launcher installed
+from [backup/](backup/README.md). It refuses a durable capture hold and requires
+independently held enforced recovery control at `/etc/animus-control/recovery.env`.
+Install the launcher before commissioning; never restore that control from a stack
+backup. Direct Docker/Compose commands remain administrator authority and bypass
+the supported hold contract.
+
+Do not use an unrestricted first `/usr/local/lib/animus-backup/compose.py up -d`: it would publish login
 before an operator password was established. Keep `auth-server` stopped until the
 one-time hashed bootstrap below has succeeded and been removed. First prepare
 Auth volume permissions and start only the databases, using the pinned image as
 a one-shot root tool:
 
 ```sh
-docker compose run --rm --no-deps --user 0 --entrypoint /bin/sh auth-worker \
+/usr/local/lib/animus-backup/compose.py run --rm --no-deps --user 0 --entrypoint /bin/sh auth-worker \
   -c 'chown -R 1000:1000 /data /templates /certs'
-docker compose up -d app-postgres auth-postgres
-docker compose --profile operator run --rm migrate
+/usr/local/lib/animus-backup/compose.py up -d app-postgres auth-postgres
+/usr/local/lib/animus-backup/compose.py --profile operator run --rm migrate
 ```
 
 Fresh-volume initialization creates `animus_runtime` as a non-superuser with
@@ -166,7 +173,7 @@ from pathlib import Path
 with Path("secrets/initial-akadmin-password").open("x") as output:
     output.write(secrets.token_urlsafe(48) + "\n")
 PY
-docker compose run --rm --no-deps -T auth-worker hash_password \
+/usr/local/lib/animus-backup/compose.py run --rm --no-deps -T auth-worker hash_password \
   < secrets/initial-akadmin-password > secrets/initial-akadmin-password.hash
 python3 - <<'PY'
 import json
@@ -183,7 +190,7 @@ override = {"services": {"auth-worker": {"environment": {
 with Path("auth-bootstrap.local.yaml").open("x") as output:
     json.dump(override, output)
 PY
-docker compose --env-file .env --env-file secrets/initial-akadmin.env \
+/usr/local/lib/animus-backup/compose.py --env-file .env --env-file secrets/initial-akadmin.env \
   -f docker-compose.yml -f auth-bootstrap.local.yaml \
   up -d --wait --wait-timeout 180 auth-worker
 ```
@@ -199,7 +206,7 @@ headers, cookies, URLs, error messages, password/hash or challenge fields. The e
 any other component/unavailable response keeps final login stopped for inspection.
 
 ```sh
-animus_setup_probe=$(docker compose run -d --no-deps auth-server)
+animus_setup_probe=$(/usr/local/lib/animus-backup/compose.py run -d --no-deps auth-server)
 [[ "$animus_setup_probe" =~ ^[0-9a-f]{64}$ ]]
 trap 'docker rm -f "$animus_setup_probe" >/dev/null 2>&1 || true' EXIT
 [[ -z "$(docker port "$animus_setup_probe")" ]]
@@ -234,9 +241,9 @@ PY
 }
 check_initial_setup_closed
 # Recreate the worker with BASE configuration only; the hash leaves its environment.
-docker compose up -d --no-deps --force-recreate --wait --wait-timeout 180 auth-worker
+/usr/local/lib/animus-backup/compose.py up -d --no-deps --force-recreate --wait --wait-timeout 180 auth-worker
 rm auth-bootstrap.local.yaml secrets/initial-akadmin.env secrets/initial-akadmin-password.hash
-animus_worker_id=$(docker compose ps -q auth-worker)
+animus_worker_id=$(/usr/local/lib/animus-backup/compose.py ps -q auth-worker)
 docker inspect --format '{{range .Config.Env}}{{println (index (split . "=") 0)}}{{end}}' \
   "$animus_worker_id" | python3 -c \
   'import sys; sys.exit(any(key.startswith("AUTHENTIK_BOOTSTRAP") for key in sys.stdin.read().splitlines()))'
@@ -245,7 +252,7 @@ python3 check-config.py --inspect-image
 docker rm -f "$animus_setup_probe" >/dev/null
 trap - EXIT
 # Only now may the reviewed, network-facing login process start.
-docker compose up -d --wait --wait-timeout 180 auth-server
+/usr/local/lib/animus-backup/compose.py up -d --wait --wait-timeout 180 auth-server
 ```
 
 This gate proves initial-setup denial, not successful operator login or factor
@@ -295,7 +302,7 @@ After the supported bootstrap, verified provider and compatible API configuratio
 
 ```sh
 python3 check-config.py --inspect-image
-docker compose --profile commissioning up -d api
+/usr/local/lib/animus-backup/compose.py --profile commissioning up -d api
 ```
 
 No owner bind, grants, source/writer/reader registration, ingestion or real data is

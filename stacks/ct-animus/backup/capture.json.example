@@ -1,0 +1,20 @@
+{
+  "project": "ct-animus",
+  "spool": "/var/lib/animus-backup",
+  "external_control": "/etc/animus-control/recovery.env",
+  "source_revision": "0000000000000000000000000000000000000000",
+  "reserve_bytes": 1073741824,
+  "stop_seconds": 60,
+  "databases": {
+    "app": {"service": "app-postgres", "user": "animus_admin", "name": "animus"},
+    "auth": {"service": "auth-postgres", "user": "postgres", "name": "authentik"}
+  },
+  "config_sources": [
+    {"name": "stack.env", "source": "/opt/stacks/ct-animus/.env"},
+    {"name": "docker-compose.yml", "source": "/opt/stacks/ct-animus/docker-compose.yml"},
+    {"name": "oidc-trust.json", "source": "/opt/stacks/ct-animus/private/oidc-trust.json"},
+    {"name": "db", "source": "/opt/stacks/ct-animus/db"},
+    {"name": "blueprints", "source": "/opt/stacks/ct-animus/blueprints"},
+    {"name": "backup", "source": "/usr/local/lib/animus-backup"}
+  ]
+}

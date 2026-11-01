@@ -178,3 +178,11 @@ log "Pulling host config from proxmoxnode"
 rsync -a -e "$RSYNC_E" "root@$PROXMOXNODE_IP:/var/backup-export/" "$STAGING/host-cfg-node/" 2>>"$LOG"
 
 log "Pre-backup complete. Staging size: $(du -sh "$STAGING" | cut -f1)"
+
+# Animus uses only its quiesced logical bundle, never generic env/volume/rsync
+# capture. Explicitly activated after review/deployment. Failure remains fatal
+# for Animus, but must not skip protection of the existing fleet.
+if [[ -f /etc/animus-backup/enabled ]]; then
+  /usr/local/lib/animus-backup/restic-copy.py collect \
+    || log "WARN: Animus coherent capture failed; fleet capture retained, Animus unprotected"
+fi

@@ -17,6 +17,7 @@ sys.path.insert(0, str(HERE))
 import bundle
 import capture
 import restore
+import compose
 spec = importlib.util.spec_from_file_location('restic_copy', HERE / 'restic-copy.py')
 copy_module = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(copy_module)
@@ -165,6 +166,44 @@ class BundleTests(unittest.TestCase):
                 with self.assertRaises(ValueError):
                     copy_module.protect({'staging': str(self.directory), 'status': str(status), 'max_age_seconds': 86400})
 
+    def test_staged_files_are_byte_exact_and_inactive(self):
+        destination = self.root / 'inactive'
+        restore.stage_files(self.directory, bundle.sha(self.directory / 'manifest.json'), destination)
+        self.assertEqual((destination / 'auth-data/auth-data/synthetic').read_bytes(), b'original\x00bytes')
+        self.assertTrue((destination / 'private-config/stack.env').exists())
+        self.assertEqual(json.loads((destination / 'staged-closed.json').read_text())['state'], 'files-staged-closed')
+        with self.assertRaises(ValueError):
+            restore.stage_files(self.directory, bundle.sha(self.directory / 'manifest.json'), destination)
+
+    def test_failed_current_capture_cannot_protect_old_fresh_bundle(self):
+        status = self.root / 'animus.json'
+        copy_module.status(status, 'failed')
+        value = {'staging': str(self.directory), 'status': str(status), 'max_age_seconds': 86400}
+        with patch.dict('os.environ', {'RESTIC_REPOSITORY': 'b2:synthetic:repo'}, clear=True):
+            with patch.object(copy_module, 'run', side_effect=AssertionError('must not upload failed capture')):
+                with self.assertRaises(ValueError):
+                    copy_module.protect(value)
+
+    def test_supported_operator_path_refuses_capture_hold_before_docker(self):
+        fresh = control(self.root / 'external.env')
+        hold = private(self.root / 'capture-hold.json', '{}')
+        with patch.object(compose.subprocess, 'run', side_effect=AssertionError('must not run Docker')):
+            for args in (['up', '-d'], ['run', '--rm', 'migrate'], ['restart', 'api']):
+                with self.assertRaises(ValueError):
+                    compose.launch(args, stack=self.root, control=fresh, hold=hold)
+
+
+    def test_invalid_collector_config_clears_old_green_status(self):
+        status = self.root / 'animus.json'
+        copy_module.status(status, 'protected', timestamp='old-success')
+        bad = private(self.root / 'collector.json', '{')
+        with patch.object(copy_module, 'DEFAULT_STATUS', status):
+            with patch.object(sys, 'argv', ['restic-copy.py', 'collect', '--config', str(bad)]):
+                with patch('sys.stderr', io.StringIO()):
+                    self.assertEqual(copy_module.main(), 1)
+        self.assertFalse(json.loads(status.read_text())['protected'])
+
+
 
 class CaptureTests(unittest.TestCase):
     def setUp(self):
@@ -232,6 +271,39 @@ class CaptureTests(unittest.TestCase):
         control(self.root / 'external.env')
         with self.assertRaises(ValueError):
             self.subject.archive([(self.root, 'tree')], self.spool / 'bad.tar')
+
+    def test_partial_dump_and_midstream_disk_full_keep_hold(self):
+        private(self.subject.hold, '{"phase":"quiesced"}')
+        class Process:
+            def __init__(self):
+                self.stdout = io.BytesIO(b'partial dump')
+            def __enter__(self):
+                return self
+            def __exit__(self, *args):
+                return False
+            def wait(self):
+                return 1
+            def kill(self):
+                pass
+        with patch.object(capture.subprocess, 'Popen', return_value=Process()):
+            with self.assertRaises(ValueError):
+                self.subject.dump(['fake'], self.root / 'partial.dump')
+        with patch.object(capture.subprocess, 'Popen', return_value=Process()):
+            with patch.object(self.subject, 'headroom', side_effect=ValueError('full')):
+                with self.assertRaises(ValueError):
+                    self.subject.dump(['fake'], self.root / 'disk-full.dump')
+        self.assertTrue(self.subject.hold.exists())
+        self.assertFalse(any(path.name == 'manifest.json' for path in self.root.rglob('*')))
+
+    def test_successful_resume_restores_exact_retry_policy(self):
+        record = {'containers': {name: {'id': name, 'restart': {'Name': 'on-failure', 'MaximumRetryCount': 7}}
+                                 for name in capture.WRITERS}}
+        calls = []
+        with patch.object(capture, 'command', side_effect=lambda args: calls.append(args) or b''):
+            with patch.object(self.subject, 'inspect', side_effect=lambda identifier: {'Id': identifier, 'State': {'Running': False}}):
+                self.subject.resume(record)
+        self.assertEqual(sum('--restart=on-failure:7' in row for row in calls), 3)
+
 
 
 if __name__ == '__main__':

@@ -8,9 +8,12 @@ import re
 import shutil
 import subprocess
 import sys
+import tarfile
 import tempfile
 
-from bundle import HEX, external_control, need, private_file, sha, verify
+sys.dont_write_bytecode = True
+
+from bundle import HEX, REQUIRED, external_control, need, private_file, sha, verify
 from capture import command
 
 
@@ -23,12 +26,68 @@ def fetch(snapshot, manifest_hash, source_path, destination):
     need('animus-coherent' in snapshots[0].get('tags', []), 'coherent snapshot tag required')
     destination.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
     with tempfile.TemporaryDirectory(prefix='.animus-fetch-', dir=destination.parent) as temporary:
-        command(['restic', 'restore', snapshot, '--target', temporary, '--include', str(source_path)])
-        bundle = Path(temporary) / str(source_path).lstrip('/')
+        bundle = Path(temporary) / 'bundle'
+        bundle.mkdir(mode=0o700)
+        for name in sorted(REQUIRED | {'manifest.json'}):
+            with (bundle / name).open('xb') as output:
+                with subprocess.Popen(['restic', 'dump', snapshot, str(source_path / name)],
+                                      stdout=subprocess.PIPE, stderr=subprocess.DEVNULL) as process:
+                    try:
+                        while chunk := process.stdout.read(1024 * 1024):
+                            need(shutil.disk_usage(bundle).free >= 268435456 + len(chunk),
+                                 'insufficient isolated restore headroom')
+                            output.write(chunk)
+                        need(process.wait() == 0, 'exact snapshot payload unavailable')
+                    except BaseException:
+                        process.kill()
+                        process.wait()
+                        raise
+            (bundle / name).chmod(0o600)
         verify(bundle, expected_hash=manifest_hash)
         shutil.move(bundle, destination)
         destination.chmod(0o700)
     return verify(destination, expected_hash=manifest_hash)
+
+
+def stage_files(directory, manifest_hash, destination):
+    verify(directory, expected_hash=manifest_hash)
+    need(not destination.exists(), 'file staging requires a new empty destination')
+    destination.mkdir(mode=0o700, parents=True)
+    # These are inactive artifacts, not Docker mounts or boot configuration.
+    # Preserve recorded ownership only when run as root; an unprivileged rehearsal
+    # records the limitation and cannot claim installable provider file ownership.
+    for name in ('auth-data', 'auth-templates', 'auth-certs', 'private-config'):
+        target = destination / name
+        target.mkdir(mode=0o700)
+        directories = []
+        with tarfile.open(directory / (name + '.tar'), 'r:') as archive:
+            for item in archive:
+                output = target / item.name
+                output.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+                if item.isdir():
+                    output.mkdir(mode=0o700, exist_ok=True)
+                    directories.append((output, item))
+                else:
+                    with output.open('xb') as stream:
+                        source = archive.extractfile(item)
+                        while chunk := source.read(1024 * 1024):
+                            need(shutil.disk_usage(destination).free >= 268435456 + len(chunk),
+                                 'insufficient file staging headroom')
+                            stream.write(chunk)
+                    if os.geteuid() == 0:
+                        os.chown(output, item.uid, item.gid)
+                    output.chmod(item.mode & 0o777)
+            # Apply directories last so restrictive source modes do not obstruct
+            # extraction; the parent artifact directory remains private.
+            for output, item in reversed(directories):
+                if os.geteuid() == 0:
+                    os.chown(output, item.uid, item.gid)
+                output.chmod(item.mode & 0o777)
+    receipt = {'state': 'files-staged-closed', 'backup_manifest_sha256': manifest_hash,
+               'ownership_preserved': os.geteuid() == 0, 'boot_configuration': 'inactive-artifacts'}
+    private_file_path = destination / 'staged-closed.json'
+    private_file_path.write_text(json.dumps(receipt, sort_keys=True) + '\n')
+    private_file_path.chmod(0o600)
 
 
 def import_databases(directory, manifest_hash, target_path, control_path, fence_path):
@@ -109,6 +168,10 @@ def main():
     fetch_parser.add_argument('--manifest-sha256', required=True)
     fetch_parser.add_argument('--source-path', type=Path, required=True)
     fetch_parser.add_argument('--destination', type=Path, required=True)
+    staged = sub.add_parser('stage-files')
+    staged.add_argument('--bundle', type=Path, required=True)
+    staged.add_argument('--manifest-sha256', required=True)
+    staged.add_argument('--destination', type=Path, required=True)
     imported = sub.add_parser('import-databases')
     imported.add_argument('--bundle', type=Path, required=True)
     imported.add_argument('--manifest-sha256', required=True)
@@ -119,10 +182,12 @@ def main():
     try:
         if args.action == 'fetch':
             fetch(args.snapshot, args.manifest_sha256, args.source_path, args.destination)
+        elif args.action == 'stage-files':
+            stage_files(args.bundle, args.manifest_sha256, args.destination)
         else:
             import_databases(args.bundle, args.manifest_sha256, args.target, args.external_control, args.old_host_fence)
         print('PASS: isolated restore artifacts verified; ingress/provider/jobs/repair/open remain closed')
-    except (OSError, ValueError, KeyError, TypeError, subprocess.SubprocessError):
+    except (OSError, ValueError, KeyError, TypeError, subprocess.SubprocessError, tarfile.TarError):
         print('FAIL: restore remains closed; discard any partial target before retry', file=sys.stderr)
         return 1
     return 0

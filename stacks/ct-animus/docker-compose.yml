@@ -26,6 +26,8 @@ x-auth-env: &auth-env
   AUTHENTIK_DISABLE_UPDATE_CHECK: "true"
 x-api-env: &api-env
   HUB_ADDR: 0.0.0.0:8095
+  HUB_RECOVERY_MODE: enforced
+  HUB_RECOVERY_PROFILE: native-workout-v1
   HUB_DATABASE_URL: postgres://animus_runtime:${APP_RUNTIME_DB_PASSWORD:?hex secret required}@app-postgres:5432/animus?sslmode=disable
   HUB_OIDC_TRUST_CONFIG: /run/animus/oidc-trust.json
   # Requires the separately reviewed compatible API image; older images do not
@@ -125,6 +127,8 @@ services:
     profiles: [commissioning]
     restart: unless-stopped
     environment: *api-env
+    # Independently retained control, never restored from the stack/bundle.
+    env_file: [/etc/animus-control/recovery.env]
     ports: ["${CT_IPV4}:8095:8095"]
     dns: ["${PRIVATE_DNS_IPV4}"]
     networks: [database, egress]

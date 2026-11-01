@@ -14,6 +14,8 @@ import tarfile
 import time
 import uuid
 
+sys.dont_write_bytecode = True
+
 from bundle import FORMAT, GENERATION_KEYS, external_control, inventory, need, private_file, safe_name, verify
 
 WRITERS = ('api', 'auth-server', 'auth-worker')
@@ -182,7 +184,12 @@ class Capture:
                             archive.addfile(info, io.BytesIO(value))
                         else:
                             with entry.open('rb') as stream:
-                                archive.addfile(info, stream)
+                                owner = self
+                                class Guarded:
+                                    def read(self, count=-1):
+                                        owner.headroom(max(0, count))
+                                        return stream.read(count)
+                                archive.addfile(info, Guarded())
                     else:
                         archive.addfile(info)
         target.chmod(0o600)
@@ -192,7 +199,19 @@ class Capture:
         need(not self.hold.exists(), 'existing capture hold requires operator review')
         self.identify()
         prior_generation = external_control(Path(self.c['external_control']))
+        api_environment = dict(item.split('=', 1) for item in self.containers['api']['Config']['Env'])
+        need(api_environment.get('HUB_RECOVERY_MODE') == 'enforced'
+             and api_environment.get('HUB_RECOVERY_PROFILE') == 'native-workout-v1'
+             and api_environment.get('HUB_RECOVERY_GENERATION') == prior_generation,
+             'API must use this independently held enforced control')
         estimate = sum(int(self.sql(which, 'SELECT pg_database_size(current_database())')) for which in ('app', 'auth')) * 3
+        sources = [self.volume(name) for name in ('auth-data', 'auth-templates', 'auth-certs')]
+        sources += [Path(item['source']) for item in self.c['config_sources']]
+        for source in sources:
+            for entry in ([source] + list(source.rglob('*')) if source.is_dir() else [source]):
+                need(entry.exists() and not entry.is_symlink(), 'missing or linked capture source')
+                if entry.is_file():
+                    estimate += 2 * entry.stat().st_size
         self.headroom(estimate)
         capture_id = str(uuid.uuid4())
         partial = self.spool / (capture_id + '.partial')
@@ -243,6 +262,7 @@ class Capture:
         # Restore has no corresponding resume/open path.
         try:
             self.resume(record)
+            self.hold.unlink()
         except BaseException:
             for service in WRITERS:
                 for args in (['docker', 'update', '--restart=no', record['containers'][service]['id']],
@@ -252,7 +272,17 @@ class Capture:
                     except (OSError, ValueError):
                         pass
             raise
-        self.hold.unlink()
+        # Keep at most two verified completed local captures; no partial/unknown
+        # directory is deleted automatically. These are staging, not replicas/backups.
+        prior = []
+        for candidate in self.spool.iterdir():
+            if candidate.is_dir() and candidate != complete:
+                try:
+                    prior.append((verify(candidate)['completed_unix'], candidate))
+                except (OSError, ValueError, KeyError, TypeError):
+                    continue
+        for _, obsolete in sorted(prior, key=lambda row: row[0], reverse=True)[1:]:
+            shutil.rmtree(obsolete)
         return complete
 
     def resume(self, record):
@@ -273,7 +303,7 @@ def config(path):
     need(set(value) == {'project', 'spool', 'external_control', 'source_revision', 'reserve_bytes',
                         'stop_seconds', 'databases', 'config_sources'}, 'unexpected capture configuration')
     need(re.fullmatch(r'[a-z][a-z0-9-]{2,60}', value['project']), 'explicit project required')
-    need(re.fullmatch(r'[0-9a-f]{40}', value['source_revision']), 'full source revision required')
+    need(re.fullmatch(r'[0-9a-f]{40}', value['source_revision']) and value['source_revision'] != '0' * 40, 'full source revision required')
     need(isinstance(value['reserve_bytes'], int) and value['reserve_bytes'] >= 256 * 1024 * 1024,
          'at least 256 MiB reserve required')
     need(10 <= value['stop_seconds'] <= 300, 'bounded drain required')

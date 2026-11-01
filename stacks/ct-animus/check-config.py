@@ -8,8 +8,10 @@ from pathlib import Path
 import re
 import subprocess
 import tempfile
+import uuid
 
 ROOT = Path(__file__).resolve().parent
+CONTROL = Path("/etc/animus-control/recovery.env")
 PROFILE = "rs256-exact-issuer-singleton-client-audience-online-userinfo"
 
 
@@ -40,8 +42,20 @@ def read_env(path):
     return values
 
 
-def validate(env_path, synthetic=False, inspect_image=False):
+def validate(env_path, synthetic=False, inspect_image=False, recovery_path=CONTROL):
     values = read_env(env_path)
+    require(not any(key.startswith("HUB_RECOVERY_") for key in values),
+            "recovery control must be external, never stack .env")
+    require(recovery_path.is_file() and not recovery_path.is_symlink(), "external recovery control required")
+    if not synthetic:
+        require(recovery_path == CONTROL and recovery_path.stat().st_uid == 0, "root-owned independent recovery control required")
+    recovery = read_env(recovery_path)
+    require(set(recovery) == {"HUB_RECOVERY_MODE", "HUB_RECOVERY_PROFILE", "HUB_RECOVERY_GENERATION"}
+            and recovery["HUB_RECOVERY_MODE"] == "enforced"
+            and recovery["HUB_RECOVERY_PROFILE"] == "native-workout-v1", "enforced native recovery control required")
+    generation = recovery["HUB_RECOVERY_GENERATION"]
+    require(str(uuid.UUID(generation)) == generation and int(uuid.UUID(generation)) != 0,
+            "canonical nonzero independent generation required")
     for key in ("CT_IPV4", "PROXY_IPV4", "PRIVATE_DNS_IPV4"):
         private_ip(values[key])
     require(values["CT_IPV4"] != values["PROXY_IPV4"], "proxy must be a different CT")
@@ -65,10 +79,20 @@ def validate(env_path, synthetic=False, inspect_image=False):
     # in Compose diagnostics. Only bounded generic failures reach stdout/stderr.
     clean_env = {key: os.environ[key] for key in ("PATH", "HOME", "LANG", "TMPDIR") if key in os.environ}
     clean_env["COMPOSE_DISABLE_ENV_FILE"] = "1"
+    compose_path = ROOT / "docker-compose.yml"
+    temporary_compose = None
+    if synthetic:
+        # Self-test uses a disposable control file, never creates host /etc state.
+        temporary_compose = tempfile.NamedTemporaryFile(mode="w", suffix=".yaml")
+        temporary_compose.write(compose_path.read_text().replace(str(CONTROL), str(recovery_path)))
+        temporary_compose.flush()
+        compose_path = Path(temporary_compose.name)
     result = subprocess.run(["docker", "compose", "--project-directory", str(ROOT),
-                             "--env-file", str(env_path), "-f", str(ROOT / "docker-compose.yml"),
+                             "--env-file", str(env_path), "-f", str(compose_path),
                              "--profile", "*", "config", "--format", "json"],
                             env=clean_env, capture_output=True, text=True)
+    if temporary_compose:
+        temporary_compose.close()
     require(result.returncode == 0, "Compose config failed; check private inputs without exporting rendered secrets")
     config = json.loads(result.stdout)
     services = config["services"]
@@ -103,6 +127,8 @@ def validate(env_path, synthetic=False, inspect_image=False):
                 and ports[0]["target"] == port and int(ports[0]["published"]) == port,
                 "upstreams must bind only the reserved private interface")
     api = services["api"]
+    require(all(api["environment"].get(key) == value for key, value in recovery.items()),
+            "API must use the exact independently held enforced recovery control")
     require(api["environment"].get("HUB_OIDC_PRIVATE_HTTP_ORIGIN") == "http://" + hostname,
             "private HTTP opt-in must equal the exact configured LAN login origin")
     require(api.get("profiles") == ["commissioning"] and services["migrate"].get("profiles") == ["operator"],
@@ -154,19 +180,23 @@ def self_test():
                       API_IMAGE_ID="sha256:" + "b" * 64, OIDC_TRUST_FILE=str(registry),
                       APP_ADMIN_DB_PASSWORD="a" * 64, APP_RUNTIME_DB_PASSWORD="b" * 64,
                       AUTH_ADMIN_DB_PASSWORD="c" * 64, AUTH_DB_PASSWORD="d" * 64, AUTHENTIK_SECRET_KEY="e" * 128)
+        recovery_path = root / "recovery.env"
+        recovery_path.write_text("HUB_RECOVERY_MODE=enforced\nHUB_RECOVERY_PROFILE=native-workout-v1\n"
+                                 "HUB_RECOVERY_GENERATION=11111111-1111-4111-8111-111111111111\n")
+        recovery_path.chmod(0o600)
         env = root / ".env"
         def write():
             env.write_text("".join(f"{key}={value}\n" for key, value in values.items()))
             env.chmod(0o600)
         write()
-        validate(env, synthetic=True)
+        validate(env, synthetic=True, recovery_path=recovery_path)
         for key, invalid in (("CT_IPV4", "0.0.0.0"), ("API_IMAGE", "public/image:latest"),
                              ("APP_RUNTIME_DB_PASSWORD", values["APP_ADMIN_DB_PASSWORD"])):
             old = values[key]
             values[key] = invalid
             write()
             try:
-                validate(env, synthetic=True)
+                validate(env, synthetic=True, recovery_path=recovery_path)
             except ValueError:
                 pass
             else:

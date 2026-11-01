@@ -1,0 +1,9 @@
+{
+  "ssh_host": "root@192.168.3.20",
+  "ssh_key": "/root/.ssh/id_ed25519",
+  "known_hosts": "/root/.ssh/known_hosts",
+  "staging": "/var/backup-staging/animus",
+  "status": "/var/lib/backup-status/animus.json",
+  "reserve_bytes": 1073741824,
+  "max_age_seconds": 86400
+}

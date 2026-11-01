@@ -8,6 +8,12 @@
 # run rewrites status.json from scratch, clearing the stale flag.
 set -euo pipefail
 
+# Separate endpoint/condition: .protected == true. A fleet timestamp never
+# substitutes for Animus capture age. Preserve the legacy fleet freshness path.
+if [[ -f /etc/animus-backup/enabled ]]; then
+  /usr/local/lib/animus-backup/restic-copy.py freshness || true
+fi
+
 STATUS=/var/lib/backup-status/status.json
 MAX_AGE_SEC=$((36 * 3600))  # 36h — covers nightly run + ~12h grace
 
