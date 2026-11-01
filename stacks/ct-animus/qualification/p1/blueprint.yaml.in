@@ -71,8 +71,8 @@ entries:
     id: consent
     identifiers: {name: p1-mechanism-consent}
     attrs: {mode: always_require}
-__PROMPT_STAGES__
 __POLICIES__
+__PROMPT_STAGES__
   - model: authentik_providers_oauth2.scopemapping
     id: assurance-mapping
     identifiers: {managed: animus.p1/mechanism-openid-v2}

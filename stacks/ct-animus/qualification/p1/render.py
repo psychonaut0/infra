@@ -58,7 +58,7 @@ def render(issuance_experiment=False):
         for i, stage in enumerate(stages):
             bindings += ['  - model: authentik_flows.flowstagebinding',
                          f'    identifiers: {{target: !KeyOf {flow}, stage: !KeyOf {stage}, order: {i * 10}}}',
-                         '    attrs: {evaluate_on_plan: false, re_evaluate_policies: false, invalid_response_action: retry}']
+                         '    attrs: {evaluate_on_plan: true, re_evaluate_policies: false, invalid_response_action: retry}']
     return (result.replace('__PHASE__', 'REVIEWED ISOLATED ISSUANCE EXPERIMENT ONLY' if issuance_experiment else 'MECHANISM PHASE: application issuance unconditionally denied')
             .replace('__PROMPT_STAGES__', '\n'.join(stage_rows))
             .replace('__POLICIES__', '\n'.join(policy_rows))

@@ -230,7 +230,7 @@ class CandidateTests(unittest.TestCase):
         self.assertEqual((ROOT/'candidate.yaml').read_text(), renderer.render())
         self.assertFalse(any(e['model'] in ('authentik_core.user','authentik_stages_deny.denystage') for e in entries))
         bindings=[e for e in entries if e['model']=='authentik_flows.flowstagebinding']
-        self.assertTrue(all(not e['attrs']['re_evaluate_policies'] and not e['attrs']['evaluate_on_plan'] for e in bindings))
+        self.assertTrue(all(not e['attrs']['re_evaluate_policies'] and e['attrs']['evaluate_on_plan'] for e in bindings))
         self.assertTrue(all(e['attrs']['invalid_response_action']=='retry' for e in bindings))
         normal=sorted((e for e in bindings if e['identifiers']['target']=={'KeyOf':'normal-flow'}),key=lambda e:e['identifiers']['order'])
         self.assertEqual([e['identifiers']['stage']['KeyOf'] for e in normal],['normal-entry','identification','password','totp-validation','normal-final','login'])

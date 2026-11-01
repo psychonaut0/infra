@@ -71,34 +71,6 @@ entries:
     id: consent
     identifiers: {name: p1-mechanism-consent}
     attrs: {mode: always_require}
-  - model: authentik_stages_prompt.promptstage
-    id: normal-entry
-    identifiers: {name: p1-mechanism-normal-entry}
-    attrs: {fields: [!KeyOf prompt-continue], validation_policies: [!KeyOf entry-policy]}
-  - model: authentik_stages_prompt.promptstage
-    id: normal-final
-    identifiers: {name: p1-mechanism-normal-final}
-    attrs: {fields: [!KeyOf prompt-continue], validation_policies: [!KeyOf final-policy]}
-  - model: authentik_stages_prompt.promptstage
-    id: authorization-entry
-    identifiers: {name: p1-mechanism-authorization-entry}
-    attrs: {fields: [!KeyOf prompt-continue], validation_policies: [!KeyOf authorization-entry-policy]}
-  - model: authentik_stages_prompt.promptstage
-    id: authorization-final
-    identifiers: {name: p1-mechanism-authorization-final}
-    attrs: {fields: [!KeyOf prompt-continue], validation_policies: [!KeyOf authorization-final-policy]}
-  - model: authentik_stages_prompt.promptstage
-    id: bootstrap-entry
-    identifiers: {name: p1-mechanism-bootstrap-entry}
-    attrs: {fields: [!KeyOf prompt-continue], validation_policies: [!KeyOf bootstrap-entry-policy]}
-  - model: authentik_stages_prompt.promptstage
-    id: bootstrap
-    identifiers: {name: p1-mechanism-bootstrap}
-    attrs: {fields: [!KeyOf prompt-continue], validation_policies: [!KeyOf bootstrap-policy]}
-  - model: authentik_stages_prompt.promptstage
-    id: repair
-    identifiers: {name: p1-mechanism-repair}
-    attrs: {fields: [!KeyOf prompt-continue], validation_policies: [!KeyOf repair-policy]}
   - model: authentik_policies_expression.expressionpolicy
     id: entry-policy
     identifiers: {name: p1-mechanism-entry}
@@ -502,6 +474,34 @@ entries:
             return True
         except Exception:
             return False
+  - model: authentik_stages_prompt.promptstage
+    id: normal-entry
+    identifiers: {name: p1-mechanism-normal-entry}
+    attrs: {fields: [!KeyOf prompt-continue], validation_policies: [!KeyOf entry-policy]}
+  - model: authentik_stages_prompt.promptstage
+    id: normal-final
+    identifiers: {name: p1-mechanism-normal-final}
+    attrs: {fields: [!KeyOf prompt-continue], validation_policies: [!KeyOf final-policy]}
+  - model: authentik_stages_prompt.promptstage
+    id: authorization-entry
+    identifiers: {name: p1-mechanism-authorization-entry}
+    attrs: {fields: [!KeyOf prompt-continue], validation_policies: [!KeyOf authorization-entry-policy]}
+  - model: authentik_stages_prompt.promptstage
+    id: authorization-final
+    identifiers: {name: p1-mechanism-authorization-final}
+    attrs: {fields: [!KeyOf prompt-continue], validation_policies: [!KeyOf authorization-final-policy]}
+  - model: authentik_stages_prompt.promptstage
+    id: bootstrap-entry
+    identifiers: {name: p1-mechanism-bootstrap-entry}
+    attrs: {fields: [!KeyOf prompt-continue], validation_policies: [!KeyOf bootstrap-entry-policy]}
+  - model: authentik_stages_prompt.promptstage
+    id: bootstrap
+    identifiers: {name: p1-mechanism-bootstrap}
+    attrs: {fields: [!KeyOf prompt-continue], validation_policies: [!KeyOf bootstrap-policy]}
+  - model: authentik_stages_prompt.promptstage
+    id: repair
+    identifiers: {name: p1-mechanism-repair}
+    attrs: {fields: [!KeyOf prompt-continue], validation_policies: [!KeyOf repair-policy]}
   - model: authentik_providers_oauth2.scopemapping
     id: assurance-mapping
     identifiers: {managed: animus.p1/mechanism-openid-v2}
@@ -560,79 +560,79 @@ entries:
             return {}
   - model: authentik_flows.flowstagebinding
     identifiers: {target: !KeyOf normal-flow, stage: !KeyOf normal-entry, order: 0}
-    attrs: {evaluate_on_plan: false, re_evaluate_policies: false, invalid_response_action: retry}
+    attrs: {evaluate_on_plan: true, re_evaluate_policies: false, invalid_response_action: retry}
   - model: authentik_flows.flowstagebinding
     identifiers: {target: !KeyOf normal-flow, stage: !KeyOf identification, order: 10}
-    attrs: {evaluate_on_plan: false, re_evaluate_policies: false, invalid_response_action: retry}
+    attrs: {evaluate_on_plan: true, re_evaluate_policies: false, invalid_response_action: retry}
   - model: authentik_flows.flowstagebinding
     identifiers: {target: !KeyOf normal-flow, stage: !KeyOf password, order: 20}
-    attrs: {evaluate_on_plan: false, re_evaluate_policies: false, invalid_response_action: retry}
+    attrs: {evaluate_on_plan: true, re_evaluate_policies: false, invalid_response_action: retry}
   - model: authentik_flows.flowstagebinding
     identifiers: {target: !KeyOf normal-flow, stage: !KeyOf totp-validation, order: 30}
-    attrs: {evaluate_on_plan: false, re_evaluate_policies: false, invalid_response_action: retry}
+    attrs: {evaluate_on_plan: true, re_evaluate_policies: false, invalid_response_action: retry}
   - model: authentik_flows.flowstagebinding
     identifiers: {target: !KeyOf normal-flow, stage: !KeyOf normal-final, order: 40}
-    attrs: {evaluate_on_plan: false, re_evaluate_policies: false, invalid_response_action: retry}
+    attrs: {evaluate_on_plan: true, re_evaluate_policies: false, invalid_response_action: retry}
   - model: authentik_flows.flowstagebinding
     identifiers: {target: !KeyOf normal-flow, stage: !KeyOf login, order: 50}
-    attrs: {evaluate_on_plan: false, re_evaluate_policies: false, invalid_response_action: retry}
+    attrs: {evaluate_on_plan: true, re_evaluate_policies: false, invalid_response_action: retry}
   - model: authentik_flows.flowstagebinding
     identifiers: {target: !KeyOf enrollment-flow, stage: !KeyOf identification, order: 0}
-    attrs: {evaluate_on_plan: false, re_evaluate_policies: false, invalid_response_action: retry}
+    attrs: {evaluate_on_plan: true, re_evaluate_policies: false, invalid_response_action: retry}
   - model: authentik_flows.flowstagebinding
     identifiers: {target: !KeyOf enrollment-flow, stage: !KeyOf password, order: 10}
-    attrs: {evaluate_on_plan: false, re_evaluate_policies: false, invalid_response_action: retry}
+    attrs: {evaluate_on_plan: true, re_evaluate_policies: false, invalid_response_action: retry}
   - model: authentik_flows.flowstagebinding
     identifiers: {target: !KeyOf enrollment-flow, stage: !KeyOf bootstrap-entry, order: 20}
-    attrs: {evaluate_on_plan: false, re_evaluate_policies: false, invalid_response_action: retry}
+    attrs: {evaluate_on_plan: true, re_evaluate_policies: false, invalid_response_action: retry}
   - model: authentik_flows.flowstagebinding
     identifiers: {target: !KeyOf enrollment-flow, stage: !KeyOf totp-setup, order: 30}
-    attrs: {evaluate_on_plan: false, re_evaluate_policies: false, invalid_response_action: retry}
+    attrs: {evaluate_on_plan: true, re_evaluate_policies: false, invalid_response_action: retry}
   - model: authentik_flows.flowstagebinding
     identifiers: {target: !KeyOf enrollment-flow, stage: !KeyOf bootstrap, order: 40}
-    attrs: {evaluate_on_plan: false, re_evaluate_policies: false, invalid_response_action: retry}
+    attrs: {evaluate_on_plan: true, re_evaluate_policies: false, invalid_response_action: retry}
   - model: authentik_flows.flowstagebinding
     identifiers: {target: !KeyOf enrollment-flow, stage: !KeyOf static-setup, order: 50}
-    attrs: {evaluate_on_plan: false, re_evaluate_policies: false, invalid_response_action: retry}
+    attrs: {evaluate_on_plan: true, re_evaluate_policies: false, invalid_response_action: retry}
   - model: authentik_flows.flowstagebinding
     identifiers: {target: !KeyOf enrollment-flow, stage: !KeyOf logout, order: 60}
-    attrs: {evaluate_on_plan: false, re_evaluate_policies: false, invalid_response_action: retry}
+    attrs: {evaluate_on_plan: true, re_evaluate_policies: false, invalid_response_action: retry}
   - model: authentik_flows.flowstagebinding
     identifiers: {target: !KeyOf repair-flow, stage: !KeyOf identification, order: 0}
-    attrs: {evaluate_on_plan: false, re_evaluate_policies: false, invalid_response_action: retry}
+    attrs: {evaluate_on_plan: true, re_evaluate_policies: false, invalid_response_action: retry}
   - model: authentik_flows.flowstagebinding
     identifiers: {target: !KeyOf repair-flow, stage: !KeyOf password, order: 10}
-    attrs: {evaluate_on_plan: false, re_evaluate_policies: false, invalid_response_action: retry}
+    attrs: {evaluate_on_plan: true, re_evaluate_policies: false, invalid_response_action: retry}
   - model: authentik_flows.flowstagebinding
     identifiers: {target: !KeyOf repair-flow, stage: !KeyOf repair, order: 20}
-    attrs: {evaluate_on_plan: false, re_evaluate_policies: false, invalid_response_action: retry}
+    attrs: {evaluate_on_plan: true, re_evaluate_policies: false, invalid_response_action: retry}
   - model: authentik_flows.flowstagebinding
     identifiers: {target: !KeyOf repair-flow, stage: !KeyOf static-validation, order: 30}
-    attrs: {evaluate_on_plan: false, re_evaluate_policies: false, invalid_response_action: retry}
+    attrs: {evaluate_on_plan: true, re_evaluate_policies: false, invalid_response_action: retry}
   - model: authentik_flows.flowstagebinding
     identifiers: {target: !KeyOf repair-flow, stage: !KeyOf repair, order: 40}
-    attrs: {evaluate_on_plan: false, re_evaluate_policies: false, invalid_response_action: retry}
+    attrs: {evaluate_on_plan: true, re_evaluate_policies: false, invalid_response_action: retry}
   - model: authentik_flows.flowstagebinding
     identifiers: {target: !KeyOf repair-flow, stage: !KeyOf totp-setup, order: 50}
-    attrs: {evaluate_on_plan: false, re_evaluate_policies: false, invalid_response_action: retry}
+    attrs: {evaluate_on_plan: true, re_evaluate_policies: false, invalid_response_action: retry}
   - model: authentik_flows.flowstagebinding
     identifiers: {target: !KeyOf repair-flow, stage: !KeyOf repair, order: 60}
-    attrs: {evaluate_on_plan: false, re_evaluate_policies: false, invalid_response_action: retry}
+    attrs: {evaluate_on_plan: true, re_evaluate_policies: false, invalid_response_action: retry}
   - model: authentik_flows.flowstagebinding
     identifiers: {target: !KeyOf repair-flow, stage: !KeyOf static-setup, order: 70}
-    attrs: {evaluate_on_plan: false, re_evaluate_policies: false, invalid_response_action: retry}
+    attrs: {evaluate_on_plan: true, re_evaluate_policies: false, invalid_response_action: retry}
   - model: authentik_flows.flowstagebinding
     identifiers: {target: !KeyOf repair-flow, stage: !KeyOf logout, order: 80}
-    attrs: {evaluate_on_plan: false, re_evaluate_policies: false, invalid_response_action: retry}
+    attrs: {evaluate_on_plan: true, re_evaluate_policies: false, invalid_response_action: retry}
   - model: authentik_flows.flowstagebinding
     identifiers: {target: !KeyOf authorization-flow, stage: !KeyOf authorization-entry, order: 0}
-    attrs: {evaluate_on_plan: false, re_evaluate_policies: false, invalid_response_action: retry}
+    attrs: {evaluate_on_plan: true, re_evaluate_policies: false, invalid_response_action: retry}
   - model: authentik_flows.flowstagebinding
     identifiers: {target: !KeyOf authorization-flow, stage: !KeyOf consent, order: 10}
-    attrs: {evaluate_on_plan: false, re_evaluate_policies: false, invalid_response_action: retry}
+    attrs: {evaluate_on_plan: true, re_evaluate_policies: false, invalid_response_action: retry}
   - model: authentik_flows.flowstagebinding
     identifiers: {target: !KeyOf authorization-flow, stage: !KeyOf authorization-final, order: 20}
-    attrs: {evaluate_on_plan: false, re_evaluate_policies: false, invalid_response_action: retry}
+    attrs: {evaluate_on_plan: true, re_evaluate_policies: false, invalid_response_action: retry}
   - model: authentik_providers_oauth2.oauth2provider
     id: provider
     identifiers: {name: P1 isolated mechanism experiment}
