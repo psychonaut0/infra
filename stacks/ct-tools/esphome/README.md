@@ -95,6 +95,11 @@ Raise the CT's resources first if you really want it.
 | `config/presence-sensor-3.yaml` | Presence sensor 3 | ESP32-WROOM-32 + LD2420 mmWave | Live, dashboard-managed |
 | `config/presence-sensor-4.yaml` | Presence sensor 4 | ESP32-WROOM-32 + LD2420 mmWave | Live, dashboard-managed |
 | `config/kitchen-window.yaml` | Kitchen window (tilt-and-turn) | ESP32-C3 + 2 reed contacts | Live in HA, not yet mounted |
+| `config/window-sensor-1.yaml` | 2 windows, room TBD | ESP32-WROOM-32 + 4 reeds | Provisioned 2026-10-30 |
+| `config/window-sensor-2.yaml` | 2 windows, room TBD | ESP32-C3 + 4 reeds | Provisioned 2026-10-30 |
+| `config/window-sensor-3.yaml` | 1 window, room TBD | ESP32-C3 + 2 reeds | Provisioned 2026-10-30 |
+| `config/window-sensor-4.yaml` | 2 windows, room TBD | ESP32-C3 + 4 reeds | Provisioned 2026-10-30 |
+| `config/front-door.yaml` | Front door | ESP32-WROOM-32 + 1 reed | Provisioned 2026-10-30 |
 | `config/archive/thermostat.yaml` | Thermostat (#1) | bk72xx (Beken, reflashed Tuya) | **Base stub only** — see below |
 
 ### Presence fleet — provisioned 2026-10-26
@@ -119,6 +124,20 @@ only selects the logs/OTA target; the reservation is what keeps it true. Give
 any new IoT device a reservation before adding it to HA. USB device numbers can
 change after reconnecting.
 
+**Clear-time tuning (2026-10-26):** sensor 1's radar timeout was reduced from
+30 seconds to 5 seconds through Home Assistant: set **Detection Presence
+Timeout**, then press **Apply Config**. This saves the setting in the LD2420;
+no firmware build is needed. Sensors 2–4 were powered off and were not changed.
+Apply the same setting when they are powered again. Any new radar detection
+restarts the countdown; the GPIO presence entity adds a further 500ms off-delay.
+
+Dashboard metadata was populated from the workstation builds with each
+device's IP, so online status does not require a compile on ct-tools. The
+factory and OTA images are also saved under the live config directory's
+`.esphome/build/presence-sensor-<n>/` for sensors 2–4. Pre-flash backups and
+firmware images are retained locally in the gitignored, private
+`config/.esphome/provisioning-20261026/` directory.
+
 ### Window/door sensors — reed contacts
 
 `config/common/window.yaml` is a package for one tilt-and-turn sash (vasistas):
@@ -138,13 +157,40 @@ two reeds give `Tilted`, `Open` and a derived `Position` (prefixed by `name_pref
 - **Powered from a 5V supply on the `5V` pin:** on the C3 SuperMini that pin is
   USB VBUS with no diode, so never connect USB while the supply is on. Flash
   over USB before soldering the supply, OTA after.
+- **Pins that look free but are not:** on the WROOM-32, GPIO34–39 have no
+  internal pull-up (a reed there floats; ESPHome rejects `pullup: true`). On
+  the C3, GPIO21 is UART0 TX and the ROM prints its boot log on it, driving
+  the pin into a closed reed at every power-up. Each device YAML carries the
+  pin budget for its chip. Verified 2026-10-30: a reed on WROOM GPIO2 reads
+  closed while open — the DevKit's onboard LED loads the pin against the
+  ~45k internal pull-up.
+- `config/common/door.yaml` is the one-reed variant (open/closed, no tilt).
+- **Boards with several sashes use `config/common/window-subdevice.yaml`**,
+  which puts each sash on its own ESPHome sub-device, so in HA every window is
+  a device of its own (connected via the board) and takes its own area. Give
+  `device_name` a fleet-wide unique value (`Window sensor 1 - Window 1`): it
+  becomes the entity IDs, and two sub-devices both called `Window 1` collide
+  as `binary_sensor.window_1_tilted` / `…_2`. The sub-device's HA identity is
+  a hash of its `id` (`w1_device`), not its name, so renaming it in YAML keeps
+  the entities but not their entity IDs — those were fixed in HA's registry.
+  Moving an existing entity onto a sub-device does create a new entity; HA
+  dropped the old ones by itself.
 
-Dashboard metadata was populated from the workstation builds with each
-device's IP, so online status does not require a compile on ct-tools. The
-factory and OTA images are also saved under the live config directory's
-`.esphome/build/presence-sensor-<n>/` for sensors 2–4. Pre-flash backups and
-firmware images are retained locally in the gitignored, private
-`config/.esphome/provisioning-20261026/` directory.
+**Reed fleet (2026-10-30).** Rooms were not decided at provisioning, so the
+boards have generic names and areas are assigned in Home Assistant, per
+window sub-device on the two-window boards. Renaming a device in ESPHome
+changes its hostname and every entity ID, so rename in HA.
+
+| Device | Chip | Reserved address | Reeds (tilt, open) |
+|---|---|---|---|
+| `window-sensor-1` | WROOM-32 | `192.168.2.115` | W1: 16, 17 · W2: 14, 27 |
+| `window-sensor-2` | C3 | `192.168.2.117` | W1: 5, 6 · W2: 4, 3 |
+| `window-sensor-3` | C3 | `192.168.2.118` | 5, 6 |
+| `window-sensor-4` | C3 | `192.168.2.119` | W1: 5, 6 · W2: 4, 3 |
+| `front-door` | WROOM-32 | `192.168.2.120` | door: 16 |
+
+`window-sensor-2` and `-3` are the ESP32-C3 boards that were presence sensors
+3 and 2 before the radar fleet moved to the WROOM-32.
 
 ## LD2420 wiring — read before building another one
 

@@ -1,0 +1,26 @@
+# One door (or any plain sash) = a single reed contact, open/closed only.
+# Include once per door from a device YAML:
+#
+#   packages:
+#     door_1: !include
+#       file: common/door.yaml
+#       vars:
+#         door_id: d1                    # unique per device, used for ids
+#         name: "Door"                   # entity name; HA prefixes the device name
+#         pin: GPIO21
+#         magnet_at_position: "false"    # same meaning as in common/window.yaml
+#
+# Wiring: reed between the GPIO and GND, internal pull-up on.
+binary_sensor:
+  - platform: gpio
+    id: ${door_id}
+    name: "${name}"
+    device_class: door
+    pin:
+      number: ${pin}
+      mode:
+        input: true
+        pullup: true
+      inverted: ${magnet_at_position}
+    filters:
+      - delayed_on_off: 100ms

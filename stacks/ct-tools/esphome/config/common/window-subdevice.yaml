@@ -1,0 +1,34 @@
+# common/window.yaml on its own Home Assistant sub-device, for boards that
+# serve several sashes: each sash then shows in HA as a device of its own and
+# can be given its own area. Same vars as common/window.yaml, plus:
+#
+#         device_name: "Window sensor 1 - Window 1"   # unique fleet-wide: it
+#                                        # becomes the HA entity IDs; rename in HA
+#
+# with name_prefix left "" — HA prefixes the sub-device's name instead.
+# Single-sash boards include common/window.yaml directly, since there the
+# board and the sash are the same thing.
+esphome:
+  devices:
+    - id: ${window_id}_device
+      name: "${device_name}"
+
+packages:
+  sash: !include
+    file: window.yaml
+    vars:
+      window_id: ${window_id}
+      name_prefix: ""
+      tilt_pin: ${tilt_pin}
+      open_pin: ${open_pin}
+      magnet_at_position: ${magnet_at_position}
+
+binary_sensor:
+  - id: !extend ${window_id}_tilt
+    device_id: ${window_id}_device
+  - id: !extend ${window_id}_open
+    device_id: ${window_id}_device
+
+text_sensor:
+  - id: !extend ${window_id}_position
+    device_id: ${window_id}_device
