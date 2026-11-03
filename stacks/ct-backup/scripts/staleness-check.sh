@@ -12,6 +12,7 @@ set -euo pipefail
 # substitutes for Animus capture age. Preserve the legacy fleet freshness path.
 if [[ -f /etc/animus-backup/enabled ]]; then
   /usr/local/lib/animus-backup/restic-copy.py freshness || true
+  /usr/local/lib/animus-backup/monitor.py freshness || true
 fi
 
 STATUS=/var/lib/backup-status/status.json

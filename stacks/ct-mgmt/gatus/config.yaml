@@ -209,6 +209,95 @@ endpoints:
     alerts:
       - type: telegram
 
+  # Separate dimensions: healthz is process/route liveness, not an owner read.
+  - name: Animus API liveness
+    group: important
+    url: "http://hub.lan/healthz"
+    interval: 1m
+    conditions:
+      - "[CONNECTED] == true"
+      - "[STATUS] == 200"
+    alerts: &animus-alerts
+      - type: telegram
+
+  - name: Animus canonical provider discovery
+    group: important
+    url: "http://auth.lan/application/o/alkion-lan/.well-known/openid-configuration"
+    interval: 1m
+    conditions:
+      - "[CONNECTED] == true"
+      - "[STATUS] == 200"
+      - "[BODY].issuer == \"http://auth.lan/application/o/alkion-lan/\""
+    alerts: *animus-alerts
+
+  - name: Animus collection freshness
+    group: important
+    url: "http://backup.lan/animus-operations.json"
+    interval: 1m
+    conditions:
+      - "[STATUS] == 200"
+      - "[BODY].observed == true"
+    alerts: *animus-alerts
+
+  - name: Animus database health
+    group: important
+    url: "http://backup.lan/animus-operations.json"
+    interval: 1m
+    conditions:
+      - "[STATUS] == 200"
+      - "[BODY].database_ready == true"
+    alerts: *animus-alerts
+
+  - name: Animus provider service health
+    group: important
+    url: "http://backup.lan/animus-operations.json"
+    interval: 1m
+    conditions:
+      - "[STATUS] == 200"
+      - "[BODY].provider_ready == true"
+    alerts: *animus-alerts
+
+  - name: Animus recovery authority
+    group: important
+    url: "http://backup.lan/animus-operations.json"
+    interval: 1m
+    # recovery_closed is a separate informational bit. A matching intentionally
+    # closed generation is valid authority; it cannot satisfy the owner-read bit.
+    conditions:
+      - "[STATUS] == 200"
+      - "[BODY].control_ready == true"
+    alerts: *animus-alerts
+
+  - name: Animus storage headroom
+    group: important
+    url: "http://backup.lan/animus-operations.json"
+    interval: 1m
+    conditions:
+      - "[STATUS] == 200"
+      - "[BODY].source_storage_ok == true"
+      - "[BODY].receiver_storage_ok == true"
+    alerts: *animus-alerts
+
+  - name: Animus recent authenticated read
+    group: important
+    url: "http://backup.lan/animus-operations.json"
+    interval: 1m
+    # Owner renews a bounded actual read <=24h. No continuous login/refresh claim.
+    conditions:
+      - "[STATUS] == 200"
+      - "[BODY].authenticated_read_recent == true"
+    alerts: *animus-alerts
+
+  - name: Animus coherent offhost protection
+    group: important
+    url: "http://backup.lan/animus.json"
+    interval: 15m
+    conditions:
+      - "[STATUS] == 200"
+      - "[BODY].protected == true"
+      - "[BODY].timestamp_unix > 0"
+    alerts: *animus-alerts
+
   - name: Backup freshness
     group: important
     url: "http://backup.lan/status.json"

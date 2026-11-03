@@ -322,14 +322,15 @@ class CaptureTests(unittest.TestCase):
         self.assertTrue(self.subject.hold.exists())
         self.assertFalse(any(path.name == 'manifest.json' for path in self.root.rglob('*')))
 
-    def test_successful_resume_restores_exact_retry_policy(self):
+    def test_old_unreviewed_resume_record_cannot_restore_retry_policy(self):
         record = {'containers': {name: {'id': name, 'restart': {'Name': 'on-failure', 'MaximumRetryCount': 7}}
                                  for name in capture.WRITERS}}
         calls = []
         with patch.object(capture, 'command', side_effect=lambda args: calls.append(args) or b''):
             with patch.object(self.subject, 'inspect', side_effect=lambda identifier: {'Id': identifier, 'State': {'Running': False}}):
-                self.subject.resume(record)
-        self.assertEqual(sum('--restart=on-failure:7' in row for row in calls), 3)
+                with self.assertRaises((ValueError, OSError)):
+                    self.subject.resume(record)
+        self.assertEqual(calls, [])
 
 
 

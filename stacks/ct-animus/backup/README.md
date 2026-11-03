@@ -38,6 +38,12 @@ it is still unprotected until the separate B2 snapshot is verified. Nightly
 capture performs no recovery generation transition, grant revocation or factor
 replacement. Restart policies are containment, not an unbypassable host fence:
 manual Docker/Compose commands and other supervisors must respect the hold.
+Response owners require `restart: "no"` and the shared
+[guarded lifecycle](../ops/README.md). Capture resume rechecks unchanged external
+authority, exact IDs/environment/images, private DB-status adapter and independent
+startup/stop holds under the capture lock; it never reinstates an automatic
+restart policy. Provider health must become ready before the API is started.
+Failed/interrupted resume drains owners and retains the hold.
 
 ## Independently held generation
 
@@ -68,12 +74,16 @@ reviewed `capture.json` on ct-animus and `collector.json` on ct-backup under
 verified inputs. Reserve 1 GiB initially on each runner; observed capacity is not
 a guarantee. Staging, previous captures, fleet size and temporary restore space
 also consume capacity; the disk guard may close capture rather than fill a disk.
+Install and independently retain the separately reviewed private status adapter
+and source hash as described in [operations](../ops/README.md); it is needed for
+both a normal start and capture resume and is not supplied by this public repo.
 
 The ct-backup public key keeps its existing forced-command dispatcher. Only on
 ct-animus set `ALLOW_ANIMUS_COHERENT=1` in `/etc/backup-dispatch.conf`; leave its
 rsync, generic volume export and unrelated dump switches disabled. The only new
-command is the exact literal `animus-coherent-capture`, without caller paths or
-arguments. Pin the guest SSH host key in ct-backup's known_hosts via an independent
+capture command is the exact literal `animus-coherent-capture`, without caller
+paths or arguments. The same gate permits the fixed read-only
+`animus-operational-status` command. Pin the guest SSH host key in ct-backup's known_hosts via an independent
 management channel; the collector rejects unknown/changed keys. Never broaden SSH
 or firewall access to make a workstation probe work.
 
@@ -141,7 +151,8 @@ pending. The synthetic campaign below proves only its explicitly observed scope.
 
 ## Checks and campaign gate
 
-`python3 stacks/ct-animus/backup/test_backup.py` uses deterministic fakes only.
+`python3 stacks/ct-animus/backup/test_backup.py` and
+`python3 stacks/ct-animus/backup/test_lifecycle.py` use deterministic fakes only.
 Run it through private `scripts/run-check`. The next checkpoint is independent
 source review, followed by explicit coordinator permission for the prepared
 namespace-only local synthetic campaign. No script here has been deployed and no

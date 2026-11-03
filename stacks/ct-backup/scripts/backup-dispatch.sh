@@ -51,6 +51,10 @@ fi
 
 # --- Named subcommands ---
 case "$CMD" in
+  animus-operational-status)
+    [[ "$ALLOW_ANIMUS_COHERENT" == "1" ]] || { echo "Animus observation not allowed" >&2; exit 1; }
+    exec /usr/local/lib/animus-backup/monitor.py source
+    ;;
   animus-coherent-capture)
     [[ "$ALLOW_ANIMUS_COHERENT" == "1" ]] || { echo "Animus capture not allowed" >&2; exit 1; }
     # Fixed executable/config only; no caller-supplied paths or Docker arguments.

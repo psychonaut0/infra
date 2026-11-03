@@ -17,6 +17,7 @@ import uuid
 sys.dont_write_bytecode = True
 
 from bundle import FORMAT, GENERATION_KEYS, external_control, inventory, need, private_file, safe_name, verify
+import lifecycle
 
 WRITERS = ('api', 'auth-server', 'auth-worker')
 SERVICES = ('app-postgres', 'auth-postgres') + WRITERS
@@ -24,7 +25,7 @@ SERVICES = ('app-postgres', 'auth-postgres') + WRITERS
 
 def command(args, *, data=None):
     # stderr may contain DSNs or provider material. Never forward it to logs.
-    result = subprocess.run(args, input=data, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+    result = subprocess.run(args, input=data, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, timeout=600)
     need(result.returncode == 0, 'runtime command failed')
     return result.stdout
 
@@ -72,6 +73,7 @@ class Capture:
         for item in self.containers.values():
             need(not item['HostConfig'].get('Privileged') and not item['HostConfig'].get('PidMode') == 'host',
                  'unsupported privileged container')
+        lifecycle.snapshot(self.containers)
 
     def pg(self, which, *args):
         database = self.c['databases'][which]
@@ -254,7 +256,7 @@ class Capture:
         return sorted(names)
 
     def run(self):
-        need(not self.hold.exists(), 'existing capture hold requires operator review')
+        need(not lifecycle.held(self.hold), 'existing capture hold requires operator review')
         self.identify()
         prior_generation = external_control(Path(self.c['external_control']))
         api_environment = dict(item.split('=', 1) for item in self.containers['api']['Config']['Env'])
@@ -262,6 +264,8 @@ class Capture:
              and api_environment.get('HUB_RECOVERY_PROFILE') == 'native-workout-v1'
              and api_environment.get('HUB_RECOVERY_GENERATION') == prior_generation,
              'API must use this independently held enforced control')
+        lifecycle.gate(Path(self.c['external_control']), lambda generation: lifecycle.database_status(self.containers, generation),
+                       api=self.containers['api'], expected_generation=prior_generation)
         estimate = sum(int(self.sql(which, 'SELECT pg_database_size(current_database())')) for which in ('app', 'auth')) * 3
         sources = list(self.provider_volumes().values())
         sources += [Path(item['source']) for item in self.c['config_sources']]
@@ -277,9 +281,8 @@ class Capture:
         started = int(time.time())
         images = {name: {'reference': item['Config']['Image'], 'id': item['Image']}
                   for name, item in self.containers.items()}
-        record = {'capture_id': capture_id, 'phase': 'holding', 'containers': {
-            name: {'id': self.containers[name]['Id'], 'restart': self.containers[name]['HostConfig']['RestartPolicy']}
-            for name in WRITERS}}
+        record = {'capture_id': capture_id, 'phase': 'holding', 'generation': prior_generation,
+                  'containers': lifecycle.snapshot(self.containers)}
         self.quiesce(record)
         boundary = int(time.time())
         versions = {}
@@ -318,18 +321,7 @@ class Capture:
         self.save_hold(record)
         # Resume only the exact processes this successful capture stopped.
         # Restore has no corresponding resume/open path.
-        try:
-            self.resume(record)
-            self.hold.unlink()
-        except BaseException:
-            for service in WRITERS:
-                for args in (['docker', 'update', '--restart=no', record['containers'][service]['id']],
-                             ['docker', 'stop', '--time', str(self.c['stop_seconds']), record['containers'][service]['id']]):
-                    try:
-                        command(args)
-                    except (OSError, ValueError):
-                        pass
-            raise
+        self.resume_or_contain(record)
         # Keep at most two verified completed local captures; no partial/unknown
         # directory is deleted automatically. These are staging, not replicas/backups.
         prior = []
@@ -343,16 +335,54 @@ class Capture:
             shutil.rmtree(obsolete)
         return complete
 
+    def resume_or_contain(self, record):
+        try:
+            self.resume(record)
+            self.hold.unlink()
+        except BaseException:
+            intent = Path(self.c['external_control']).parent / 'stop-intent'
+            try:
+                lifecycle.persist_stop(intent)
+            except (OSError, ValueError):
+                pass  # Still attempt containment of every owner.
+            try:
+                lifecycle.contain_ids([record['containers'][name]['id'] for name in WRITERS],
+                                      stop_seconds=self.c['stop_seconds'], stop_intent=intent)
+            except (OSError, ValueError, KeyError, TypeError, subprocess.SubprocessError):
+                pass  # Preserve original failure and durable capture hold.
+            raise
+
     def resume(self, record):
+        private_file(self.hold)
+        need(json.loads(self.hold.read_text()) == record and record['phase'] == 'complete-local',
+             'only this complete capture may resume')
+        expected = record['containers']
+        started = []
+        def check():
+            current = {name: self.inspect(expected[name]['id']) for name in WRITERS}
+            need(lifecycle.snapshot(current) == expected, 'response-owner identity/environment changed')
+            lifecycle.gate(Path(self.c['external_control']), lambda generation: lifecycle.database_status(self.containers, generation),
+                           api=current['api'], expected_generation=record['generation'])
+            need(all(current[name]['State']['Running'] is (name in started) for name in WRITERS),
+                 'writer changed during capture')
+            return current
+        check()
         for service in reversed(WRITERS):
-            item = self.inspect(record['containers'][service]['id'])
-            need(not item['State']['Running'], 'writer changed during capture')
-            policy = record['containers'][service]['restart']
-            restart = policy['Name']
-            if restart == 'on-failure' and policy.get('MaximumRetryCount'):
-                restart += ':' + str(policy['MaximumRetryCount'])
-            command(['docker', 'update', '--restart=' + restart, item['Id']])
-            command(['docker', 'start', item['Id']])
+            if service == 'api':
+                # API startup loads OIDC discovery. Direct docker start does not
+                # honor Compose depends_on, so wait on stock provider health.
+                deadline = time.monotonic() + 180
+                while True:
+                    current = check()
+                    if all(current[name]['State'].get('Health', {}).get('Status') == 'healthy'
+                           for name in ('auth-server', 'auth-worker')):
+                        break
+                    need(time.monotonic() < deadline, 'provider did not become ready before API resume')
+                    time.sleep(1)
+            check()
+            command(['docker', 'start', expected[service]['id']])
+            started.append(service)
+        check()
 
 
 def config(path):

@@ -1,0 +1,17 @@
+[Unit]
+Description=Animus response owners under independent recovery authority
+Requires=docker.service animus-ingress-guard.service
+After=docker.service animus-ingress-guard.service
+BindsTo=docker.service
+PartOf=docker.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/local/lib/animus-backup/compose.py boot
+ExecStop=/usr/local/lib/animus-backup/compose.py stop-response-owners
+TimeoutStartSec=600
+TimeoutStopSec=600
+
+[Install]
+WantedBy=multi-user.target docker.service

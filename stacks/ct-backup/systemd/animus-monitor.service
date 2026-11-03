@@ -1,0 +1,10 @@
+[Unit]
+Description=Collect bounded Animus service and disk observations
+Wants=network-online.target
+After=network-online.target
+ConditionPathExists=/etc/animus-backup/enabled
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/lib/animus-backup/monitor.py collect
+TimeoutStartSec=45

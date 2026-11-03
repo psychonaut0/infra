@@ -103,7 +103,7 @@ def validate(env_path, synthetic=False, inspect_image=False, recovery_path=CONTR
         require(not service.get("build"), "no host source build allowed")
         for volume in service.get("volumes", []):
             require("docker.sock" not in volume.get("source", ""), "Docker socket prohibited")
-        require(service.get("restart") == ("no" if name == "migrate" else "unless-stopped"),
+        require(service.get("restart") == ("unless-stopped" if name.endswith("postgres") else "no"),
                 "unexpected restart policy")
         if name.endswith("postgres"):
             require(not service.get("ports"), "databases must not publish host ports")

@@ -71,7 +71,7 @@ services:
     image: ghcr.io/goauthentik/server:2026.8.5@sha256:602227a86455d6772e3d16b7d852713c4f864f40df5df894abd1285bb53979a5
     command: server
     user: "1000:1000"
-    restart: unless-stopped
+    restart: "no"
     environment: *auth-env
     ports: ["${CT_IPV4:?private CT interface required}:9000:9000"]
     dns: ["${PRIVATE_DNS_IPV4:?split DNS resolver required}"]
@@ -93,7 +93,7 @@ services:
     image: ghcr.io/goauthentik/server:2026.8.5@sha256:602227a86455d6772e3d16b7d852713c4f864f40df5df894abd1285bb53979a5
     command: worker
     user: "1000:1000"
-    restart: unless-stopped
+    restart: "no"
     environment: *auth-env
     dns: ["${PRIVATE_DNS_IPV4}"]
     networks: [database, egress]
@@ -117,7 +117,12 @@ services:
     profiles: [operator]
     command: [db, migrate]
     environment:
+      <<: *api-env
       HUB_DATABASE_URL: postgres://animus_admin:${APP_ADMIN_DB_PASSWORD}@app-postgres:5432/animus?sslmode=disable
+    env_file: [/etc/animus-control/recovery.env]
+    volumes:
+      - ${OIDC_TRUST_FILE}:/run/animus/oidc-trust.json:ro
+      - /etc/animus-control/operations:/run/animus-operations
     networks: [database]
     depends_on:
       app-postgres: {condition: service_healthy}
@@ -125,7 +130,7 @@ services:
   api:
     <<: *api-image
     profiles: [commissioning]
-    restart: unless-stopped
+    restart: "no"
     environment: *api-env
     # Independently retained control, never restored from the stack/bundle.
     env_file: [/etc/animus-control/recovery.env]
