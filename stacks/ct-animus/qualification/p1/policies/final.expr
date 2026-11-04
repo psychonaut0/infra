@@ -42,7 +42,7 @@ try:
     for device in args["mfa_devices"]:
         if type(device).__name__ != "TOTPDevice" or not device.confirmed or device.user_id != user.pk:
             return False
-    marker = {"hub_authentication_policy": state["policy"], "hub_factor_time": started,
+    marker = {"hub_policy_id": state["policy"], "hub_factor_time": started,
               "hub_policy_flow": state["flow"], "hub_policy_execution": state["nonce"],
               "hub_policy_subject": user.pk}
     if any(key in args and args[key] != value for key, value in marker.items()):

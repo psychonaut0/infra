@@ -162,7 +162,7 @@ entries:
             for device in args["mfa_devices"]:
                 if type(device).__name__ != "TOTPDevice" or not device.confirmed or device.user_id != user.pk:
                     return False
-            marker = {"hub_authentication_policy": state["policy"], "hub_factor_time": started,
+            marker = {"hub_policy_id": state["policy"], "hub_factor_time": started,
                       "hub_policy_flow": state["flow"], "hub_policy_execution": state["nonce"],
                       "hub_policy_subject": user.pk}
             if any(key in args and args[key] != value for key, value in marker.items()):
@@ -220,7 +220,7 @@ entries:
                     return None
                 args = event.context.get("auth_method_args", {})
                 flow = provider.authentication_flow_id.hex
-                if event.context.get("auth_method") != "password" or args.get("hub_authentication_policy") != "animus-password-totp-mechanism-v2":
+                if event.context.get("auth_method") != "password" or args.get("hub_policy_id") != "animus-password-totp-mechanism-v2":
                     return None
                 if args.get("hub_policy_flow") != flow or args.get("hub_policy_subject") != user.pk:
                     return None
@@ -240,7 +240,7 @@ entries:
                     return None
                 return {"subject": user.pk, "event": str(event.pk), "event_time": event.created.isoformat(),
                         "factor_time": started, "execution": nonce, "flow": flow,
-                        "policy": args["hub_authentication_policy"], "provider": str(provider.pk), "client": provider.client_id}
+                        "policy": args["hub_policy_id"], "provider": str(provider.pk), "client": provider.client_id}
             except Exception:
                 return None
         try:
@@ -269,7 +269,7 @@ entries:
                     return None
                 args = event.context.get("auth_method_args", {})
                 flow = provider.authentication_flow_id.hex
-                if event.context.get("auth_method") != "password" or args.get("hub_authentication_policy") != "animus-password-totp-mechanism-v2":
+                if event.context.get("auth_method") != "password" or args.get("hub_policy_id") != "animus-password-totp-mechanism-v2":
                     return None
                 if args.get("hub_policy_flow") != flow or args.get("hub_policy_subject") != user.pk:
                     return None
@@ -289,7 +289,7 @@ entries:
                     return None
                 return {"subject": user.pk, "event": str(event.pk), "event_time": event.created.isoformat(),
                         "factor_time": started, "execution": nonce, "flow": flow,
-                        "policy": args["hub_authentication_policy"], "provider": str(provider.pk), "client": provider.client_id}
+                        "policy": args["hub_policy_id"], "provider": str(provider.pk), "client": provider.client_id}
             except Exception:
                 return None
         try:
@@ -343,7 +343,7 @@ entries:
                     return None
                 args = event.context.get("auth_method_args", {})
                 flow = provider.authentication_flow_id.hex
-                if event.context.get("auth_method") != "password" or args.get("hub_authentication_policy") != "animus-password-totp-mechanism-v2":
+                if event.context.get("auth_method") != "password" or args.get("hub_policy_id") != "animus-password-totp-mechanism-v2":
                     return None
                 if args.get("hub_policy_flow") != flow or args.get("hub_policy_subject") != user.pk:
                     return None
@@ -363,7 +363,7 @@ entries:
                     return None
                 return {"subject": user.pk, "event": str(event.pk), "event_time": event.created.isoformat(),
                         "factor_time": started, "execution": nonce, "flow": flow,
-                        "policy": args["hub_authentication_policy"], "provider": str(provider.pk), "client": provider.client_id}
+                        "policy": args["hub_policy_id"], "provider": str(provider.pk), "client": provider.client_id}
             except Exception:
                 return None
         try:
@@ -522,7 +522,7 @@ entries:
                     return None
                 args = event.context.get("auth_method_args", {})
                 flow = provider.authentication_flow_id.hex
-                if event.context.get("auth_method") != "password" or args.get("hub_authentication_policy") != "animus-password-totp-mechanism-v2":
+                if event.context.get("auth_method") != "password" or args.get("hub_policy_id") != "animus-password-totp-mechanism-v2":
                     return None
                 if args.get("hub_policy_flow") != flow or args.get("hub_policy_subject") != user.pk:
                     return None
@@ -542,7 +542,7 @@ entries:
                     return None
                 return {"subject": user.pk, "event": str(event.pk), "event_time": event.created.isoformat(),
                         "factor_time": started, "execution": nonce, "flow": flow,
-                        "policy": args["hub_authentication_policy"], "provider": str(provider.pk), "client": provider.client_id}
+                        "policy": args["hub_policy_id"], "provider": str(provider.pk), "client": provider.client_id}
             except Exception:
                 return None
         try:

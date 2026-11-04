@@ -109,8 +109,9 @@ and build tools off the CT. No TUN or local Tailscale daemon is required.
    `STRONG_AUTH_POLICY_FILE`, also owner `65532:65532` and mode 0600. API and
    operator CLI must bind that SAME file read-only at
    `/run/animus/strong-auth-policy.json` and select it with
-   `HUB_STRONG_AUTH_POLICY_FILE`. No policy content or qualification is supplied
-   by this repository; actual policy/hash remain UNSET until private P1 acceptance.
+   `HUB_STRONG_AUTH_POLICY_FILE`. No API trust-policy content or production
+   qualification receipt is supplied by this repository; actual policy/hash/
+   not-before remain UNSET until private final P1 acceptance.
 4. Use `python3 check-config.py` for secret-safe validation; once the image is
    loaded, use `python3 check-config.py --inspect-image`. These never print the
    rendered Compose environment. Do not paste `/usr/local/lib/animus-backup/compose.py config`, container
@@ -284,16 +285,37 @@ Confirm self-enrollment is unavailable before any ordinary-user commissioning.
 
 ## LAN provider and API startup
 
-The worker mounts only `blueprints/alkion-lan.yaml` read-only. It declares a
-public authorization-code client and application with client ID/slug `alkion-lan`,
-strict callback `dev.animusstudio.alkion.dev:/oauth2redirect`, per-provider issuer,
-UUID subject, ten-minute access tokens and the default RSA signing certificate.
-It creates no user, group, flow, policy binding or application grant. The existing
-default consent/authentication/invalidation flows are references for synthetic
-commissioning; password/TOTP/recovery qualification is separate and passkeys wait
-for HTTPS. The provider maps `openid profile offline_access` to match the native
-client request; the built-in `offline_access` mapping permits requested refresh
-tokens. Refresh/rotation/revocation and recovery readiness remain unqualified.
+The worker mounts only `blueprints/alkion-lan.yaml` read-only. The closed
+provider configuration preserves the existing provider/application name,
+client ID/slug `alkion-lan`, strict callback
+`dev.animusstudio.alkion.dev:/oauth2redirect`, per-provider issuer, UUID subject,
+ten-minute access tokens and existing RSA signing-certificate reference.
+
+Application-specific `animus-lan-*` flows require password plus TOTP through
+mandatory entry/final Prompt validators. Missing TOTP denies; submitted fields
+never supply proof/time. Separate controlled enrollment and repair declare
+non-admin eligibility groups without seeding memberships. Repair requires the same account password plus
+one unused recovery code, validates replacement TOTP/ten new codes and logs out;
+it creates no normal-login proof. Provider controls alone do not retire factors,
+revoke all credentials or invalidate every old partial plan: the reviewed
+full-hold/drain/operator envelope and its actual qualification remain required.
+The global default administrator authentication flow is unchanged.
+
+The internal trusted login-event key is `hub_policy_id`; only the signed public
+claim remains `hub_authentication_policy`, with `hub_factor_time`. Original-grant
+subject/event/authentication-time association must hold; refresh retains the
+original conservative bound or loses proof and cannot acquire a later login's
+strength. The retained experimental policy ID is not an activated API trust
+policy. `STRONG_AUTH_POLICY_FILE` qualification receipt/ID/not-before remain UNSET.
+The custom openid mapping uses a direct blueprint reference; profile/offline_access
+use unambiguous managed mappings, preserving the native requested scopes.
+
+Application issuance is unconditionally denied by the closure policy. This
+blueprint seeds no user, membership, password, secret, Hub owner or grant. Empty
+groups are not owner commissioning. Production factor/recovery/partial-plan,
+perimeter, device and final policy qualification must finish before a separately
+reviewed open configuration, policy receipt, owner/admission or real-data opening.
+No synthetic fixture identities or private qualification evidence belong here.
 
 After blueprint application, verify the actual provider fields and RSA/RS256 key
 from the running instance, not just a successful worker healthcheck. The exact API
@@ -302,12 +324,11 @@ client/audience `alkion-lan`, matching discovery/JWKS and same-origin UserInfo.
 Verify discovery through the canonical host from clients and application containers.
 Do not replace the issuer with a container name or loopback URL.
 
-The provider supports client PKCE flows, but `client_type: public` alone does not
-establish a requirement for S256 or rejection of omitted/plain challenges in
-this version; see the pinned [authorization implementation](https://github.com/goauthentik/authentik/blob/version/2026.8.5/authentik/providers/oauth2/views/authorize.py).
-Do not invent a `require_pkce` field. Real-device S256, wrong/missing verifier,
-wrong callback, missing/plain challenge and no-grant/wrong-space denial remain
-qualification checks before any application admission or real-data opening.
+The explicit application policy requires the registered client/callback and
+S256 PKCE; `client_type: public` alone is not that requirement. No unsupported
+`require_pkce` field is added. Production/device wrong/missing verifier, wrong
+callback, missing/plain challenge and no-grant/wrong-space denials remain required;
+synthetic source/runtime evidence does not qualify the production installation.
 
 After the supported bootstrap, verified provider and compatible API configuration:
 
