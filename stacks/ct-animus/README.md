@@ -105,10 +105,21 @@ and build tools off the CT. No TUN or local Tailscale daemon is required.
    `65532:65532` for the registry; parent directories must be traversable by that
    UID (for example 0750 with group 65532). The registry mount is read-only.
    Keep the provider's real signing keys and bootstrap/recovery credentials private.
+   Separately deliver the actual privately qualified strong-auth policy as
+   `STRONG_AUTH_POLICY_FILE`, also owner `65532:65532` and mode 0600. API and
+   operator CLI must bind that SAME file read-only at
+   `/run/animus/strong-auth-policy.json` and select it with
+   `HUB_STRONG_AUTH_POLICY_FILE`. No policy content or qualification is supplied
+   by this repository; actual policy/hash remain UNSET until private P1 acceptance.
 4. Use `python3 check-config.py` for secret-safe validation; once the image is
    loaded, use `python3 check-config.py --inspect-image`. These never print the
    rendered Compose environment. Do not paste `/usr/local/lib/animus-backup/compose.py config`, container
    inspect output, bearer tokens or provider challenge logs into public records.
+   The strong-policy checks validate only regular/private file ownership and
+   matching read-only mount/environment structure in BOTH services. They do not
+   parse policy contents or qualify authentication. Supported private API/CLI
+   policy validation and actual recent strong-owner positive/negative evidence
+   remain required before grants or opening; DNS/liveness preflight cannot replace them.
 
 Compose explicitly selects environment values rather than passing all of `.env`
 to every container. Docker administration still grants access to process secrets;

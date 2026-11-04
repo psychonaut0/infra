@@ -30,6 +30,7 @@ x-api-env: &api-env
   HUB_RECOVERY_PROFILE: native-workout-v1
   HUB_DATABASE_URL: postgres://animus_runtime:${APP_RUNTIME_DB_PASSWORD:?hex secret required}@app-postgres:5432/animus?sslmode=disable
   HUB_OIDC_TRUST_CONFIG: /run/animus/oidc-trust.json
+  HUB_STRONG_AUTH_POLICY_FILE: /run/animus/strong-auth-policy.json
   # Requires the separately reviewed compatible API image; older images do not
   # support private HTTP. This opt-in is confined to the exact configured origin.
   HUB_OIDC_PRIVATE_HTTP_ORIGIN: http://${LOGIN_FQDN}
@@ -122,6 +123,7 @@ services:
     env_file: [/etc/animus-control/recovery.env]
     volumes:
       - ${OIDC_TRUST_FILE}:/run/animus/oidc-trust.json:ro
+      - ${STRONG_AUTH_POLICY_FILE:?private qualified strong policy required}:/run/animus/strong-auth-policy.json:ro
       - /etc/animus-control/operations:/run/animus-operations
     networks: [database]
     depends_on:
@@ -139,6 +141,7 @@ services:
     networks: [database, egress]
     volumes:
       - ${OIDC_TRUST_FILE:?private exact provider registry required}:/run/animus/oidc-trust.json:ro
+      - ${STRONG_AUTH_POLICY_FILE:?private qualified strong policy required}:/run/animus/strong-auth-policy.json:ro
     depends_on:
       app-postgres: {condition: service_healthy}
       auth-server: {condition: service_healthy}

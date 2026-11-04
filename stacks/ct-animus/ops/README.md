@@ -35,8 +35,12 @@ from stack.env or take predecessor G as boot authority.
 Install `/etc/animus-control/operations` as UID/GID65532 mode0700 for the operator
 container's private bind mount at `/run/animus-operations`. Keep independent
 root-private originals of declarations/receipts outside that directory. The
-operator service carries the same exact trust/G as the API but its migration DB
-role; it does not listen or automatically adopt/open control.
+operator service carries the same exact trust/G and read-only strong-policy file
+as the API but its migration DB role; it does not listen or automatically adopt/open
+control. Validate both mounts with `check-config.py` before commissioning. Retain
+the actual privately qualified policy/hash with the private configuration inventory;
+file/mount checks do not parse its proof contents or replace supported private
+API/CLI strong-auth qualification. Recovery control still has exactly three keys.
 
 ## Initial adoption and routine commands
 

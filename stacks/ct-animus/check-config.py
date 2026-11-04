@@ -6,6 +6,7 @@ import json
 import os
 from pathlib import Path
 import re
+import stat
 import subprocess
 import tempfile
 import uuid
@@ -13,6 +14,7 @@ import uuid
 ROOT = Path(__file__).resolve().parent
 CONTROL = Path("/etc/animus-control/recovery.env")
 PROFILE = "rs256-exact-issuer-singleton-client-audience-online-userinfo"
+POLICY_TARGET = "/run/animus/strong-auth-policy.json"
 
 
 def require(ok, message):
@@ -40,6 +42,31 @@ def read_env(path):
                 "use literal unquoted .env values; shell/dotenv expansion prohibited")
         values[key] = value
     return values
+
+
+def validate_strong_policy(services, values, synthetic=False):
+    # Only file and deployment structure belong here. Private policy contents,
+    # qualification and actual strong-owner proof remain commissioning gates.
+    require(values.get("STRONG_AUTH_POLICY_FILE"), "private strong-policy file path required")
+    path = Path(values["STRONG_AUTH_POLICY_FILE"])
+    if not path.is_absolute():
+        path = ROOT / path
+    require(path.is_file() and not path.is_symlink(), "private regular strong-policy file required")
+    require(stat.S_IMODE(path.stat().st_mode) == 0o600, "strong-policy file must have mode 0600")
+    if not synthetic:
+        require(path.stat().st_uid == 65532, "strong-policy file must be readable by UID 65532")
+    for name in ("api", "migrate"):
+        service = services[name]
+        require(service.get("user") == "65532:65532", "API and operator must use UID/GID 65532")
+        require(service.get("environment", {}).get("HUB_STRONG_AUTH_POLICY_FILE") == POLICY_TARGET,
+                "API and operator must select the fixed strong-policy path")
+        mounts = [v for v in service.get("volumes", []) if v.get("target") == POLICY_TARGET]
+        require(len(mounts) == 1, "API and operator require exactly one strong-policy mount")
+        mount = mounts[0]
+        source = Path(mount["source"])
+        require(mount.get("type") == "bind" and mount.get("read_only") is True
+                and not source.is_symlink() and source.resolve() == path.resolve(),
+                "API and operator must bind the same configured strong-policy file read-only")
 
 
 def validate(env_path, synthetic=False, inspect_image=False, recovery_path=CONTROL):
@@ -98,6 +125,7 @@ def validate(env_path, synthetic=False, inspect_image=False, recovery_path=CONTR
     services = config["services"]
     require(set(services) == {"app-postgres", "auth-postgres", "auth-server", "auth-worker", "api", "migrate"},
             "unexpected service; scope is API, Auth and two databases only")
+    validate_strong_policy(services, values, synthetic)
     for name, service in services.items():
         require(not service.get("privileged") and not service.get("network_mode"), "privileged/host networking prohibited")
         require(not service.get("build"), "no host source build allowed")
@@ -165,7 +193,8 @@ def validate(env_path, synthetic=False, inspect_image=False, recovery_path=CONTR
         actual = json.loads(inspected.stdout)[0]
         require(actual["Id"] == values["API_IMAGE_ID"] and actual["Config"]["User"] == "65532:65532",
                 "loaded API image ID or non-root user mismatch")
-    print("PASS: secret-safe Compose policy and exact OIDC configuration (no host/runtime qualification)")
+    print("PASS: secret-safe Compose, exact OIDC and shared strong-policy wiring (no proof/runtime qualification)")
+    return config
 
 
 def self_test():
@@ -175,9 +204,12 @@ def self_test():
         registry = root / "oidc.json"
         registry.write_text(json.dumps(trust))
         registry.chmod(0o600)
+        policy = root / "strong-policy"
+        policy.write_text("opaque synthetic structural input; not a qualified policy\n")
+        policy.chmod(0o600)
         values = dict(CT_IPV4="192.168.100.20", PROXY_IPV4="192.168.100.12", PRIVATE_DNS_IPV4="192.168.100.5",
                       LOGIN_FQDN="auth.lan", API_IMAGE="local/animus-api:sha-" + "a" * 40,
-                      API_IMAGE_ID="sha256:" + "b" * 64, OIDC_TRUST_FILE=str(registry),
+                      API_IMAGE_ID="sha256:" + "b" * 64, OIDC_TRUST_FILE=str(registry), STRONG_AUTH_POLICY_FILE=str(policy),
                       APP_ADMIN_DB_PASSWORD="a" * 64, APP_RUNTIME_DB_PASSWORD="b" * 64,
                       AUTH_ADMIN_DB_PASSWORD="c" * 64, AUTH_DB_PASSWORD="d" * 64, AUTHENTIK_SECRET_KEY="e" * 128)
         recovery_path = root / "recovery.env"
@@ -189,7 +221,7 @@ def self_test():
             env.write_text("".join(f"{key}={value}\n" for key, value in values.items()))
             env.chmod(0o600)
         write()
-        validate(env, synthetic=True, recovery_path=recovery_path)
+        config = validate(env, synthetic=True, recovery_path=recovery_path)
         for key, invalid in (("CT_IPV4", "0.0.0.0"), ("API_IMAGE", "public/image:latest"),
                              ("APP_RUNTIME_DB_PASSWORD", values["APP_ADMIN_DB_PASSWORD"])):
             old = values[key]
@@ -203,6 +235,70 @@ def self_test():
                 raise ValueError("negative policy case unexpectedly accepted")
             values[key] = old
         print("PASS: unsafe interface, public image and reused-role-secret rejection")
+        rejected = 0
+        def reject(services, inputs=values):
+            nonlocal rejected
+            try:
+                validate_strong_policy(services, inputs, synthetic=True)
+            except (ValueError, KeyError, OSError):
+                rejected += 1
+            else:
+                raise ValueError("negative strong-policy structural case unexpectedly accepted")
+        other = root / "other-policy"
+        other.write_text("different opaque structural input\n")
+        other.chmod(0o600)
+        source_link = root / "source-link"
+        source_link.symlink_to(policy)
+        for name in ("api", "migrate"):
+            for fault in ("missing-env", "wrong-env", "missing-mount", "missing-source", "wrong-source", "symlink-source", "missing-read-only",
+                          "writable-mount", "volume-mount", "duplicate-mount", "wrong-user"):
+                services = json.loads(json.dumps(config["services"]))
+                service = services[name]
+                mount = next(v for v in service["volumes"] if v["target"] == POLICY_TARGET)
+                if fault == "missing-env":
+                    service["environment"].pop("HUB_STRONG_AUTH_POLICY_FILE")
+                elif fault == "wrong-env":
+                    service["environment"]["HUB_STRONG_AUTH_POLICY_FILE"] = "/run/other-policy"
+                elif fault == "missing-mount":
+                    service["volumes"].remove(mount)
+                elif fault == "missing-source":
+                    mount.pop("source")
+                elif fault == "wrong-source":
+                    mount["source"] = str(other)
+                elif fault == "symlink-source":
+                    mount["source"] = str(source_link)
+                elif fault == "missing-read-only":
+                    mount.pop("read_only")
+                elif fault == "writable-mount":
+                    mount["read_only"] = False
+                elif fault == "volume-mount":
+                    mount["type"] = "volume"
+                elif fault == "duplicate-mount":
+                    service["volumes"].append(dict(mount))
+                elif fault == "wrong-user":
+                    service["user"] = "0:0"
+                reject(services)
+        validate_strong_policy(config["services"], dict(values, STRONG_AUTH_POLICY_FILE=os.path.relpath(policy, ROOT)), synthetic=True)
+        if policy.stat().st_uid != 65532:
+            try:
+                validate_strong_policy(config["services"], values)
+            except ValueError:
+                rejected += 1
+            else:
+                raise ValueError("wrong strong-policy file owner unexpectedly accepted")
+        reject(config["services"], {key: value for key, value in values.items() if key != "STRONG_AUTH_POLICY_FILE"})
+        policy.chmod(0o644)
+        reject(config["services"])
+        policy.chmod(0o600)
+        link = root / "policy-link"
+        link.symlink_to(policy)
+        reject(config["services"], dict(values, STRONG_AUTH_POLICY_FILE=str(link)))
+        directory_path = root / "policy-directory"
+        directory_path.mkdir()
+        reject(config["services"], dict(values, STRONG_AUTH_POLICY_FILE=str(directory_path)))
+        policy.unlink()
+        reject(config["services"])
+        print(f"PASS: {rejected} strong-policy env/mount/private-file rejection cases across API and operator")
 
 
 if __name__ == "__main__":

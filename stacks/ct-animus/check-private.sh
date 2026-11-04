@@ -18,4 +18,4 @@ EXPECTED_ISSUER="http://${LOGIN_FQDN}/application/o/${OIDC_SLUG}/" jq -e \
   '.issuer == env.EXPECTED_ISSUER and .jwks_uri == (env.EXPECTED_ISSUER + "jwks/")' \
   <<< "$discovery" >/dev/null
 echo 'PASS: actual split DNS, API liveness and canonical issuer/JWKS discovery'
-echo 'Authenticated persisted readiness, container discovery/UserInfo, firewall negative probes, factor recovery and isolated restoration remain separate required checks.'
+echo 'Qualified strong-policy loading and actual recent-owner proof, authenticated persisted readiness, container discovery/UserInfo, firewall negative probes, factor recovery and isolated restoration remain separate required checks.'
