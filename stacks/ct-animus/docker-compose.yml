@@ -69,7 +69,9 @@ services:
       - auth-database:/var/lib/postgresql/data
       - ./db/init-auth.sh:/docker-entrypoint-initdb.d/10-auth-role.sh:ro
   auth-server:
-    image: ghcr.io/goauthentik/server:2026.8.5@sha256:602227a86455d6772e3d16b7d852713c4f864f40df5df894abd1285bb53979a5
+    # Operator input: a privately loaded image recorded by image ID, like the API.
+    image: ${AUTH_IMAGE:?privately loaded Auth image required}
+    pull_policy: never
     command: server
     user: "1000:1000"
     restart: "no"
@@ -91,7 +93,8 @@ services:
     # upstream event/audit views for commissioning, never docker log exports.
     logging: {driver: none}
   auth-worker:
-    image: ghcr.io/goauthentik/server:2026.8.5@sha256:602227a86455d6772e3d16b7d852713c4f864f40df5df894abd1285bb53979a5
+    image: ${AUTH_IMAGE}
+    pull_policy: never
     command: worker
     user: "1000:1000"
     restart: "no"
