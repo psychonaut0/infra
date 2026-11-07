@@ -56,17 +56,24 @@ func Execute(info BuildInfo) error {
 			checker.Footer()
 		},
 	}
+	addCommands(root)
+	return root.Execute()
+}
+
+// addCommands registers every subcommand on root. restart and deploy carry the
+// guarded-lifecycle refusal (lifecycle_guard.go); ls, status and logs do not,
+// so they keep listing and resolving every CT.
+func addCommands(root *cobra.Command) {
 	root.AddCommand(newVersionCmd())
 	root.AddCommand(newLsCmd())
 	root.AddCommand(newStatusCmd())
 	root.AddCommand(newLogsCmd())
-	root.AddCommand(newRestartCmd())
-	root.AddCommand(newDeployCmd())
+	root.AddCommand(withLifecycleGuard(newRestartCmd()))
+	root.AddCommand(withLifecycleGuard(newDeployCmd()))
 	root.AddCommand(newCtCmd())
 	root.AddCommand(newDnsCmd())
 	root.AddCommand(newTunnelCmd())
 	root.AddCommand(newUpdateCmd())
-	return root.Execute()
 }
 
 func newVersionCmd() *cobra.Command {

@@ -66,3 +66,10 @@ cat > "$STATUS_DIR/status.json" <<EOF
 EOF
 
 echo "=== status.json updated ==="
+
+# The fleet receipt above cannot refresh Animus protection. This separate
+# checksummed B2 snapshot/receipt is required when Animus is explicitly enabled.
+# A failed/missing/stale capture fails the overall job and existing failure alert.
+if [[ -f /etc/animus-backup/enabled ]]; then
+  /usr/local/lib/animus-backup/restic-copy.py protect 2>&1 | tee -a "$LOG"
+fi

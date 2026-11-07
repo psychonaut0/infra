@@ -17,6 +17,7 @@ ALLOW_RSYNC_PATHS=""
 ALLOW_EXPORT_VOLUMES=0
 ALLOW_PG_DUMP_IMMICH=0
 ALLOW_SQLITE_DUMP=0
+ALLOW_ANIMUS_COHERENT=0
 # SQLITE_DB_<name>=/abs/path declared in /etc/backup-dispatch.conf per host.
 
 if [[ -r "$CONF" ]]; then
@@ -50,6 +51,15 @@ fi
 
 # --- Named subcommands ---
 case "$CMD" in
+  animus-operational-status)
+    [[ "$ALLOW_ANIMUS_COHERENT" == "1" ]] || { echo "Animus observation not allowed" >&2; exit 1; }
+    exec /usr/local/lib/animus-backup/monitor.py source
+    ;;
+  animus-coherent-capture)
+    [[ "$ALLOW_ANIMUS_COHERENT" == "1" ]] || { echo "Animus capture not allowed" >&2; exit 1; }
+    # Fixed executable/config only; no caller-supplied paths or Docker arguments.
+    exec /usr/local/lib/animus-backup/capture.py --stream
+    ;;
   list-volumes)
     [[ "$ALLOW_EXPORT_VOLUMES" == "1" ]] || { echo "list-volumes not allowed" >&2; exit 1; }
     exec docker volume ls -q

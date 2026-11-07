@@ -56,7 +56,7 @@
 - **RAM:** 64GB (upgraded from 32GB on 2026-09-01)
 - **GPU:** NVIDIA GTX 1650 SUPER, passed into ct-nvr, ct-media and ct-photos. The Intel UHD 630 iGPU is **disabled in BIOS** (since 2026-09-26) — nothing on this host has `/dev/dri/renderD128` any more. **Driver is NVIDIA's `.run` 595.91.07, not Debian's `nvidia-driver`:** Debian trixie ships 550, and the PVE repo's default kernel is moving to 7.0, which 550 is unlikely to build against. The host has the kernel module via DKMS (`--dkms`, so a new PVE kernel rebuilds it — install that kernel's `proxmox-headers-*` alongside it, or DKMS silently has nothing to build against). **Do not install `proxmox-default-headers` casually** — it drags in the whole next kernel series. Each of the three CTs has the *same* `.run` installed with `--no-kernel-module`; **host and CT driver versions must match exactly** or `nvidia-smi` fails inside the CT with a version-mismatch error, so upgrade all four together. Device nodes are created before guests start by `nvidia-devices.service` (also enables persistence mode); nouveau is blacklisted in `/etc/modprobe.d/blacklist-nouveau.conf`. CTs get the devices via PVE `dev0..dev3:` entries (`/dev/nvidia0`, `nvidiactl`, `nvidia-uvm`, `nvidia-uvm-tools`), not `lxc.cgroup2.devices.allow` — `nvidia-uvm`'s major number is allocated dynamically (506 today), and `devN` resolves it at CT start. Inside each CT, `nvidia-container-toolkit` runs with `no-cgroups = true` (LXC cannot manage device cgroups; PVE already does). Containers request the GPU with a compose `deploy.resources.reservations.devices` block (which makes the hook mount the driver libraries) **plus an explicit `devices:` list of the four nodes** — with `no-cgroups` the hook no longer whitelists them, so a non-privileged container otherwise fails with `CUDA_ERROR_NO_DEVICE` / `Failed to initialize NVML: Unknown Error`. Set `NVIDIA_DRIVER_CAPABILITIES: compute,video,utility` — `video` is what exposes NVDEC/NVENC, and **`all` breaks container start** because it includes `display`, which demands a `/dev/nvidia-modeset` this headless host does not have.
 - **Role:** Primary Proxmox hypervisor node. Clustered with proxmoxnode. Authorized keys are shared across the cluster. Hosts all bulk storage — mergerfs pool `/mnt/cloud` (exposed as the `cloud` PVE dir pool) and `nvr-data` LVM thin — bind-mounted into local CTs.
-- **CTs:** ct-tunnel (VMID 103), ct-nvr (VMID 104), ct-media (VMID 105), ct-photos (VMID 106), ct-files (VMID 107), ct-backup (VMID 109), ct-tools (VMID 110), ct-games (VMID 112), ct-portfolio (VMID 113), ct-workout (VMID 114), ct-chat (VMID 115)
+- **CTs:** ct-tunnel (VMID 103), ct-nvr (VMID 104), ct-media (VMID 105), ct-photos (VMID 106), ct-files (VMID 107), ct-backup (VMID 109), ct-tools (VMID 110), ct-games (VMID 112), ct-portfolio (VMID 113), ct-workout (VMID 114), ct-chat (VMID 115), ct-animus (VMID 117)
 - **Storage:** See `docs/hardware.md` for full disk and storage layout.
 - **Board:** MSI H410I PRO WIFI (MS-7C86), BIOS 2.20 (2021-11-08). NIC `eno1` (e1000e) is the only `vmbr0` port.
 - **Power:** NUT `secondary` of the UPS on proxmoxnode — shuts itself down after 3 min on battery. See *Power (UPS)*.
@@ -264,6 +264,18 @@
   alongside it.
   Runbook: `stacks/ct-dev/README.md`.
 
+### ct-animus (LXC — VMID 117 on proxmoxmain)
+- **IP:** 192.168.3.20
+- **User:** root
+- **OS:** Debian 13 (Trixie), unprivileged LXC
+- **SSH:** Port 22, key-only. The guest's own nftables guard accepts TCP 22 only from the admin CIDR and the backup source.
+- **Resources:** 2 vCPU, 6144MB RAM (with a 5GB `memory.high` throttle), 1024MB swap, 32GB disk — the envelope `provision-host.sh` creates
+- **Role:** Private LAN commissioning foundation for Animus: API and Authentik identity only, with synthetic accounts and data. **Real-data opening is CLOSED.** Nothing here is qualified or production-ready; owner admission, grants and real data each need separately reviewed evidence.
+- **Stack:** `/opt/stacks/ct-animus/docker-compose.yml` (local copy: `stacks/ct-animus/`). Services `app-postgres`, `auth-postgres`, `auth-server`, `auth-worker`, `migrate` (`operator` profile, one-shot) and `api` (`commissioning` profile). The API image is loaded privately on the CT (`pull_policy: never`); there is no registry pull or source checkout on the guest.
+- **Ports:** 8095 (API, http://hub.lan via Caddy), 9000 (Authentik, http://auth.lan via Caddy), both bound to the CT address; no database port is published. Temporary HTTP `.lan` origins only — no HTTPS, tunnel or public ingress.
+- **Lifecycle:** deploy and restart must go **only** through the guarded lifecycle — `animus-stack.service` and the guarded launcher `/usr/local/lib/animus-backup/compose.py`. That lifecycle is source tooling, installed only per `stacks/ct-animus/ops/README.md` after separately reviewed operator evidence. `infra deploy` and `infra restart` refuse ct-animus in every form (CT, service, `ct:svc`, `migrate`); `infra status`, `ls` and `logs` still work. Never use raw Compose or Portainer to start the API or Auth processes past the hold.
+- **Config notes:** `provision-host.sh` creates the CT stopped, with `onboot=0` and its network link down; onboot stays disabled until Docker-restart and guest-reboot qualification. The ingress guard (`stacks/ct-animus/network/`) must verify before SSH or Docker can start, with no fallback to a weaker firewall. No Docker socket, Redis or tunnel; the Portainer agent is deferred. Authentik container logging is disabled because failed challenges can contain credentials. **No backup protection claim:** the coherent-backup tooling in `stacks/ct-animus/backup/` is source only until its live installation is separately reviewed. VMID 117 is the next free ID in this inventory; `provision-host.sh` re-checks it against the cluster and refuses an existing guest. Its `docs/hardware.md` boot-disk row shows the provisioned size; Data% is filled in once measured live. Runbooks: `stacks/ct-animus/README.md`, `stacks/ct-animus/ops/README.md`, `stacks/ct-animus/network/README.md`.
+
 ### ct-photos (LXC — VMID 106 on proxmoxmain)
 - **IP:** 192.168.3.9
 - **User:** root
@@ -318,6 +330,7 @@ blvckmain (main PC)
   ├── ssh ct-workout     → 192.168.3.17:22   (root, key auth)
   ├── ssh ct-chat        → 192.168.3.18:22   (root, key auth)
   ├── ssh ct-dev         → 192.168.3.19:22   (psy, key auth)
+  ├── ssh ct-animus      → 192.168.3.20:22   (root, key auth)
   └── ssh ct-backup      → 192.168.3.13:22   (root, key auth)
 ```
 
@@ -340,6 +353,7 @@ Open WebUI runs on ct-chat (https://chat.<PERSONAL_DOMAIN> publicly, http://192.
 Remote development container runs on ct-dev (ssh ct-dev). Holds the work
 monorepo; tmux keeps agent sessions alive across disconnects. Not backed up
 by design.
+Animus private LAN commissioning foundation runs on ct-animus (http://hub.lan API, http://auth.lan Authentik login; LAN-only, temporary HTTP) — API plus Authentik identity with synthetic accounts and data only. **Real-data opening is CLOSED** and nothing there is production-ready. Deploy and restart must go only through its guarded lifecycle (source tooling, installed per `stacks/ct-animus/ops/README.md` after reviewed evidence); `infra deploy` and `infra restart` refuse it.
 infra CLI release mirror runs natively on ct-mgmt as a systemd timer (every 5 min) and is served via Caddy at http://infra-bin.lan. Pulls GitHub Release artifacts and re-publishes to the LAN. Source + deploy notes: `stacks/ct-mgmt/infra-mirror/`.
 Hardware and storage details in `docs/hardware.md`.
 

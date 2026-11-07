@@ -1,0 +1,4 @@
+# Mandatory application policy, not a conditional flow-stage Deny.
+# Checkpoint 1 mechanism-only rehearsal has no qualified minting boundary.
+# Keep every new application authorization closed even after normal flow success.
+return False

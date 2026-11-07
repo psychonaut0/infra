@@ -1,0 +1,14 @@
+__EVENT_PROOF_HELPER__
+try:
+    from authentik.events.signals import get_login_event
+    if token.provider_id != provider.pk or not token.session:
+        return {}
+    event = get_login_event(token.session)
+    if event is None or event.created != token.auth_time or token.user_id != token.user.pk:
+        return {}
+    proof = event_proof(event, token.user, provider, False)
+    if proof is None:
+        return {}
+    return {"hub_authentication_policy": proof["policy"], "hub_factor_time": proof["factor_time"]}
+except Exception:
+    return {}

@@ -1,0 +1,34 @@
+__EVENT_PROOF_HELPER__
+try:
+    import multiprocessing
+    from authentik.events.signals import get_login_event
+    from authentik.flows.views.executor import SESSION_KEY_PLAN
+    process = multiprocessing.current_process()
+    if type(process).__name__ != "_MainProcess" or process.daemon:
+        return False
+    http = request.http_request
+    plan = http.session[SESSION_KEY_PLAN]
+    binding = plan.bindings[0]
+    if binding.stage.name != "p1-mechanism-authorization-entry" or binding.target_id.hex != plan.flow_pk:
+        return False
+    context = plan.context
+    if "hub_p1_authorization" in context or "is_restored" in context or "is_redirected" in context:
+        return False
+    params = context["goauthentik.io/providers/oauth2/params"]
+    app = context["application"]
+    if app.provider_id != params.provider.pk or params.client_id != "alkion-lan" or params.provider.client_id != params.client_id:
+        return False
+    if params.grant_type != "authorization_code" or params.code_challenge_method != "S256" or params.redirect_uri != "dev.animusstudio.alkion.dev:/oauth2redirect":
+        return False
+    if not http.user.is_authenticated or http.user.pk != request.user.pk:
+        return False
+    proof = event_proof(get_login_event(http), request.user, params.provider, True)
+    if proof is None:
+        return False
+    proof.update({"redirect_uri": params.redirect_uri, "challenge": params.code_challenge,
+                  "challenge_method": params.code_challenge_method, "grant": params.grant_type, "response_type": params.response_type})
+    context["hub_p1_authorization"] = proof
+    http.session[SESSION_KEY_PLAN] = plan
+    return True
+except Exception:
+    return False

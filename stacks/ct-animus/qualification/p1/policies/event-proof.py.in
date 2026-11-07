@@ -1,0 +1,35 @@
+def event_proof(event, user, provider, require_fresh):
+    try:
+        import re
+        import time
+        if event is None or user is None or not user.pk or not user.is_active or user.is_superuser:
+            return None
+        if not ak_is_group_member(user, name="p1-mechanism-normal"):
+            return None
+        if event.action != "login" or event.user.get("pk") != user.pk or provider.client_id != "alkion-lan":
+            return None
+        args = event.context.get("auth_method_args", {})
+        flow = provider.authentication_flow_id.hex
+        if event.context.get("auth_method") != "password" or args.get("hub_policy_id") != "animus-password-totp-mechanism-v2":
+            return None
+        if args.get("hub_policy_flow") != flow or args.get("hub_policy_subject") != user.pk:
+            return None
+        nonce = args.get("hub_policy_execution")
+        if not isinstance(nonce, str) or not re.fullmatch(r"[0-9a-f]{32}", nonce):
+            return None
+        started = args.get("hub_factor_time")
+        now = time.time()
+        if type(started) is not int or started <= 0 or not started <= event.created.timestamp() <= now:
+            return None
+        if require_fresh and not 0 <= now - started <= 300:
+            return None
+        devices = args.get("mfa_devices")
+        if not isinstance(devices, list) or not devices:
+            return None
+        if any(not isinstance(d, dict) or d.get("app") != "authentik_stages_authenticator_totp" or d.get("model_name") != "totpdevice" for d in devices):
+            return None
+        return {"subject": user.pk, "event": str(event.pk), "event_time": event.created.isoformat(),
+                "factor_time": started, "execution": nonce, "flow": flow,
+                "policy": args["hub_policy_id"], "provider": str(provider.pk), "client": provider.client_id}
+    except Exception:
+        return None
