@@ -147,7 +147,7 @@ class CandidateTests(unittest.TestCase):
                 req = factored()
                 with stock_imports(), patch('time.time', return_value=1300.001):
                     self.assertFalse(expression('final.expr')(req))
-                self.assertNotIn('hub_authentication_policy', plan(req).context['auth_method_args'])
+                self.assertNotIn('hub_policy_id', plan(req).context['auth_method_args'])
 
     def test_missing_future_malformed_time_cannot_mark(self):
         for value in (None, True, -1, 1400, '1000'):
