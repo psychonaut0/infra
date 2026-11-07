@@ -182,7 +182,7 @@ class CandidateTests(unittest.TestCase):
             req.http_request.user = user(8)
             self.assertFalse(expression('application.expr')(req))
             req.http_request.user = subject
-            del event.context['auth_method_args']['hub_authentication_policy']
+            del event.context['auth_method_args']['hub_policy_id']
             self.assertFalse(expression('application.expr')(req))
 
     def test_stale_sso_and_operator_event_cannot_authorize(self):
