@@ -1,4 +1,4 @@
-# Synthetic commissioning only. Personal-data opening remains CLOSED.
+# Personal-data opening remains CLOSED outside the README's owner-commissioning profile.
 name: ct-animus
 x-postgres: &postgres
   image: postgres:17.11-bookworm@sha256:839fbb5a4942a7758dd93e18b42ea5649807491a0545b5eeeb8f0b8bb11857a5
@@ -128,7 +128,10 @@ services:
       - ${OIDC_TRUST_FILE}:/run/animus/oidc-trust.json:ro
       - ${STRONG_AUTH_POLICY_FILE:?private qualified strong policy required}:/run/animus/strong-auth-policy.json:ro
       - /etc/animus-control/operations:/run/animus-operations
-    networks: [database]
+    # Owner-token commands verify the token online (discovery, JWKS, UserInfo at
+    # the login origin), so the operator CLI gets exactly the API's provider path.
+    dns: ["${PRIVATE_DNS_IPV4}"]
+    networks: [database, egress]
     depends_on:
       app-postgres: {condition: service_healthy}
     restart: "no"
