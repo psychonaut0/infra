@@ -95,9 +95,7 @@ and build tools off the CT. No TUN or local Tailscale daemon is required.
    Re-check the loaded image ID/user. Do not use `docker export`, a registry push
    or a source checkout on the guest. Retain the prior archive/identity for recovery.
    Deliver the reviewed Auth image the same way: `docker image load`, tag it
-   `local/animus-auth:<tag>`, and record its ID as `AUTH_IMAGE_ID`. Changing it
-   changes the built-in Blueprints, so the flow-fence generation check refuses
-   boot until a new fence record matches it (see [fence](fence/README.md)).
+   `local/animus-auth:<tag>`, and record its ID as `AUTH_IMAGE_ID`.
 2. Copy this deployment directory to `/opt/stacks/ct-animus`. Copy `.env.example`
    privately to `.env`, mode 0600. Replace every placeholder; use separate
    `openssl rand -hex 32` outputs for the four DB credentials and
