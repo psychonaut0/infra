@@ -125,6 +125,89 @@ http://hub.lan {
 	reverse_proxy http://192.168.3.20:8095
 }
 
+# Animus owner-commissioning edge for Authentik on ct-animus (see
+# stacks/ct-animus/README.md, "Owner-commissioning profile"). Handles run in
+# order and the first match wins:
+#  1. Refused for every source, the operator path included: forwarding and
+#     method-override headers, the user settings interface, own and admin
+#     factor management, API tokens/app passwords, recovery, password-set,
+#     impersonation and user-switch actions, client registration, setup, and
+#     every flow outside the bound set.
+#  2. Client routes, any source: only the exact raw URIs that alkion-lan login,
+#     authorization, token, revocation, discovery, JWKS, UserInfo and the
+#     bound flows' interface, executor and static assets use.
+#  3. Admin interface and API: only connections from proxmoxmain
+#     (192.168.3.2), the existing root-only operator path, reached through an
+#     SSH SOCKS tunnel. Authentik permissions still apply there.
+#  4. Everything else: the marked 403. There is no proxy fallback.
 http://auth.lan {
-	reverse_proxy http://192.168.3.20:9000
+	@forged {
+		not {
+			header !X-HTTP-Method-Override
+			header !X-HTTP-Method
+			header !X-Method-Override
+			header !X-Original-URL
+			header !X-Rewrite-URL
+			header !X-Forwarded-Uri
+			header !X-Forwarded-Prefix
+			header !X-Forwarded-Host
+			header !X-Forwarded-Proto
+			header !X-Forwarded-Port
+			header !X-Forwarded-For
+			header !Forwarded
+		}
+	}
+	@refused path /if/user /if/user/* /api/v3/authenticators /api/v3/authenticators/* /api/v3/core/tokens /api/v3/core/tokens/* /api/v3/core/users/switch /api/v3/core/users/switch/ /application/o/*/register/ /application/o/*/register /setup /setup/*
+	@refused_user_action path_regexp (?i)^/api/v3/core/users/[^/]+/(recovery|recovery_email|set_password|set_password_hash|impersonate)/?$
+	@unbound_flow {
+		path /if/flow/* /api/v3/flows/executor/* /api/v3/flows/inspector/* /flows/-/*
+		not path /if/flow/animus-lan-normal/ /if/flow/animus-lan-authorization/ /api/v3/flows/executor/animus-lan-normal/ /api/v3/flows/executor/animus-lan-authorization/
+		not {
+			remote_ip 192.168.3.2/32
+			path_regexp ^(/if/flow|/api/v3/flows/executor)/default-(authentication|invalidation)-flow/$|^/flows/-/default/(authentication|invalidation)/$
+		}
+	}
+	@client {
+		header !Upgrade
+		expression `{http.request.hostport} == 'auth.lan' && (
+			({http.request.method} == 'GET' && {http.request.orig_uri}.matches('^(/application/o/authorize/|/application/o/userinfo/|/application/o/alkion-lan/[.]well-known/openid-configuration|/application/o/alkion-lan/jwks/|/if/flow/animus-lan-(normal|authorization)/|/api/v3/flows/executor/animus-lan-(normal|authorization)/)([?].*)?$')) ||
+			({http.request.method} == 'GET' && {http.request.orig_uri}.matches('^/static/dist/([A-Za-z0-9_@-][A-Za-z0-9._@-]*/)*[A-Za-z0-9_@-][A-Za-z0-9._@-]*([?][A-Za-z0-9=&._-]*)?$')) ||
+			({http.request.method} == 'POST' && {http.request.orig_uri}.matches('^(/application/o/token/|/application/o/revoke/|/api/v3/flows/executor/animus-lan-(normal|authorization)/)([?].*)?$')))`
+	}
+	@operator {
+		remote_ip 192.168.3.2/32
+		path /if/admin/* /api/v3/* /ws/client/ /static/* /media/* /flows/-/default/authentication/ /flows/-/default/invalidation/ /if/flow/default-authentication-flow/ /if/flow/default-invalidation-flow/
+	}
+	route {
+		handle @forged {
+			header X-Animus-Auth-Edge refused-v1
+			respond "Refused at the edge" 403
+		}
+		handle @refused {
+			header X-Animus-Auth-Edge refused-v1
+			respond "Refused at the edge" 403
+		}
+		handle @refused_user_action {
+			header X-Animus-Auth-Edge refused-v1
+			respond "Refused at the edge" 403
+		}
+		handle @unbound_flow {
+			header X-Animus-Auth-Edge refused-v1
+			respond "Refused at the edge" 403
+		}
+		handle @client {
+			reverse_proxy http://192.168.3.20:9000 {
+				header_up Host auth.lan
+			}
+		}
+		handle @operator {
+			reverse_proxy http://192.168.3.20:9000 {
+				header_up Host auth.lan
+			}
+		}
+		handle {
+			header X-Animus-Auth-Edge not-allowed-v1
+			respond "Not allowed at the edge" 403
+		}
+	}
 }
