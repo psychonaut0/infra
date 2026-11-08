@@ -186,7 +186,9 @@ entries:
     attrs:
       execution_logging: false
       expression: |
-        # The token endpoint separately validates code ownership/verifier or refresh.
+        # Effective at authorization. In 2026.8.5 the token endpoint runs application
+        # policies only for client_credentials and token exchange, which the token branch
+        # refuses; core token code, not this policy, checks the S256 verifier.
         try:
             context = request.context
             path = request.http_request.path

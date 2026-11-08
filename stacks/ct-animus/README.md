@@ -1,4 +1,4 @@
-# ct-animus — LAN synthetic commissioning
+# ct-animus — LAN commissioning (synthetic, or the owner-commissioning profile)
 
 API and identity only, in a new unprivileged Debian 13 CT. **Personal-data opening
 is CLOSED** unless the owner deliberately selects the
@@ -6,7 +6,8 @@ is CLOSED** unless the owner deliberately selects the
 owner-only LAN workout data. This descriptor and its checks do not provision or qualify a host.
 Use temporary HTTP `.lan` origins through the existing stock central Caddy and
 Pi-hole; existing Tailscale subnet routes can carry remote traffic. HTTP sends
-credentials/data unencrypted on the LAN. Use synthetic accounts and bytes only.
+credentials/data unencrypted on the LAN. Use synthetic accounts and bytes only,
+except under the explicit owner-commissioning profile.
 Stable HTTPS names and any public ingress are deferred to a later phase.
 
 No source checkout or public image registry is needed on the CT. No Atlas,
@@ -334,7 +335,9 @@ Do not replace the issuer with a container name or loopback URL.
 The explicit application policy requires the registered client, one of the two
 registered callbacks and S256 PKCE; `client_type: public` alone is not that
 requirement. Authentik 2026.8.5 has no provider-level PKCE requirement field, so
-none is added. Production/device wrong/missing verifier, wrong
+none is added. That policy acts at authorization only: at token exchange Authentik
+core checks the verifier against the stored S256 challenge, and no policy re-checks
+refresh. Production/device wrong/missing verifier, wrong
 callback, missing/plain challenge and no-grant/wrong-space denials remain required;
 synthetic source/runtime evidence does not qualify the production installation.
 
@@ -407,8 +410,13 @@ source changes. Selecting the profile is a separate, owner-approved operator ste
   `{"animus_issuance_profile": "owner-commissioning"}` and applies the blueprint
   (admin UI: Customization → Blueprints → Edit → Context, then Apply). Only that
   exact string removes the `animus-lan-issuance-closed` application binding. Any
-  other value, or no key, restores the binding on the next apply. Closing is
-  restrictive and stays allowed at any time.
+  other scalar value, or no key, closes it again on the next apply; malformed
+  values (a list or object) fail the apply. Closing stops new authorizations
+  only. In 2026.8.5 the authorization-code and refresh-token grants never
+  evaluate application policies, so unredeemed codes and issued refresh tokens
+  survive it (Alkion requests `offline_access`; refresh tokens keep the default
+  30 days). The kill path is the operator deleting the user's authorization
+  codes, access and refresh tokens and sessions, and deactivating the user.
 - **What it opens.** Only the `alkion-lan` public client: authorization code with
   a 43-character S256 challenge and exactly two strict redirects, the Android Dev
   callback and `http://127.0.0.1:43819/callback`. Port 43819 is Alkion's
@@ -432,7 +440,11 @@ source changes. Selecting the profile is a separate, owner-approved operator ste
   registration, `/setup` and every flow outside the bound set. For any source it
   forwards only the exact raw URIs of authorize, token, revoke, UserInfo,
   `alkion-lan` discovery and JWKS, the `animus-lan-normal` and
-  `animus-lan-authorization` interface and executor, and `/static/dist/` assets.
+  `animus-lan-authorization` interface and executor, the flow cancel view (GET
+  `/flows/-/cancel/`, which restarts a login) and `/static/dist/` assets.
+  Owners cannot sign out of Authentik in the browser: the invalidation flows,
+  end-session and the client websocket stay refused for them, so the operator
+  deletes their sessions when needed.
   Everything else gets a 403 marked `X-Animus-Auth-Edge`. Apply it only after
   owner enrollment, because it also refuses the enrollment flow.
 - **Operator access.** The admin interface, admin API, client websocket and the
