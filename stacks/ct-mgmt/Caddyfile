@@ -135,7 +135,9 @@ http://hub.lan {
 #     every flow outside the bound set.
 #  2. Client routes, any source: only the exact raw URIs that alkion-lan login,
 #     authorization, token, revocation, discovery, JWKS, UserInfo and the
-#     bound flows' interface, executor and static assets use.
+#     bound flows' interface, executor, cancel (restart) and static assets use.
+#     Owners get no Authentik sign-out: the invalidation flows, end-session
+#     and the client websocket stay refused; the operator deletes sessions.
 #  3. Admin interface and API: only connections from proxmoxmain
 #     (192.168.3.2), the existing root-only operator path, reached through an
 #     SSH SOCKS tunnel. Authentik permissions still apply there.
@@ -161,7 +163,7 @@ http://auth.lan {
 	@refused_user_action path_regexp (?i)^/api/v3/core/users/[^/]+/(recovery|recovery_email|set_password|set_password_hash|impersonate)/?$
 	@unbound_flow {
 		path /if/flow/* /api/v3/flows/executor/* /api/v3/flows/inspector/* /flows/-/*
-		not path /if/flow/animus-lan-normal/ /if/flow/animus-lan-authorization/ /api/v3/flows/executor/animus-lan-normal/ /api/v3/flows/executor/animus-lan-authorization/
+		not path /if/flow/animus-lan-normal/ /if/flow/animus-lan-authorization/ /api/v3/flows/executor/animus-lan-normal/ /api/v3/flows/executor/animus-lan-authorization/ /flows/-/cancel/
 		not {
 			remote_ip 192.168.3.2/32
 			path_regexp ^(/if/flow|/api/v3/flows/executor)/default-(authentication|invalidation)-flow/$|^/flows/-/default/(authentication|invalidation)/$
@@ -170,7 +172,7 @@ http://auth.lan {
 	@client {
 		header !Upgrade
 		expression `{http.request.hostport} == 'auth.lan' && (
-			({http.request.method} == 'GET' && {http.request.orig_uri}.matches('^(/application/o/authorize/|/application/o/userinfo/|/application/o/alkion-lan/[.]well-known/openid-configuration|/application/o/alkion-lan/jwks/|/if/flow/animus-lan-(normal|authorization)/|/api/v3/flows/executor/animus-lan-(normal|authorization)/)([?].*)?$')) ||
+			({http.request.method} == 'GET' && {http.request.orig_uri}.matches('^(/application/o/authorize/|/application/o/userinfo/|/application/o/alkion-lan/[.]well-known/openid-configuration|/application/o/alkion-lan/jwks/|/if/flow/animus-lan-(normal|authorization)/|/api/v3/flows/executor/animus-lan-(normal|authorization)/|/flows/-/cancel/)([?].*)?$')) ||
 			({http.request.method} == 'GET' && {http.request.orig_uri}.matches('^/static/dist/([A-Za-z0-9_@-][A-Za-z0-9._@-]*/)*[A-Za-z0-9_@-][A-Za-z0-9._@-]*([?][A-Za-z0-9=&._-]*)?$')) ||
 			({http.request.method} == 'POST' && {http.request.orig_uri}.matches('^(/application/o/token/|/application/o/revoke/|/api/v3/flows/executor/animus-lan-(normal|authorization)/)([?].*)?$')))`
 	}
