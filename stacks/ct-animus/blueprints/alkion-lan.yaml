@@ -1,8 +1,16 @@
-# SOURCE CANDIDATE ONLY. Application issuance stays unconditionally denied.
-# Production qualification, policy receipt/not-before, owner and grants remain UNSET.
+# Application issuance is CLOSED by default. The animus-lan-issuance-closed binding
+# is removed only when the operator selects the owner-commissioning profile through
+# the blueprint instance context (see stacks/ct-animus/README.md). That profile opens
+# the alkion-lan client alone, with S256 and exactly two strict redirects; enrollment
+# eligibility stays closed and no recovery flow is bound. It is not production P1
+# qualification: aggregate/perimeter qualification, strong-policy activation and the
+# pending-flow fence remain separate. Owner, memberships and grants are never seeded.
 version: 1
 metadata:
   name: Alkion LAN commissioning public client
+context:
+  # Only the exact instance-context value "owner-commissioning" opens issuance.
+  animus_issuance_profile: closed
 entries:
   - model: authentik_core.group
     id: bootstrap-group
@@ -184,12 +192,13 @@ entries:
             path = request.http_request.path
             grant = context.get("oauth_grant_type")
             alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_"
+            redirects = ("dev.animusstudio.alkion.dev:/oauth2redirect", "http://127.0.0.1:43819/callback")
             if path == "/application/o/authorize/":
                 challenge = context.get("oauth_code_challenge")
                 return (
                     grant == "authorization_code"
                     and context.get("oauth_response_type") == "code"
-                    and context.get("oauth_redirect_uri") == "dev.animusstudio.alkion.dev:/oauth2redirect"
+                    and context.get("oauth_redirect_uri") in redirects
                     and context.get("oauth_code_challenge_method") == "S256"
                     and isinstance(challenge, str) and len(challenge) == 43
                     and all(c in alphabet for c in challenge)
@@ -311,7 +320,8 @@ entries:
             app = context["application"]
             if app.provider_id != params.provider.pk or params.client_id != "alkion-lan" or params.provider.client_id != params.client_id:
                 return False
-            if params.grant_type != "authorization_code" or params.code_challenge_method != "S256" or params.redirect_uri != "dev.animusstudio.alkion.dev:/oauth2redirect":
+            redirects = ("dev.animusstudio.alkion.dev:/oauth2redirect", "http://127.0.0.1:43819/callback")
+            if params.grant_type != "authorization_code" or params.code_challenge_method != "S256" or params.redirect_uri not in redirects:
                 return False
             if not http.user.is_authenticated or http.user.pk != request.user.pk:
                 return False
@@ -652,6 +662,9 @@ entries:
         - matching_mode: strict
           redirect_uri_type: authorization
           url: dev.animusstudio.alkion.dev:/oauth2redirect
+        - matching_mode: strict
+          redirect_uri_type: authorization
+          url: http://127.0.0.1:43819/callback
       property_mappings:
         - !KeyOf assurance-mapping
         - !Find [authentik_providers_oauth2.scopemapping, [managed, goauthentik.io/providers/oauth2/scope-profile]]
@@ -667,5 +680,8 @@ entries:
     identifiers: {target: !KeyOf application, policy: !KeyOf application-policy, order: 1}
     attrs: {negate: false, failure_result: false}
   - model: authentik_policies.policybinding
+    # Exact-key lookup: any value other than the string owner-commissioning keeps it.
+    # (!Condition is unsuitable here: it compares only the truthiness of its arguments.)
+    state: !AtIndex [{owner-commissioning: absent}, !Context [animus_issuance_profile, closed], present]
     identifiers: {target: !KeyOf application, policy: !KeyOf issuance-closed-policy, order: 2}
     attrs: {negate: false, failure_result: false}
