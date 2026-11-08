@@ -69,6 +69,22 @@ def validate_strong_policy(services, values, synthetic=False):
                 "API and operator must bind the same configured strong-policy file read-only")
 
 
+def validate_networks(config, values):
+    # Databases stay on the internal bridge. Every other service, including the
+    # operator CLI that verifies owner tokens online, has the API's provider path.
+    networks = config.get("networks", {})
+    require(set(networks) == {"database", "egress"}, "unexpected Compose network")
+    require(networks["database"].get("internal") is True and not networks["egress"].get("internal"),
+            "database network must be internal and egress the only routed network")
+    for name, service in config["services"].items():
+        attached = set(service.get("networks") or {})
+        if name.endswith("postgres"):
+            require(attached == {"database"} and not service.get("dns"), "databases must stay internal-only")
+        else:
+            require(attached == {"database", "egress"} and service.get("dns") == [values["PRIVATE_DNS_IPV4"]],
+                    "API, operator CLI and Auth require the database network plus private-resolver egress")
+
+
 def validate(env_path, synthetic=False, inspect_image=False, recovery_path=CONTROL):
     values = read_env(env_path)
     require(not any(key.startswith("HUB_RECOVERY_") for key in values),
@@ -130,6 +146,7 @@ def validate(env_path, synthetic=False, inspect_image=False, recovery_path=CONTR
     require(set(services) == {"app-postgres", "auth-postgres", "auth-server", "auth-worker", "api", "migrate"},
             "unexpected service; scope is API, Auth and two databases only")
     validate_strong_policy(services, values, synthetic)
+    validate_networks(config, values)
     for name, service in services.items():
         require(not service.get("privileged") and not service.get("network_mode"), "privileged/host networking prohibited")
         require(not service.get("build"), "no host source build allowed")
@@ -272,6 +289,36 @@ def self_test():
             else:
                 raise ValueError("unrecorded or unloaded image unexpectedly accepted")
         print("PASS: recorded image IDs checked with docker image inspect (mocked) for API and Auth")
+        require(set(config["services"]["migrate"]["networks"]) == set(config["services"]["api"]["networks"])
+                and config["services"]["migrate"]["dns"] == config["services"]["api"]["dns"],
+                "operator CLI must share the API's provider path")
+        network_faults = (
+            ("services", "migrate", "networks", {"database": None}),
+            ("services", "migrate", "dns", None),
+            ("services", "migrate", "dns", ["192.168.100.6"]),
+            ("services", "api", "networks", {"database": None}),
+            ("services", "app-postgres", "networks", {"database": None, "egress": None}),
+            ("services", "auth-postgres", "dns", ["192.168.100.5"]),
+            ("networks", "database", "internal", False),
+            ("networks", "egress", "internal", True),
+            ("networks", "extra", None, {}),
+        )
+        for section, name, key, value in network_faults:
+            faulty = json.loads(json.dumps(config))
+            target = faulty[section]
+            if key is None:
+                target[name] = value
+            elif value is None:
+                target[name].pop(key, None)
+            else:
+                target[name][key] = value
+            try:
+                validate_networks(faulty, values)
+            except (ValueError, KeyError):
+                pass
+            else:
+                raise ValueError("negative network case unexpectedly accepted")
+        print(f"PASS: operator CLI shares the API provider path; {len(network_faults)} network/database-isolation rejection cases")
         rejected = 0
         def reject(services, inputs=values):
             nonlocal rejected

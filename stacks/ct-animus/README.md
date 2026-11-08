@@ -1,10 +1,13 @@
-# ct-animus — LAN synthetic commissioning
+# ct-animus — LAN commissioning (synthetic, or the owner-commissioning profile)
 
 API and identity only, in a new unprivileged Debian 13 CT. **Personal-data opening
-is CLOSED.** This descriptor and its checks do not provision or qualify a host.
+is CLOSED** unless the owner deliberately selects the
+[owner-commissioning profile](#owner-commissioning-profile), which is limited to
+owner-only LAN workout data. This descriptor and its checks do not provision or qualify a host.
 Use temporary HTTP `.lan` origins through the existing stock central Caddy and
 Pi-hole; existing Tailscale subnet routes can carry remote traffic. HTTP sends
-credentials/data unencrypted on the LAN. Use synthetic accounts and bytes only.
+credentials/data unencrypted on the LAN. Use synthetic accounts and bytes only,
+except under the explicit owner-commissioning profile.
 Stable HTTPS names and any public ingress are deferred to a later phase.
 
 No source checkout or public image registry is needed on the CT. No Atlas,
@@ -288,11 +291,12 @@ Confirm self-enrollment is unavailable before any ordinary-user commissioning.
 
 ## LAN provider and API startup
 
-The worker mounts only `blueprints/alkion-lan.yaml` read-only. The closed
-provider configuration preserves the existing provider/application name,
-client ID/slug `alkion-lan`, strict callback
-`dev.animusstudio.alkion.dev:/oauth2redirect`, per-provider issuer, UUID subject,
-ten-minute access tokens and existing RSA signing-certificate reference.
+The worker mounts only `blueprints/alkion-lan.yaml` read-only. The provider
+configuration preserves the existing provider/application name, client ID/slug
+`alkion-lan`, per-provider issuer, UUID subject, ten-minute access tokens and
+existing RSA signing-certificate reference. It registers exactly two strict
+callbacks: `dev.animusstudio.alkion.dev:/oauth2redirect` and
+`http://127.0.0.1:43819/callback` (see the profile below).
 
 Application-specific `animus-lan-*` flows require password plus TOTP through
 mandatory entry/final Prompt validators. Missing TOTP denies; submitted fields
@@ -313,7 +317,8 @@ policy. `STRONG_AUTH_POLICY_FILE` qualification receipt/ID/not-before remain UNS
 The custom openid mapping uses a direct blueprint reference; profile/offline_access
 use unambiguous managed mappings, preserving the native requested scopes.
 
-Application issuance is unconditionally denied by the closure policy. This
+By default, application issuance is denied by the closure policy; only the
+owner-commissioning profile below removes it. This
 blueprint seeds no user, membership, password, secret, Hub owner or grant. Empty
 groups are not owner commissioning. Production factor/recovery/partial-plan,
 perimeter, device and final policy qualification must finish before a separately
@@ -327,9 +332,12 @@ client/audience `alkion-lan`, matching discovery/JWKS and same-origin UserInfo.
 Verify discovery through the canonical host from clients and application containers.
 Do not replace the issuer with a container name or loopback URL.
 
-The explicit application policy requires the registered client/callback and
-S256 PKCE; `client_type: public` alone is not that requirement. No unsupported
-`require_pkce` field is added. Production/device wrong/missing verifier, wrong
+The explicit application policy requires the registered client, one of the two
+registered callbacks and S256 PKCE; `client_type: public` alone is not that
+requirement. Authentik 2026.8.5 has no provider-level PKCE requirement field, so
+none is added. That policy acts at authorization only: at token exchange Authentik
+core checks the verifier against the stored S256 challenge, and no policy re-checks
+refresh. Production/device wrong/missing verifier, wrong
 callback, missing/plain challenge and no-grant/wrong-space denials remain required;
 synthetic source/runtime evidence does not qualify the production installation.
 
@@ -362,6 +370,10 @@ infra dns add "$LOGIN_LAN_HOST" "http://${CT_IPV4}:9000"
 infra dns ls
 ```
 
+The login name's block is now the reviewed `auth.lan` edge described under
+[owner-commissioning profile](#owner-commissioning-profile); `infra dns ls`
+reports it as raw. Never re-add it with `infra dns add`.
+
 The names in the API trust registry, Authentik base URL and clients must match
 exactly. Central Caddy forwards only to those two allowlisted ports; the Authentik
 trusted-proxy setting is only the central Caddy IP `/32`. Review existing Caddy
@@ -387,6 +399,70 @@ probe using the same Docker network/resolver, since the scratch API has no shell
 Prove central Caddy reaches both upstreams, an unrelated LAN client cannot reach
 8095/9000 directly, only intended admin/backup sources reach SSH, and no database
 port is reachable. Verify off-tailnet clients cannot reach the private origins.
+
+## Owner-commissioning profile
+
+The owner-approved LAN commissioning (one owner, Alkion Dev, LAN HTTP) uses three
+source changes. Selecting the profile is a separate, owner-approved operator step.
+
+- **Issuance switch.** Issuance stays closed until the operator sets the
+  `ct-animus/alkion-lan.yaml` blueprint instance context to
+  `{"animus_issuance_profile": "owner-commissioning"}` and applies the blueprint
+  (admin UI: Customization → Blueprints → Edit → Context, then Apply). Only that
+  exact string removes the `animus-lan-issuance-closed` application binding. Any
+  other scalar value, or no key, closes it again on the next apply; malformed
+  values (a list or object) fail the apply. Closing stops new authorizations
+  only. In 2026.8.5 the authorization-code and refresh-token grants never
+  evaluate application policies, so unredeemed codes and issued refresh tokens
+  survive it (Alkion requests `offline_access`; refresh tokens keep the default
+  30 days). The kill path is the operator deleting the user's authorization
+  codes, access and refresh tokens and sessions, and deactivating the user.
+- **What it opens.** Only the `alkion-lan` public client: authorization code with
+  a 43-character S256 challenge and exactly two strict redirects, the Android Dev
+  callback and `http://127.0.0.1:43819/callback`. Port 43819 is Alkion's
+  documented Linux loopback callback; the private owner-token helper and the
+  future Linux client share it. It is a fixed port, with no range or pattern, and
+  a listener that cannot bind it fails. The password+TOTP login, the
+  authorization flow and every other blueprint object are unchanged. Enrollment
+  eligibility stays empty, no recovery flow is bound and nothing is seeded.
+  Impersonation is a tenant setting that blueprints cannot manage. Disable it
+  under System → Settings; the edge also refuses the impersonation action.
+- **Operator CLI provider path.** `migrate` joins `egress` with the private
+  resolver, exactly like `api`, because grant preparation and owner-token
+  commands verify the token online. It still depends only on `app-postgres`, so
+  `db migrate` never starts Auth. The databases stay internal-only, and
+  `check-config.py` asserts this topology.
+- **Central Caddy edge** (`stacks/ct-mgmt/Caddyfile`, `auth.lan`). It refuses
+  the following for every source, the operator included: forwarding and
+  method-override headers, `/if/user/`, `/api/v3/authenticators/*` (own and
+  admin), `/api/v3/core/tokens/*`, the user recovery, recovery-email,
+  set-password, set-password-hash, impersonate and switch actions, client
+  registration, `/setup` and every flow outside the bound set. For any source it
+  forwards only the exact raw URIs of authorize, token, revoke, UserInfo,
+  `alkion-lan` discovery and JWKS, the `animus-lan-normal` and
+  `animus-lan-authorization` interface and executor, the flow cancel view (GET
+  `/flows/-/cancel/`, which restarts a login) and `/static/dist/` assets.
+  Owners cannot sign out of Authentik in the browser: the invalidation flows,
+  end-session and the client websocket stay refused for them, so the operator
+  deletes their sessions when needed.
+  Everything else gets a 403 marked `X-Animus-Auth-Edge`. Apply it only after
+  owner enrollment, because it also refuses the enrollment flow.
+- **Operator access.** The admin interface, admin API, client websocket and the
+  stock operator login and logout flows are forwarded only for connections from
+  proxmoxmain (`192.168.3.2`), the existing root-only operator path. Use an SSH
+  SOCKS tunnel (`ssh -N -D 127.0.0.1:1080 root@192.168.3.2`) and a dedicated
+  browser profile, then open `http://auth.lan/if/admin/`. Caddy matches the TCP
+  peer only, with no trusted proxies, so headers cannot claim that source. Root
+  on proxmoxmain already controls ct-animus. Authentik permissions still apply.
+
+This is not P1 aggregate or perimeter qualification, strong-policy activation or
+the pending-flow fence. The hosting checks deferred by the owner stay open:
+lost-factor and admin repair, recovery, revocation after recovery,
+provider-outage and expired-credential behaviour, and the Tailscale leg. The edge
+routes come from Authentik 2026.8.5 source and were checked only against a local
+Caddy with a stub upstream. Browser, phone and provider behaviour remain
+commissioning checks. Every other opening (users, clients, origins or data) stays
+CLOSED.
 
 ## Backup, restore and completion gates
 
