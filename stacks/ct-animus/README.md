@@ -18,7 +18,7 @@ Verified against upstream on 2026-10-30:
 
 | Input | Pin and reason |
 | --- | --- |
-| Authentik | `2026.8.5`, OCI index `sha256:602227a86455d6772e3d16b7d852713c4f864f40df5df894abd1285bb53979a5`; current patch, replaces older rehearsal `2026.8.3`. |
+| Authentik | Operator input `AUTH_IMAGE` plus `AUTH_IMAGE_ID`: a privately loaded `local/animus-auth:<tag>` image recorded by image ID, like the API, and never pulled. The upstream base is `2026.8.5`, OCI index `sha256:602227a86455d6772e3d16b7d852713c4f864f40df5df894abd1285bb53979a5`; which reviewed build to load is an operator decision outside this repository. |
 | PostgreSQL | `17.11-bookworm`, OCI index `sha256:839fbb5a4942a7758dd93e18b42ea5649807491a0545b5eeeb8f0b8bb11857a5`; supported patch on existing major 17, replaces rehearsal `17.6`. |
 | API | Operator supplies a private `local/animus-api:sha-<revision>` tag, exact local image ID and archive checksum from the qualified non-root production build. |
 
@@ -94,6 +94,8 @@ and build tools off the CT. No TUN or local Tailscale daemon is required.
    transfer over SSH and verify the checksum before `docker image load` on the CT.
    Re-check the loaded image ID/user. Do not use `docker export`, a registry push
    or a source checkout on the guest. Retain the prior archive/identity for recovery.
+   Deliver the reviewed Auth image the same way: `docker image load`, tag it
+   `local/animus-auth:<tag>`, and record its ID as `AUTH_IMAGE_ID`.
 2. Copy this deployment directory to `/opt/stacks/ct-animus`. Copy `.env.example`
    privately to `.env`, mode 0600. Replace every placeholder; use separate
    `openssl rand -hex 32` outputs for the four DB credentials and
@@ -112,8 +114,9 @@ and build tools off the CT. No TUN or local Tailscale daemon is required.
    `HUB_STRONG_AUTH_POLICY_FILE`. No API trust-policy content or production
    qualification receipt is supplied by this repository; actual policy/hash/
    not-before remain UNSET until private final P1 acceptance.
-4. Use `python3 check-config.py` for secret-safe validation; once the image is
-   loaded, use `python3 check-config.py --inspect-image`. These never print the
+4. Use `python3 check-config.py` for secret-safe validation; once the images are
+   loaded, use `python3 check-config.py --inspect-image`, which checks both recorded
+   image IDs with `docker image inspect` (and the API's non-root user). These never print the
    rendered Compose environment. Do not paste `/usr/local/lib/animus-backup/compose.py config`, container
    inspect output, bearer tokens or provider challenge logs into public records.
    The strong-policy checks validate only regular/private file ownership and

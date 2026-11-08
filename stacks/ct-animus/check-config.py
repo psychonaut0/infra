@@ -95,6 +95,10 @@ def validate(env_path, synthetic=False, inspect_image=False, recovery_path=CONTR
             "use a private local API tag identifying the build revision")
     require(re.fullmatch(r"sha256:[0-9a-f]{64}", values["API_IMAGE_ID"]),
             "record the exact privately loaded API image ID")
+    require(re.fullmatch(r"local/animus-auth:[A-Za-z0-9._-]{1,128}", values["AUTH_IMAGE"]),
+            "use a private local Auth tag for the privately loaded reviewed image")
+    require(re.fullmatch(r"sha256:[0-9a-f]{64}", values["AUTH_IMAGE_ID"]),
+            "record the exact privately loaded Auth image ID")
     passwords = [values[key] for key in (
         "APP_ADMIN_DB_PASSWORD", "APP_RUNTIME_DB_PASSWORD", "AUTH_ADMIN_DB_PASSWORD", "AUTH_DB_PASSWORD")]
     require(all(re.fullmatch(r"[0-9a-f]{64}", password) for password in passwords),
@@ -137,7 +141,8 @@ def validate(env_path, synthetic=False, inspect_image=False, recovery_path=CONTR
             require(not service.get("ports"), "databases must not publish host ports")
             require("@sha256:" in service["image"], "PostgreSQL digest pin required")
         if name.startswith("auth-") and not name.endswith("postgres"):
-            require("@sha256:" in service["image"] and service.get("user") == "1000:1000", "Auth image pin/non-root user required")
+            require(service["image"] == values["AUTH_IMAGE"] and service.get("pull_policy") == "never"
+                    and service.get("user") == "1000:1000", "privately loaded Auth image and non-root user required")
             require(not any(key.startswith("AUTHENTIK_BOOTSTRAP") for key in service["environment"]),
                     "automatic production bootstrap prohibited")
             require(service["environment"]["AUTHENTIK_LISTEN__TRUSTED_PROXY_CIDRS"] == values["PROXY_IPV4"] + "/32",
@@ -187,14 +192,21 @@ def validate(env_path, synthetic=False, inspect_image=False, recovery_path=CONTR
             provider["jwks_uri"] == issuer + "jwks/" and
             provider["userinfo_endpoint"] == "http://" + hostname + "/application/o/userinfo/", "provider endpoint mismatch")
     if inspect_image:
-        inspected = subprocess.run(["docker", "image", "inspect", values["API_IMAGE"]],
-                                   capture_output=True, text=True, env=clean_env)
-        require(inspected.returncode == 0, "private API image not inspectable on local daemon")
-        actual = json.loads(inspected.stdout)[0]
-        require(actual["Id"] == values["API_IMAGE_ID"] and actual["Config"]["User"] == "65532:65532",
-                "loaded API image ID or non-root user mismatch")
+        inspect_images(values, clean_env)
     print("PASS: secret-safe Compose, exact OIDC and shared strong-policy wiring (no proof/runtime qualification)")
     return config
+
+
+def inspect_images(values, clean_env, runner=subprocess.run):
+    """Each loaded image must carry its recorded ID; the API image runs non-root."""
+    for reference, recorded, user in ((values["API_IMAGE"], values["API_IMAGE_ID"], "65532:65532"),
+                                      (values["AUTH_IMAGE"], values["AUTH_IMAGE_ID"], None)):
+        inspected = runner(["docker", "image", "inspect", reference], capture_output=True, text=True, env=clean_env)
+        require(inspected.returncode == 0, "private image not inspectable on local daemon")
+        actual = json.loads(inspected.stdout)
+        require(isinstance(actual, list) and len(actual) == 1 and actual[0]["Id"] == recorded
+                and (user is None or actual[0]["Config"]["User"] == user),
+                "loaded image ID or non-root user mismatch")
 
 
 def self_test():
@@ -209,7 +221,8 @@ def self_test():
         policy.chmod(0o600)
         values = dict(CT_IPV4="192.168.100.20", PROXY_IPV4="192.168.100.12", PRIVATE_DNS_IPV4="192.168.100.5",
                       LOGIN_FQDN="auth.lan", API_IMAGE="local/animus-api:sha-" + "a" * 40,
-                      API_IMAGE_ID="sha256:" + "b" * 64, OIDC_TRUST_FILE=str(registry), STRONG_AUTH_POLICY_FILE=str(policy),
+                      API_IMAGE_ID="sha256:" + "b" * 64, AUTH_IMAGE="local/animus-auth:synthetic",
+                      AUTH_IMAGE_ID="sha256:" + "c" * 64, OIDC_TRUST_FILE=str(registry), STRONG_AUTH_POLICY_FILE=str(policy),
                       APP_ADMIN_DB_PASSWORD="a" * 64, APP_RUNTIME_DB_PASSWORD="b" * 64,
                       AUTH_ADMIN_DB_PASSWORD="c" * 64, AUTH_DB_PASSWORD="d" * 64, AUTHENTIK_SECRET_KEY="e" * 128)
         recovery_path = root / "recovery.env"
@@ -223,18 +236,42 @@ def self_test():
         write()
         config = validate(env, synthetic=True, recovery_path=recovery_path)
         for key, invalid in (("CT_IPV4", "0.0.0.0"), ("API_IMAGE", "public/image:latest"),
-                             ("APP_RUNTIME_DB_PASSWORD", values["APP_ADMIN_DB_PASSWORD"])):
-            old = values[key]
-            values[key] = invalid
+                             ("APP_RUNTIME_DB_PASSWORD", values["APP_ADMIN_DB_PASSWORD"]),
+                             ("AUTH_IMAGE", "ghcr.io/goauthentik/server:latest"), ("AUTH_IMAGE_ID", "sha256:latest"),
+                             ("AUTH_IMAGE", None), ("AUTH_IMAGE_ID", None)):
+            old = values.pop(key)
+            if invalid is not None:
+                values[key] = invalid
             write()
             try:
                 validate(env, synthetic=True, recovery_path=recovery_path)
-            except ValueError:
+            except (ValueError, KeyError):
                 pass
             else:
                 raise ValueError("negative policy case unexpectedly accepted")
             values[key] = old
-        print("PASS: unsafe interface, public image and reused-role-secret rejection")
+        write()
+        print("PASS: unsafe interface, public image, reused-role-secret and missing/unloaded Auth image rejection")
+        def image(reference_ids, users=None, failed=()):
+            def runner(arguments, **options):
+                reference = arguments[-1]
+                if reference in failed:
+                    return subprocess.CompletedProcess(arguments, 1, "", "")
+                document = [{"Id": reference_ids[reference], "Config": {"User": (users or {}).get(reference, "65532:65532")}}]
+                return subprocess.CompletedProcess(arguments, 0, json.dumps(document), "")
+            return runner
+        ids = {values["API_IMAGE"]: values["API_IMAGE_ID"], values["AUTH_IMAGE"]: values["AUTH_IMAGE_ID"]}
+        inspect_images(values, {}, image(ids))
+        for runner in (image({**ids, values["AUTH_IMAGE"]: "sha256:" + "d" * 64}),
+                       image({**ids, values["API_IMAGE"]: "sha256:" + "d" * 64}),
+                       image(ids, users={values["API_IMAGE"]: "0:0"}), image(ids, failed=(values["AUTH_IMAGE"],))):
+            try:
+                inspect_images(values, {}, runner)
+            except ValueError:
+                pass
+            else:
+                raise ValueError("unrecorded or unloaded image unexpectedly accepted")
+        print("PASS: recorded image IDs checked with docker image inspect (mocked) for API and Auth")
         rejected = 0
         def reject(services, inputs=values):
             nonlocal rejected
