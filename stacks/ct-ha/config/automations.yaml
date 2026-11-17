@@ -41,8 +41,8 @@
     data:
       notification_id: household_bedtime
       title: È ora della buonanotte?
-      message: Quando sono tutti a letto, usa Buonanotte dalla pagina Casa. Se siete ancora svegli non serve
-        fare nulla.
+      message: Quando sono tutti a letto, usa Buonanotte dalla pagina Casa. Se siete
+        ancora svegli non serve fare nulla.
 - id: household_morning_reminder
   alias: Casa · promemoria buongiorno
   mode: single
@@ -64,8 +64,8 @@
     data:
       notification_id: household_wakeup
       title: Buongiorno
-      message: Quando ti alzi, usa Buongiorno dalla pagina Casa. L’orario da solo non muove tapparelle e non
-        cambia la privacy.
+      message: Quando ti alzi, usa Buongiorno dalla pagina Casa. L’orario da solo
+        non muove tapparelle e non cambia la privacy.
 - id: household_interrupted_routine
   alias: Casa · segnala routine interrotta
   mode: restart
@@ -93,7 +93,7 @@
     target:
       entity_id: input_text.household_routine_result
     data:
-      value: Esecuzione interrotta prima della verifica finale. Ripeti la routine desiderata.
+      value: Premila di nuovo.
   - action: input_select.select_option
     target:
       entity_id: input_select.household_routine_status
@@ -104,3 +104,272 @@
       entity_id: input_datetime.household_routine_finished
     data:
       timestamp: '{{ as_timestamp(now()) }}'
+- id: '1794268456642'
+  alias: Spegni Tutto (luci, prese lumi e aspiratore bagno)
+  description: Spegne luci per dormire
+  triggers:
+  - trigger: tag
+    tag_id: 3af92d46-b079-4bf2-b31f-173c36059405
+  actions:
+  - metadata: {}
+    action: light.turn_off
+    target:
+      label_id: light
+  - metadata: {}
+    action: fan.turn_off
+    target:
+      label_id: purificatore_d_aria
+  - metadata: {}
+    action: light.turn_off
+    target:
+      device_id: 1ce968c22931b866801c817f89743da9
+  - metadata: {}
+    action: light.turn_off
+    target:
+      device_id: 43e96f1819ab92176366fd25b2ebc19d
+  - action: light.turn_off
+    metadata: {}
+    target:
+      device_id: e7bc12c1141367e5eadf451b2963aaed
+    data: {}
+  - action: light.turn_on
+    metadata: {}
+    target:
+      device_id: bc08a1841397be00b7513d7e5d1e698e
+    data: {}
+  - action: light.turn_off
+    metadata: {}
+    target:
+      entity_id: light.faretti_9
+    data: {}
+  mode: single
+  variables:
+    _flode_metadata:
+      version: 1
+      nodes:
+        trigger_mw9x4zv8:
+          x: 40
+          y: 40
+        action_mw9x5imy:
+          x: 420
+          y: 40
+        action_mw9x6g6i:
+          x: 800
+          y: 40
+        action_mw9xnz1f:
+          x: 1180
+          y: 40
+        action_mw9xog6y:
+          x: 1560
+          y: 40
+      steps:
+        trigger/0: trigger_mw9x4zv8
+        action/0: action_mw9x5imy
+        action/1: action_mw9x6g6i
+        action/2: action_mw9xnz1f
+        action/3: action_mw9xog6y
+      graph_id: 28f21694-1dba-425a-ae47-51bbd34e70e8
+      graph_version: 1
+      strategy: native
+- id: '1794603691210'
+  alias: Apre tapparelle stanza ospiti
+  description: ''
+  triggers:
+  - trigger: tag
+    tag_id: 1fa4ce19-a34b-475d-95d8-def0016c485d
+  actions:
+  - metadata: {}
+    action: cover.open_cover
+    target:
+      area_id: room
+  mode: single
+  variables:
+    _flode_metadata:
+      version: 1
+      nodes:
+        trigger_mwfgpkc8:
+          x: 40
+          y: 40
+        action_mwfks4kv:
+          x: 420
+          y: 40
+      steps:
+        trigger/0: trigger_mwfgpkc8
+        action/0: action_mwfks4kv
+      graph_id: e2f30997-0d16-477a-9890-3d39ff2d983d
+      graph_version: 1
+      strategy: native
+- id: '1794761930057'
+  alias: Notifica sensori presenza
+  description: ''
+  triggers:
+  - trigger: occupancy.detected
+    target:
+      device_id: fbb99ff26affe34079826f105b53261e
+    options:
+      behavior: each
+      for: 00:00:00
+  - trigger: occupancy.detected
+    target:
+      device_id: b4e506799647eccec72d63cbb04201b9
+    options:
+      behavior: each
+      for: 00:00:00
+  - trigger: occupancy.detected
+    target:
+      device_id: 994bac4152aede8151e640b977c18fd4
+    options:
+      behavior: each
+      for: 00:00:00
+  - trigger: occupancy.detected
+    target:
+      device_id: 7b81177377bfb6ee4cd66a0834e15653
+    options:
+      behavior: each
+      for: 00:00:00
+  conditions:
+  - condition: switch.is_on
+    target:
+      entity_id: input_boolean.notifica_sensori_presenza
+    options:
+      behavior: any
+      for: 00:00:00
+  actions:
+  - action: notify.notify
+    metadata: {}
+    data:
+      title: Presenza da sensori
+      message: presenza rilevata{{ trigger.to_state.name }}
+  mode: single
+- id: '1794821208096'
+  alias: Rilevamento infissi aperti
+  description: ''
+  triggers:
+  - trigger: window.opened
+    target:
+      device_id: eeea18e5376b37ec9358152ad734d509
+    options:
+      behavior: each
+      for: 00:00:00
+  - trigger: window.opened
+    target:
+      device_id: 3038fd8efe148278e994994c2d435b0d
+    options:
+      behavior: each
+      for: 00:00:00
+  - trigger: window.opened
+    target:
+      device_id: ca1dbd9c39c5bb87f58bc0482c076051
+    options:
+      behavior: each
+      for: 00:00:00
+  - trigger: window.opened
+    target:
+      device_id: 303cdd0cfa536f25d1c8d12ca691483f
+    options:
+      behavior: each
+      for: 00:00:00
+  - trigger: window.opened
+    target:
+      device_id: 01080c8bc988e9de2c8a90f6af340b3c
+    options:
+      behavior: each
+      for: 00:00:00
+  - trigger: window.opened
+    target:
+      device_id: bec27965886bff50a213ae951e154ea3
+    options:
+      behavior: each
+      for: 00:00:00
+  - trigger: window.opened
+    target:
+      device_id: e419b92254da65d1ec7fc86f7a077f02
+    options:
+      behavior: each
+      for: 00:00:00
+  - trigger: window.opened
+    target:
+      device_id: b626326b19d1a0029038d2ecd0f97a3f
+    options:
+      behavior: each
+      for: 00:00:00
+  conditions:
+  - condition: switch.is_on
+    target:
+      entity_id: input_boolean.abilita_notifiche
+    options:
+      behavior: any
+      for: 00:00:00
+  actions:
+  - action: notify.notify
+    metadata: {}
+    data:
+      title: Apertura infisso
+      message: Infisso aperto {{ trigger.to_state.name }}
+  mode: single
+- id: '1794825207536'
+  alias: Notifica rilevamento telecamere
+  description: ''
+  triggers:
+  - trigger: motion.detected
+    target:
+      device_id: 28bd01de7e59f65a10516df98a39290b
+    options:
+      behavior: each
+      for: 00:00:00
+  - trigger: motion.detected
+    target:
+      device_id: 1245575f58a4e1b034fc0d94bcd2350a
+    options:
+      behavior: each
+      for: 00:00:00
+  - trigger: motion.detected
+    target:
+      device_id: 346a580bc221728052777345d50c1206
+    options:
+      behavior: each
+      for: 00:00:00
+  - trigger: door.opened
+    target:
+      area_id: entrance
+    options:
+      behavior: each
+      for: 00:00:00
+  conditions:
+  - condition: switch.is_on
+    target:
+      entity_id: input_boolean.notifica_rilevamento_telecamere
+    options:
+      behavior: any
+      for: 00:00:00
+  actions:
+  - action: notify.notify
+    metadata: {}
+    data:
+      title: Telecamera rileva movimento
+      message: Presenza da telecamera{{ trigger.to_state.name }}
+  mode: single
+- id: '1794826959669'
+  alias: Notifica apertura porta d'ingresso
+  description: ''
+  triggers:
+  - trigger: door.opened
+    target:
+      device_id: 0e453fbdd371801dd1c3b73896a40416
+    options:
+      behavior: each
+      for: 00:00:00
+  conditions:
+  - condition: switch.is_on
+    target:
+      entity_id: input_boolean.notifica_apertura_porta_d_ingresso
+    options:
+      behavior: any
+      for: 00:00:00
+  actions:
+  - action: notify.notify
+    metadata: {}
+    data:
+      message: La porta d'ingresso è aperta
+      title: Apertura porta d'ingresso
+  mode: single

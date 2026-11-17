@@ -37,6 +37,30 @@ Use `!secret` references and keep their values in live `config/secrets.yaml`.
 Adding a new managed file requires updating the allowlist and the helper's
 managed-file list, plus checking its includes and validation dependencies.
 
+## Remote access — 2026-11-17
+
+HA is public at `https://home.<PERSONAL_DOMAIN>` through the Cloudflare Tunnel on
+ct-tunnel (route mirrored in `stacks/ct-tunnel/ingress.yml`), so family phones
+need no Tailscale; the companion app uses it as the external URL. There is no
+Cloudflare Access in front: it would break the app's background API calls. The
+gate is HA's own login, hardened as follows:
+
+- `trusted_proxies` = Caddy `192.168.3.12` and ct-tunnel `192.168.3.6`, with
+  `use_x_forwarded_for`, so bans and logs see the real client address.
+- `login_attempts_threshold: 5` with IP bans (`config/ip_bans.yaml`; delete the
+  entry and restart to unban). Tailscale clients share `192.168.3.1`.
+- No multi-factor login for now (owner decision 2026-11-17): every account,
+  both admins included, is password-only. TOTP is per user (profile →
+  Security) if it is wanted later; HA 2026.10 has no passkey/WebAuthn login. The non-admin family account had `local_only` and was switched off so
+  it can log in remotely — through the tunnel HA sees real public addresses, so
+  local-only accounts are refused there.
+- Cloudflare zone WAF custom rule `home: Italy only` blocks other countries.
+
+These HTTP settings live in `.storage/http`. Change them under Settings → System
+→ Network or with the `http/config/configure` WebSocket command, which restarts
+HA into a trial config that reverts automatically unless promoted
+(`http/config/promote`). Gatus checks the public `/manifest.json` every 5 minutes.
+
 ## Customization cleanup — 2026-11-04
 
 The experimental Material You theme/utilities, floor3d card and Material Symbols
@@ -162,10 +186,62 @@ and [HA registries/storage](https://contributors.home-assistant.io/architecture/
 
 ## Household foundation
 
-The family dashboard is `/casa-famiglia/casa`, with Casa, Stanze, Clima and
-Sicurezza views and ten room subviews. `/casa-impostazioni/routine` is a separate
-admin-only dashboard for routine settings. Both use native cards and YAML.
-The built-in overview stays available for reference.
+The family dashboard is `/casa-famiglia/casa`, the system default for every
+user. Since 2026-11-17 it is a single overview-plus-fast-control view (status
+hero, shortcut chips, the four routine buttons, room tiles) with everything
+else in Bubble Card pop-ups opened by `#hash` links: one per room (lights and
+shutters), Clima, Tapparelle, Sicurezza (camera status, guests, openings and
+WebRTC live view through the Frigate integration's go2rtc proxy) and Consumi.
+A room tile's icon toggles that room's lights via `script.room_quick_lights`.
+It replaced the earlier native-card version with Casa/Stanze/Clima/Sicurezza
+views and room subviews. `/casa-impostazioni/routine` is a separate admin-only
+dashboard for routine settings, still native cards. The built-in overview stays
+available for reference.
+
+`casa.yaml` needs these HACS frontend cards, registered as Lovelace resources in
+HA storage (not in Git): Mushroom (5.2.3), Bubble Card (3.4.3), Advanced Camera
+Card (8.1.0), apexcharts-card, auto-entities, card-mod (4.2.1), kiosk-mode
+(15.0.0) and button-card (7.0.1). Upgrade them through HACS and recheck the dashboard; a missing
+resource renders as a red error card.
+
+Since 2026-11-17 the home is a **panel view** that fits exactly one screen with
+no page scroll. A `custom:mod-card` wraps one vertical stack (stacks have no
+`ha-card`, so card-mod cannot style them directly); its CSS makes the stack
+screen-high and gives the rooms grid — the stack's 7th child — the height left
+over, so cards appearing above it (routine progress, open windows) just shrink
+the room tiles. Room tiles are `custom:button-card` (7.0.1) built from the
+shared `casa_room` template in `casa.yaml` (JavaScript templates evaluated in the
+browser); each room only lists its `lights`, `windows`, `climate` and `door`
+variables plus its actions. Layout: round icon top-left (tap = main lights via
+`script.room_quick_lights`, amber background when a light is on), name (two
+lines allowed)
+and a status line at the bottom — an orange alert (window open/tilted, front
+door) or the light count, then the temperature with 🔥 while heating. Tapping
+anywhere else opens the room pop-up. Sizes follow the tile through container
+units: the icon shrinks to 30px and name/status drop to one line before
+the layout changes; only very short tiles (content under 62px, small phones)
+collapse to one row. Shutter buttons on the tiles were tried and removed
+(2026-11-17, owner decision): shutters stay in the room pop-ups and the Tapparelle chip. Alerts also put an orange ring around the
+icon (a positioned badge drifted when the layout changed). Panel views zero `--ha-card-border-radius/width`
+for nested cards, so the stack restores them. On wider screens the column caps
+at 1100px and rooms go five per row. kiosk-mode hides the header on screens
+≤600px; long-pressing the status card opens `/profile/general`, whose header
+has the sidebar menu button. Keep the stack's card order (the CSS addresses the
+rooms grid by position) when editing.
+
+Electricity costs come from `sensor.household_energy_price` (€/kWh, VAT included)
+and `sensor.household_energy_fixed_cost` (€/month plus a `per_day` attribute),
+template sensors in `configuration.yaml` built from the supplier bill's line items
+(fixed-price energy, dispatch, network, system charges, excise, VAT; fixed sales,
+network and power fees). The energy price is the offer's; the regulated parts change
+quarterly, so update them from a new bill. HA's Energy dashboard uses the price sensor.
+The Shelly EM Gen3 is on the main supply and measures the whole house. The Consumi
+pop-up shows usage cost and an estimated monthly bill (usage + fixed charges); the TV
+licence and gas heating are not included.
+
+The Sicurezza live view uses one Advanced Camera Card per camera with only a
+fullscreen button: its built-in double-tap window (250 ms) is too short for a
+finger, and its zoom layer captures touch, so zoom is enabled only in fullscreen.
 
 Buongiorno, Buonanotte, Usciamo and Rientro are shared scripts, suitable for
 future voice/physical triggers. A shared runner verifies the camera and shutter
@@ -226,8 +302,9 @@ not that every segment has been successfully written to NVR storage.
 Frigate reports statistics every 60 seconds here; video startup allows two
 minutes for a fresh frame-rate report after RTSP becomes reachable.
 
-Casa retains the four tabs and shows a compact set of routine controls, a live
-step, separate camera/shutter results and the final check time. Open or unknown
+Casa shows the four routine buttons (a badge marks the running one) and, while a
+routine runs or needs attention, a progress card with the live step and separate
+camera/shutter results. Open or unknown
 door/window states produce a warning without blocking the routine. A failed
 camera check does not prevent shutter actions. Unexpected interruption is
 reported by a watchdog after a stopped script or HA restart. The background

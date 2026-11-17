@@ -10,8 +10,8 @@ household_apply_camera_policy:
     - variables:
         result:
           ok: false
-          detail: 'Presenza da verificare: nessun comando alle videocamere.'
-    - stop: 'Presenza da verificare: nessun comando alle videocamere.'
+          detail: 'Presenza non impostata: videocamere lasciate come sono.'
+    - stop: 'Presenza non impostata: videocamere lasciate come sono.'
       response_variable: result
   - variables:
       cameras_wanted: '{{ (is_state(''input_select.household_presence'',''Fuori casa'') and is_state(''input_boolean.household_guests'',''off''))
@@ -23,23 +23,38 @@ household_apply_camera_policy:
       - condition: template
         value_template: '{{ cameras_wanted }}'
       sequence:
-      - action: shell_command.household_camera_power_on
-        response_variable: power_result
-        continue_on_error: true
+      - variables:
+          power_ok: false
+      # UniFi reports the switch as stale for ~1 min after a port change; retry before giving up.
+      - repeat:
+          sequence:
+          - if:
+            - condition: template
+              value_template: '{{ repeat.index > 1 }}'
+            then:
+            - delay: 00:00:20
+          - action: shell_command.household_camera_power_on
+            response_variable: power_result
+            continue_on_error: true
+          - variables:
+              power_ok: '{{ power_result is defined and power_result.returncode == 0 }}'
+          until:
+          - condition: template
+            value_template: '{{ power_ok or repeat.index >= 4 }}'
       - if:
         - condition: template
-          value_template: '{{ power_result is not defined or power_result.returncode != 0 }}'
+          value_template: '{{ not power_ok }}'
         then:
         - action: persistent_notification.create
           data:
             notification_id: household_camera_control
-            title: Videocamere da verificare
-            message: Alimentazione videocamere non riuscita. Controllare Sicurezza.
+            title: Problema alle videocamere
+            message: Le videocamere non si sono accese.
         - variables:
             result:
               ok: false
-              detail: Alimentazione videocamere non riuscita. Controllare Sicurezza.
-        - stop: Alimentazione videocamere non riuscita. Controllare Sicurezza.
+              detail: Le videocamere non si sono accese.
+        - stop: Le videocamere non si sono accese.
           response_variable: result
       - action: homeassistant.update_entity
         target:
@@ -57,13 +72,13 @@ household_apply_camera_policy:
         - action: persistent_notification.create
           data:
             notification_id: household_camera_control
-            title: Videocamere da verificare
-            message: Una o più videocamere non sono raggiungibili dopo l’accensione.
+            title: Problema alle videocamere
+            message: Una videocamera non risponde.
         - variables:
             result:
               ok: false
-              detail: Una o più videocamere non sono raggiungibili dopo l’accensione.
-        - stop: Una o più videocamere non sono raggiungibili dopo l’accensione.
+              detail: Una videocamera non risponde.
+        - stop: Una videocamera non risponde.
           response_variable: result
       - if:
         - condition: template
@@ -75,8 +90,8 @@ household_apply_camera_policy:
         - variables:
             result:
               ok: false
-              detail: Modalità cambiata durante l’avvio delle videocamere.
-        - stop: Modalità cambiata durante l’avvio delle videocamere.
+              detail: 'Accensione annullata: è partita un’altra routine.'
+        - stop: 'Accensione annullata: è partita un’altra routine.'
           response_variable: result
       - action: camera.turn_on
         target:
@@ -113,13 +128,13 @@ household_apply_camera_policy:
         - action: persistent_notification.create
           data:
             notification_id: household_camera_control
-            title: Videocamere da verificare
-            message: Video o registrazione non attivi su tutte e tre le videocamere.
+            title: Problema alle videocamere
+            message: Le videocamere sono accese ma non tutte registrano.
         - variables:
             result:
               ok: false
-              detail: Video o registrazione non attivi su tutte e tre le videocamere.
-        - stop: Video o registrazione non attivi su tutte e tre le videocamere.
+              detail: Le videocamere sono accese ma non tutte registrano.
+        - stop: Le videocamere sono accese ma non tutte registrano.
           response_variable: result
       - action: persistent_notification.dismiss
         data:
@@ -127,8 +142,8 @@ household_apply_camera_policy:
       - variables:
           result:
             ok: true
-            detail: Video attivo su 3 videocamere; registrazione abilitata.
-      - stop: Video attivo su 3 videocamere; registrazione abilitata.
+            detail: Accese e in registrazione.
+      - stop: Accese e in registrazione.
         response_variable: result
     default:
     - action: camera.turn_off
@@ -138,23 +153,38 @@ household_apply_camera_policy:
         - camera.camera_2
         - camera.camera_3
       continue_on_error: true
-    - action: shell_command.household_camera_power_off
-      response_variable: power_result
-      continue_on_error: true
+    - variables:
+        power_ok: false
+    # UniFi reports the switch as stale for ~1 min after a port change; retry before giving up.
+    - repeat:
+        sequence:
+        - if:
+          - condition: template
+            value_template: '{{ repeat.index > 1 }}'
+          then:
+          - delay: 00:00:20
+        - action: shell_command.household_camera_power_off
+          response_variable: power_result
+          continue_on_error: true
+        - variables:
+            power_ok: '{{ power_result is defined and power_result.returncode == 0 }}'
+        until:
+        - condition: template
+          value_template: '{{ power_ok or repeat.index >= 4 }}'
     - if:
       - condition: template
-        value_template: '{{ power_result is not defined or power_result.returncode != 0 }}'
+        value_template: '{{ not power_ok }}'
       then:
       - action: persistent_notification.create
         data:
           notification_id: household_camera_control
-          title: Videocamere da verificare
-          message: Spegnimento PoE non riuscito. La privacy non è confermata.
+          title: Problema alle videocamere
+          message: Le videocamere non si sono spente.
       - variables:
           result:
             ok: false
-            detail: Spegnimento PoE non riuscito. La privacy non è confermata.
-      - stop: Spegnimento PoE non riuscito. La privacy non è confermata.
+            detail: Le videocamere non si sono spente.
+      - stop: Le videocamere non si sono spente.
         response_variable: result
     - action: homeassistant.update_entity
       target:
@@ -172,13 +202,13 @@ household_apply_camera_policy:
       - action: persistent_notification.create
         data:
           notification_id: household_camera_control
-          title: Videocamere da verificare
-          message: Spegnimento fisico non confermato su tutte e tre le videocamere.
+          title: Problema alle videocamere
+          message: Non tutte le videocamere risultano spente.
       - variables:
           result:
             ok: false
-            detail: Spegnimento fisico non confermato su tutte e tre le videocamere.
-      - stop: Spegnimento fisico non confermato su tutte e tre le videocamere.
+            detail: Non tutte le videocamere risultano spente.
+      - stop: Non tutte le videocamere risultano spente.
         response_variable: result
     - action: persistent_notification.dismiss
       data:
@@ -186,8 +216,8 @@ household_apply_camera_policy:
     - variables:
         result:
           ok: true
-          detail: 'Privacy verificata: 3 videocamere spente fisicamente.'
-    - stop: 'Privacy verificata: 3 videocamere spente fisicamente.'
+          detail: 'Spente e scollegate.'
+    - stop: 'Spente e scollegate.'
       response_variable: result
 household_position_shutters:
   alias: Casa · posiziona e verifica tapparelle
@@ -232,8 +262,8 @@ household_position_shutters:
     - variables:
         result:
           ok: true
-          detail: Tapparelle escluse dalle impostazioni.
-    - stop: Tapparelle escluse dalle impostazioni.
+          detail: Tapparelle disattivate nelle impostazioni.
+    - stop: Tapparelle disattivate nelle impostazioni.
       response_variable: result
   - repeat:
       for_each: '{{ targets }}'
@@ -276,14 +306,14 @@ household_position_shutters:
     - variables:
         result:
           ok: false
-          detail: 'Da verificare: {{ failed_shutters | join(", ") }}.'
-    - stop: 'Da verificare: {{ failed_shutters | join(", ") }}.'
+          detail: 'Tapparelle non arrivate in posizione: {{ failed_shutters | join(", ") }}.'
+    - stop: 'Tapparelle non arrivate in posizione: {{ failed_shutters | join(", ") }}.'
       response_variable: result
   - variables:
       result:
         ok: true
-        detail: Posizione raggiunta e verificata su {{ targets | count }} tapparelle.
-  - stop: Posizione raggiunta e verificata su {{ targets | count }} tapparelle.
+        detail: 'In posizione: {{ targets | count }} tapparelle.'
+  - stop: 'In posizione: {{ targets | count }} tapparelle.'
     response_variable: result
 household_run_routine:
   alias: Casa · esegui routine
@@ -333,8 +363,8 @@ household_run_routine:
     target:
       entity_id: input_text.household_routine_cameras
     data:
-      value: '{{ camera_result.get(''detail'',''Controllo videocamere interrotto.'') if camera_result is defined
-        and camera_result is mapping else ''Controllo videocamere interrotto.'' }}'
+      value: '{{ camera_result.get(''detail'',''Controllo delle videocamere interrotto.'') if camera_result is defined
+        and camera_result is mapping else ''Controllo delle videocamere interrotto.'' }}'
   - action: input_text.set_value
     target:
       entity_id: input_text.household_routine_shutters
@@ -368,7 +398,7 @@ household_run_routine:
       target:
         entity_id: input_text.household_routine_result
       data:
-        value: 'Usciamo non attivata: ci sono ospiti in casa.'
+        value: 'Ci sono ospiti in casa: le videocamere restano spente.'
     - action: input_select.select_option
       target:
         entity_id: input_select.household_routine_status
@@ -404,9 +434,9 @@ household_run_routine:
   - variables:
       camera_result:
         ok: false
-        detail: Controllo videocamere interrotto.
-      shutter_result: '{{ {''ok'': false, ''detail'': ''Controllo tapparelle interrotto.''} if routine in [''night'',''morning'']
-        else {''ok'': true, ''detail'': ''Non previste per questa routine.''} }}'
+        detail: Controllo delle videocamere interrotto.
+      shutter_result: '{{ {''ok'': false, ''detail'': ''Controllo delle tapparelle interrotto.''} if routine in [''night'',''morning'']
+        else {''ok'': true, ''detail'': ''Non previste.''} }}'
   - action: input_text.set_value
     target:
       entity_id: input_text.household_routine_step
@@ -416,14 +446,12 @@ household_run_routine:
     target:
       entity_id: input_text.household_routine_cameras
     data:
-      value: '{{ ''Avvio e verifica video…'' if routine in [''night'',''leaving''] else ''Spegnimento e verifica
-        privacy…'' }}'
+      value: '{{ ''Accensione…'' if routine in [''night'',''leaving''] else ''Spegnimento…'' }}'
   - action: input_text.set_value
     target:
       entity_id: input_text.household_routine_shutters
     data:
-      value: '{{ ''Posizionamento e verifica…'' if routine in [''night'',''morning''] else ''Non previste per
-        questa routine.'' }}'
+      value: '{{ ''In movimento…'' if routine in [''night'',''morning''] else ''Non previste.'' }}'
   - parallel:
     - sequence:
       - action: script.household_apply_camera_policy
@@ -433,8 +461,8 @@ household_run_routine:
         target:
           entity_id: input_text.household_routine_cameras
         data:
-          value: '{{ camera_result.get(''detail'',''Controllo videocamere interrotto.'') if camera_result is
-            defined and camera_result is mapping else ''Controllo videocamere interrotto.'' }}'
+          value: '{{ camera_result.get(''detail'',''Controllo delle videocamere interrotto.'') if camera_result is
+            defined and camera_result is mapping else ''Controllo delle videocamere interrotto.'' }}'
     - sequence:
       - if:
         - condition: template
@@ -449,8 +477,8 @@ household_run_routine:
         target:
           entity_id: input_text.household_routine_shutters
         data:
-          value: '{{ shutter_result.get(''detail'',''Controllo tapparelle interrotto.'') if shutter_result
-            is mapping else ''Controllo tapparelle interrotto.'' }}'
+          value: '{{ shutter_result.get(''detail'',''Controllo delle tapparelle interrotto.'') if shutter_result
+            is mapping else ''Controllo delle tapparelle interrotto.'' }}'
   - variables:
       camera_ok: '{{ camera_result is mapping and camera_result.get(''ok'',false) }}'
   - variables:
@@ -466,9 +494,7 @@ household_run_routine:
     target:
       entity_id: input_text.household_routine_result
     data:
-      value: '{{ ''Routine completata.'' if routine_ok else ''Routine completata solo in parte: controlla i
-        risultati.'' }}{{ '' Porta o finestre aperte, oppure sensori da verificare.'' if not openings_ok else
-        '''' }}'
+      value: '{% set p = [] %}{% if not camera_ok %}{% set p = p + [camera_result.get(''detail'',''Controllo delle videocamere interrotto.'') if camera_result is mapping else ''Controllo delle videocamere interrotto.''] %}{% endif %}{% if not (shutter_result is mapping and shutter_result.get(''ok'',false)) %}{% set p = p + [shutter_result.get(''detail'',''Controllo delle tapparelle interrotto.'') if shutter_result is mapping else ''Controllo delle tapparelle interrotto.''] %}{% endif %}{% if not openings_ok %}{% set p = p + [''C’è una porta o una finestra aperta.''] %}{% endif %}{{ (p | join('' ''))[:255] if p else ''Tutto fatto.'' }}'
   - action: input_datetime.set_datetime
     target:
       entity_id: input_datetime.household_routine_finished
@@ -517,3 +543,36 @@ household_arriving:
   - action: script.household_run_routine
     data:
       routine: arriving
+room_quick_lights:
+  alias: Stanza · luci rapide
+  description: Dashboard quick control. Any light on in the room turns them all off; otherwise turns on the room's main light.
+  icon: mdi:lightbulb-auto-outline
+  mode: parallel
+  max: 10
+  fields:
+    lights:
+      name: Luci della stanza
+      required: true
+      selector:
+        entity:
+          domain: light
+          multiple: true
+    main:
+      name: Luce principale
+      required: true
+      selector:
+        entity:
+          domain: light
+          multiple: true
+  sequence:
+  - if:
+    - condition: template
+      value_template: '{{ lights | select(''is_state'', ''on'') | list | count > 0 }}'
+    then:
+    - action: light.turn_off
+      target:
+        entity_id: '{{ lights }}'
+    else:
+    - action: light.turn_on
+      target:
+        entity_id: '{{ main }}'

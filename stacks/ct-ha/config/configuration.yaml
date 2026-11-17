@@ -152,6 +152,30 @@ command_line:
     - checked_at
 template:
 - sensor:
+  # Electricity price from the NeN bill of 2026-11 (October usage). The energy price is the
+  # offer's fixed price; dispatch, network and system charges are ARERA-regulated and change
+  # each quarter — update them from the latest bill. Excise is charged on (almost) all kWh at
+  # this contract's 5.5 kW. VAT 10% (residential).
+  - name: Household energy price
+    unique_id: household_energy_price
+    icon: mdi:cash-multiple
+    unit_of_measurement: EUR/kWh
+    state: >-
+      {% set energy = 0.119 %}{% set dispatch = 0.014642 %}{% set network = 0.01473 %}
+      {% set system_charges = 0.033153 %}{% set excise = 0.0227 %}{% set vat = 0.10 %}
+      {{ ((energy + dispatch + network + system_charges + excise) * (1 + vat)) | round(4) }}
+  # Fixed charges that are billed even at zero usage: sales fee (per day), network fixed fee
+  # and power fee for 5.5 kW (per month), VAT included. The TV licence (9 €/month) is not counted.
+  - name: Household energy fixed cost
+    unique_id: household_energy_fixed_cost
+    icon: mdi:cash-lock
+    unit_of_measurement: EUR/mese
+    state: >-
+      {% set sales_per_day = 0.29589 %}{% set network_fixed = 1.92 %}{% set power = 2.014473 * 5.5 %}
+      {{ ((sales_per_day * 365 / 12 + network_fixed + power) * 1.10) | round(2) }}
+    attributes:
+      per_day: >-
+        {{ ((0.29589 + (1.92 + 2.014473 * 5.5) * 12 / 365) * 1.10) | round(4) }}
   - name: Household mode
     unique_id: household_mode
     icon: mdi:home-heart
@@ -178,9 +202,9 @@ template:
   - name: Household camera status
     unique_id: household_camera_status
     icon: mdi:cctv
-    state: '{% if is_state(''binary_sensor.household_camera_privacy_verified'',''on'') %}Privacy attiva{% elif
-      is_state(''binary_sensor.household_cameras_operating'',''on'') %}Video attivo · 3 videocamere{% elif not
-      is_state(''sensor.camera_power'',''ok'') %}Da verificare{% else %}Video da verificare{% endif %}'
+    state: '{% if is_state(''binary_sensor.household_camera_privacy_verified'',''on'') %}Videocamere spente{% elif
+      is_state(''binary_sensor.household_cameras_operating'',''on'') %}Videocamere accese{% elif not
+      is_state(''sensor.camera_power'',''ok'') %}Problema alle videocamere{% else %}Problema alle videocamere{% endif %}'
   - name: Household window kitchen
     unique_id: household_window_kitchen
     icon: mdi:window-closed

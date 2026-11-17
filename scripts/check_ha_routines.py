@@ -32,22 +32,25 @@ async def exercise(payload):
     logging.basicConfig(level=logging.ERROR)
     source = yaml.safe_load(payload["scripts"])
     dashboard = yaml.safe_load(payload["dashboard"])
-    def contents(value):
+    def cards(value):
         if isinstance(value, dict):
-            if "content" in value:
-                yield value["content"]
+            yield value
             for child in value.values():
-                yield from contents(child)
+                yield from cards(child)
         elif isinstance(value, list):
             for child in value:
-                yield from contents(child)
-    result_panel = next(value for value in contents(dashboard)
-        if "input_text.household_routine_cameras" in value)
+                yield from cards(child)
+    # The Casa routine card: title plus, once the run ends, the plain-language result.
+    result_card = next(card for card in cards(dashboard)
+        if "input_text.household_routine_result" in str(card.get("secondary", "")))
+    result_panel = result_card["primary"] + "\n" + result_card["secondary"]
     # Shorten only waits. Production actions, templates and control flow are used.
     def shorten(value):
         if isinstance(value, dict):
             if "wait_template" in value:
                 value["timeout"] = 0
+            if "delay" in value:
+                value["delay"] = 0
             for child in value.values():
                 shorten(child)
         elif isinstance(value, list):
@@ -69,6 +72,7 @@ async def exercise(payload):
                 (area_registry, device_registry, entity_registry, floor_registry, label_registry)))
             calls = []
             power_on = False
+            power_failed_once = False
             requested_power = asyncio.Event()
             config = copy.deepcopy(source)
             shorten(config)
@@ -129,7 +133,7 @@ async def exercise(payload):
                 update_power()
 
                 async def handle(call):
-                    nonlocal power_on
+                    nonlocal power_on, power_failed_once
                     domain, service, data = call.domain, call.service, call.data
                     calls.append((domain, service, dict(data)))
                     entities = data.get("entity_id", [])
@@ -145,7 +149,8 @@ async def exercise(payload):
                             state(entity, value)
                     elif domain == "shell_command":
                         requested_power.set()
-                        if case == "power_failure":
+                        if case == "power_failure" or (case == "power_retry" and not power_failed_once):
+                            power_failed_once = True
                             return {"returncode": 1, "stdout": "", "stderr": "test failure"}
                         power_on = service.endswith("_on")
                         return {"returncode": 0, "stdout": "{}", "stderr": ""}
@@ -240,20 +245,34 @@ async def exercise(payload):
                         assert power_on is False
                     if case == "repeat":
                         assert len([c for c in calls if c[0] == "shell_command"]) == 2
+                    if case == "power_retry":
+                        assert len([c for c in calls if c[0] == "shell_command"]) == 2
+                    if case == "power_failure":
+                        assert len([c for c in calls if c[0] == "shell_command"]) == 4
                     if case == "stuck_shutter":
                         assert "Camera matrimoniale" in hass.states.get("input_text.household_routine_shutters").state
                     if case == "missing_video":
-                        assert "non attivi" in hass.states.get("input_text.household_routine_cameras").state
+                        assert "non tutte registrano" in hass.states.get("input_text.household_routine_cameras").state
                 rendered = Template(result_panel, hass).async_render(parse_result=False)
+                result = hass.states.get("input_text.household_routine_result").state
                 assert hass.states.get("input_text.household_routine_name").state in rendered
-                assert hass.states.get("input_text.household_routine_cameras").state in rendered
-                assert hass.states.get("input_text.household_routine_shutters").state in rendered
+                assert result in rendered, (case, rendered)
+                # The result names only what failed, in the cameras' or shutters' own words.
+                status = hass.states.get("input_select.household_routine_status").state
+                if status == "Da controllare" and case != "guests":
+                    assert result != "Tutto fatto.", (case, result)
+                if case in ("power_failure", "missing_video"):
+                    assert hass.states.get("input_text.household_routine_cameras").state in result, (case, result)
+                if case == "stuck_shutter":
+                    assert "Camera matrimoniale" in result, (case, result)
+                if case in ("night", "morning", "repeat", "latest_intent", "power_retry"):
+                    assert result == "Tutto fatto.", (case, result)
             finally:
                 await hass.async_stop(force=True)
 
     cases = ("night", "morning", "repeat", "guests", "open_window", "power_failure",
              "frigate_failure", "stuck_shutter", "missing_video", "invalid_position",
-             "unknown_presence", "latest_intent")
+             "unknown_presence", "latest_intent", "power_retry")
     for case in cases:
         await scenario(case)
         print("PASS", case, flush=True)

@@ -1,1054 +1,2852 @@
+# Family dashboard (/casa-famiglia/casa) — the system default for every user.
+# One fullscreen panel view: status hero, shortcut chips, routine buttons and room tiles fill
+# exactly one screen with no page scroll (the rooms grid takes the height left over); rooms,
+# Clima, Tapparelle, Sicurezza and Consumi open as Bubble Card pop-ups (#hash links).
+# On phones (≤600px) kiosk-mode hides the header; long-press the status card to open the
+# profile page, whose header has the sidebar menu button.
+# Needs these HACS frontend cards (Lovelace resources live in HA storage, not here):
+# Mushroom, Bubble Card, Advanced Camera Card, apexcharts-card, auto-entities, card-mod
+# (layout via custom:mod-card + card_mod styles), kiosk-mode, button-card.
+# Room tiles are custom:button-card using the shared `casa_room` template below: each room only
+# lists its lights, windows and thermostat (variables) plus its actions. Icon tap runs
+# script.room_quick_lights (scripts.yaml); the rest of the tile opens the room pop-up.
 title: Casa
+button_card_templates:
+  casa_room:
+    show_icon: true
+    show_name: true
+    show_state: false
+    show_label: false
+    hold_action:
+      action: none
+    variables:
+      lights: []
+      windows: []
+      climate: ''
+      door: false
+    custom_fields:
+      status: '[[[ const on = (variables.lights || []).filter(e => states[e] && states[e].state === ''on'').length;const ws
+        = (variables.windows || []).map(e => states[e] ? states[e].state : '''');const open = ws.filter(s => s === ''Aperta'').length,
+        tilt = ws.filter(s => s === ''A ribalta'').length;let a = open + tilt > 1 ? ''Finestre aperte'' : open ? ''Finestra
+        aperta'' : tilt ? ''Finestra a ribalta'' : '''';if (variables.door && states[''binary_sensor.front_door_door''] &&
+        states[''binary_sensor.front_door_door''].state === ''on'') a = a ? ''Porta aperta · '' + a : ''Porta aperta''; const
+        c = states[variables.climate]; const t = c ? c.attributes.current_temperature : null; const tt = typeof t === ''number''
+        ? t.toFixed(1).replace(''.'', '','') + ''°'' + (c.attributes.hvac_action === ''heating'' ? '' <ha-icon icon="mdi:fire"
+        class="fire"></ha-icon>'' : '''') : ''''; const l = on ? on + (on === 1 ? '' luce accesa'' : '' luci accese'') : ''Luci
+        spente''; if (a) return ''<span class="alert">'' + a + ''</span>'' + (tt || !on ? '''' : '' · '' + l) + (tt ? '' ·
+        '' + tt : ''''); return on || !tt ? l + (tt ? '' · '' + tt : '''') : tt; ]]]'
+    styles:
+      card:
+      - height: 100%
+      - box-sizing: border-box
+      - padding: 12px
+      - background: '[[[ const on = (variables.lights || []).filter(e => states[e] && states[e].state === ''on'').length;
+          return on ? ''rgba(var(--rgb-amber-color, 255, 193, 7), 0.16)'' : ''var(--ha-card-background, var(--card-background-color))'';
+          ]]]'
+      - border-color: '[[[ const on = (variables.lights || []).filter(e => states[e] && states[e].state === ''on'').length;
+          return on ? ''rgba(var(--rgb-amber-color, 255, 193, 7), 0.6)'' : ''var(--ha-card-border-color, var(--divider-color))'';
+          ]]]'
+      grid:
+      - grid-template-areas: '"i" "." "n" "status"'
+      - grid-template-columns: minmax(0, 1fr)
+      - grid-template-rows: auto 1fr auto auto
+      - height: 100%
+      img_cell:
+      - position: relative
+      - justify-self: start
+      - width: var(--room-icon)
+      - height: var(--room-icon)
+      - border-radius: 50%
+      - box-shadow: '[[[ const ws = (variables.windows || []).map(e => states[e] ? states[e].state : '''');const open = ws.filter(s
+          => s === ''Aperta'').length, tilt = ws.filter(s => s === ''A ribalta'').length;let a = open + tilt > 1 ? ''Finestre
+          aperte'' : open ? ''Finestra aperta'' : tilt ? ''Finestra a ribalta'' : '''';if (variables.door && states[''binary_sensor.front_door_door'']
+          && states[''binary_sensor.front_door_door''].state === ''on'') a = a ? ''Porta aperta · '' + a : ''Porta aperta'';
+          return a ? ''0 0 0 2px var(--orange-color, #ff9800)'' : ''none''; ]]]'
+      - background: '[[[ const on = (variables.lights || []).filter(e => states[e] && states[e].state === ''on'').length;
+          return on ? ''rgba(var(--rgb-amber-color, 255, 193, 7), 0.25)'' : ''rgba(var(--rgb-primary-text-color, 33, 33, 33),
+          0.06)''; ]]]'
+      icon:
+      - width: 55%
+      - color: '[[[ const on = (variables.lights || []).filter(e => states[e] && states[e].state === ''on'').length; return
+          on ? ''var(--amber-color, #ffc107)'' : ''var(--disabled-text-color, #9e9e9e)''; ]]]'
+      name:
+      - justify-self: start
+      - align-self: end
+      - text-align: start
+      - min-width: '0'
+      - max-width: 100%
+      - font-size: var(--room-name)
+      - font-weight: '500'
+      - line-height: '1.2'
+      - white-space: normal
+      - overflow: hidden
+      - display: -webkit-box
+      - -webkit-line-clamp: '2'
+      - -webkit-box-orient: vertical
+      custom_fields:
+        status:
+        - justify-self: start
+        - text-align: start
+        - font-size: var(--room-meta)
+        - color: var(--secondary-text-color)
+        - margin-top: 2px
+        - min-width: '0'
+        - max-width: 100%
+        - white-space: normal
+        - overflow: hidden
+        - display: -webkit-box
+        - -webkit-line-clamp: '2'
+        - -webkit-box-orient: vertical
+        - line-height: '1.3'
+    extra_styles: |
+      ha-card { container-type: size; }
+      #container { --room-icon: clamp(30px, 40cqh, 52px); --room-name: clamp(15px, min(15cqh, 9cqw), 20px);
+        --room-meta: clamp(12px, min(11.5cqh, 7cqw), 15px); }
+      .alert { color: var(--orange-color, #ff9800); font-weight: 500; }
+      .fire { --mdc-icon-size: 1.1em; color: var(--deep-orange-color, #ff5722); vertical-align: -0.15em; }
+      /* Tight tiles keep the normal layout with one-line name and status. */
+      @container (max-height: 90px) { #name, #status { display: block !important; white-space: nowrap !important;
+        text-overflow: ellipsis; } }
+      /* Only really short tiles (content < 62px) collapse to one row. */
+      @container (max-height: 62px) {
+        #container { grid-template-areas: "i n" "i status" !important; grid-template-columns: auto 1fr !important;
+          grid-template-rows: 1fr 1fr !important; column-gap: 10px; }
+        #name { align-self: end; -webkit-line-clamp: 1; }
+        #status { align-self: start; margin-top: 0; }
+        #img-cell { align-self: center; }
+      }
 views:
 - title: Casa
   path: casa
-  type: sections
-  max_columns: 2
-  sections:
-  - type: grid
-    cards:
-    - type: heading
-      heading: Cosa facciamo?
-      heading_style: title
-    - type: tile
-      entity: script.household_good_morning
-      name: Buongiorno
-      grid_options:
-        columns: 6
-      icon: mdi:weather-sunset-up
-      hide_state: true
-      tap_action:
-        action: perform-action
-        perform_action: script.turn_on
-        target:
-          entity_id: script.household_good_morning
-      icon_tap_action:
-        action: perform-action
-        perform_action: script.turn_on
-        target:
-          entity_id: script.household_good_morning
-    - type: tile
-      entity: script.household_good_night
-      name: Buonanotte
-      grid_options:
-        columns: 6
-      icon: mdi:weather-night
-      hide_state: true
-      tap_action:
-        action: perform-action
-        perform_action: script.turn_on
-        target:
-          entity_id: script.household_good_night
-        confirmation:
-          text: Sono tutti a letto? Buonanotte attiva le videocamere e porta le cinque tapparelle alle posizioni
-            notte.
-      icon_tap_action:
-        action: perform-action
-        perform_action: script.turn_on
-        target:
-          entity_id: script.household_good_night
-        confirmation:
-          text: Sono tutti a letto? Buonanotte attiva le videocamere e porta le cinque tapparelle alle posizioni
-            notte.
-    - type: tile
-      entity: script.household_leaving
-      name: Usciamo
-      grid_options:
-        columns: 6
-      icon: mdi:home-export-outline
-      hide_state: true
-      tap_action:
-        action: perform-action
-        perform_action: script.turn_on
-        target:
-          entity_id: script.household_leaving
-        confirmation:
-          text: Stanno uscendo tutti? Usciamo attiva le videocamere. Se qualcuno rimane, usa Annulla.
-      icon_tap_action:
-        action: perform-action
-        perform_action: script.turn_on
-        target:
-          entity_id: script.household_leaving
-        confirmation:
-          text: Stanno uscendo tutti? Usciamo attiva le videocamere. Se qualcuno rimane, usa Annulla.
-    - type: tile
-      entity: script.household_arriving
-      name: Rientro
-      grid_options:
-        columns: 6
-      icon: mdi:home-import-outline
-      hide_state: true
-      tap_action:
-        action: perform-action
-        perform_action: script.turn_on
-        target:
-          entity_id: script.household_arriving
-      icon_tap_action:
-        action: perform-action
-        perform_action: script.turn_on
-        target:
-          entity_id: script.household_arriving
-    - type: conditional
-      conditions:
-      - entity: input_select.household_routine_status
-        state_not: Pronta
-      - entity: input_select.household_routine_status
-        state_not: unknown
-      - entity: input_select.household_routine_status
-        state_not: unavailable
-      card:
-        type: markdown
-        content: '{% set running = is_state(''script.household_run_routine'',''on'') %}
-
-          {% set name = states(''input_text.household_routine_name'') %}
-
-          {% if name in [''unknown'',''unavailable'',''''] %}
-
-          Scegli una routine. Qui vedrai l’avanzamento e il risultato delle azioni.
-
-          {% else %}
-
-          ### {{ name }} · {{ states(''input_select.household_routine_status'') }}
-
-          {% if running %}
-
-          **{{ states(''input_text.household_routine_step'') }}**
-
-          {% else %}
-
-          {{ states(''input_text.household_routine_result'') }}
-
-          {% endif %}
-
-
-          **Videocamere:** {{ states(''input_text.household_routine_cameras'') }}
-
-
-          **Tapparelle:** {{ states(''input_text.household_routine_shutters'') }}
-
-          {% if not running and has_value(''input_datetime.household_routine_finished'') %}
-
-
-          _Verifica delle {{ as_timestamp(states(''input_datetime.household_routine_finished'')) | timestamp_custom(''%H:%M
-          · %d/%m'') }}_
-
-          {% endif %}
-
-          {% endif %}'
-    - type: markdown
-      content: '**Buonanotte:** solo quando tutti sono a letto. Usa **Rientro** per riattivare la privacy senza
-        muovere le tapparelle.'
-  - type: grid
-    cards:
-    - type: heading
-      heading: La casa adesso
-      heading_style: title
-    - type: tile
-      entity: sensor.household_open_windows
-      name: Finestre
-      grid_options:
-        columns: 6
-      icon: mdi:window-closed
-    - type: tile
-      entity: binary_sensor.front_door_door
-      name: Ingresso
-      grid_options:
-        columns: 6
-      icon: mdi:door-closed
-    - type: markdown
-      content: '{% set windows = [(''Cucina'', ''binary_sensor.kitchen_window_open'', ''binary_sensor.kitchen_window_tilted''),
-        (''Sala da pranzo'', ''binary_sensor.window_sensor_1_window_1_open'', ''binary_sensor.window_sensor_1_window_1_tilted''),
-        (''Soggiorno'', ''binary_sensor.window_sensor_1_window_2_open'', ''binary_sensor.window_sensor_1_window_2_tilted''),
-        (''Camera Francesco sinistra'', ''binary_sensor.window_sensor_2_window_1_open'', ''binary_sensor.window_sensor_2_window_1_tilted''),
-        (''Camera Francesco destra'', ''binary_sensor.window_sensor_2_window_2_open'', ''binary_sensor.window_sensor_2_window_2_tilted''),
-        (''Studio'', ''binary_sensor.window_sensor_3_open'', ''binary_sensor.window_sensor_3_tilted''), (''Bagno
-        grande'', ''binary_sensor.window_sensor_4_window_1_open'', ''binary_sensor.window_sensor_4_window_1_tilted''),
-        (''Camera matrimoniale'', ''binary_sensor.window_sensor_4_window_2_open'', ''binary_sensor.window_sensor_4_window_2_tilted'')]
-        %}
-
-        {% for name,a,b in windows %}
-
-        {% if is_state(a,''on'') %}• **{{ name }}:** aperta
-
-        {% elif is_state(b,''on'') %}• **{{ name }}:** a ribalta
-
-        {% elif not has_value(a) or not has_value(b) %}• **{{ name }}:** da verificare
-
-        {% endif %}{% endfor %}
-
-        {% if is_state(''binary_sensor.front_door_door'',''on'') %}• **Porta d’ingresso:** aperta{% elif not
-        has_value(''binary_sensor.front_door_door'') %}• **Porta d’ingresso:** da verificare{% endif %}
-
-        {% if is_state(''sensor.household_open_windows'',''0'') and is_state(''binary_sensor.front_door_door'',''off'')
-        %}Porta e finestre chiuse.{% endif %}'
-    - type: tile
-      entity: input_boolean.household_guests
-      name: Ospiti in casa
-      grid_options:
-        columns: 12
-      icon: mdi:account-group
-  - type: grid
-    cards:
-    - type: heading
-      heading: Accesso rapido
-      heading_style: title
-    - type: tile
-      entity: light.led
-      name: Cucina
-      icon: mdi:stove
-      color: primary
-      grid_options:
-        columns: 6
-      tap_action: &id001
-        action: navigate
-        navigation_path: /casa-famiglia/cucina
-      icon_tap_action: *id001
-      hide_state: true
-    - type: tile
-      entity: light.piano
-      name: Soggiorno
-      icon: mdi:sofa
-      color: primary
-      grid_options:
-        columns: 6
-      tap_action: &id002
-        action: navigate
-        navigation_path: /casa-famiglia/soggiorno
-      icon_tap_action: *id002
-      hide_state: true
-    - type: tile
-      entity: climate.thermo_8_thermostat
-      name: Camera matrimoniale
-      icon: mdi:bed-king
-      color: primary
-      grid_options:
-        columns: 6
-      tap_action: &id003
-        action: navigate
-        navigation_path: /casa-famiglia/camera_da_letto
-      icon_tap_action: *id003
-      state_content: current_temperature
-    - type: tile
-      entity: climate.thermo_7_thermostat
-      name: Camera Francesco
-      icon: mdi:bed
-      color: primary
-      grid_options:
-        columns: 6
-      tap_action: &id004
-        action: navigate
-        navigation_path: /casa-famiglia/room
-      icon_tap_action: *id004
-      state_content: current_temperature
-    - type: tile
-      entity: climate.thermo_3_thermostat
-      name: Studio
-      icon: mdi:desk
-      color: primary
-      grid_options:
-        columns: 6
-      tap_action: &id005
-        action: navigate
-        navigation_path: /casa-famiglia/office
-      icon_tap_action: *id005
-      state_content: current_temperature
-  badges:
-  - type: entity
-    entity: sensor.household_mode
-    name: Casa
-    show_name: true
-    show_state: true
-    tap_action:
-      action: more-info
-  - type: entity
-    entity: sensor.household_camera_status
-    name: Videocamere
-    show_name: true
-    show_state: true
-    tap_action:
-      action: more-info
-- title: Stanze
-  path: stanze
-  type: sections
-  max_columns: 3
-  sections:
-  - type: grid
-    cards:
-    - type: heading
-      heading: Scegli una stanza
-      heading_style: title
-    - type: tile
-      entity: climate.thermo_2_thermostat
-      name: Ingresso
-      icon: mdi:door
-      color: primary
-      grid_options:
-        columns: 6
-      tap_action: &id006
-        action: navigate
-        navigation_path: /casa-famiglia/entrance
-      icon_tap_action: *id006
-      state_content: current_temperature
-    - type: tile
-      entity: light.piano
-      name: Soggiorno
-      icon: mdi:sofa
-      color: primary
-      grid_options:
-        columns: 6
-      tap_action: &id007
-        action: navigate
-        navigation_path: /casa-famiglia/soggiorno
-      icon_tap_action: *id007
-      hide_state: true
-    - type: tile
-      entity: climate.thermostat_6_thermostat
-      name: Sala da pranzo
-      icon: mdi:table-chair
-      color: primary
-      grid_options:
-        columns: 6
-      tap_action: &id008
-        action: navigate
-        navigation_path: /casa-famiglia/dining
-      icon_tap_action: *id008
-      state_content: current_temperature
-    - type: tile
-      entity: light.led
-      name: Cucina
-      icon: mdi:stove
-      color: primary
-      grid_options:
-        columns: 6
-      tap_action: &id009
-        action: navigate
-        navigation_path: /casa-famiglia/cucina
-      icon_tap_action: *id009
-      hide_state: true
-    - type: tile
-      entity: climate.thermo_thermostat
-      name: Bagno piccolo
-      icon: mdi:shower
-      color: primary
-      grid_options:
-        columns: 6
-      tap_action: &id010
-        action: navigate
-        navigation_path: /casa-famiglia/restroom
-      icon_tap_action: *id010
-      state_content: current_temperature
-    - type: tile
-      entity: climate.thermo_7_thermostat
-      name: Camera Francesco
-      icon: mdi:bed
-      color: primary
-      grid_options:
-        columns: 6
-      tap_action: &id011
-        action: navigate
-        navigation_path: /casa-famiglia/room
-      icon_tap_action: *id011
-      state_content: current_temperature
-    - type: tile
-      entity: climate.thermo_3_thermostat
-      name: Studio
-      icon: mdi:desk
-      color: primary
-      grid_options:
-        columns: 6
-      tap_action: &id012
-        action: navigate
-        navigation_path: /casa-famiglia/office
-      icon_tap_action: *id012
-      state_content: current_temperature
-    - type: tile
-      entity: climate.thermo_8_thermostat
-      name: Camera matrimoniale
-      icon: mdi:bed-king
-      color: primary
-      grid_options:
-        columns: 6
-      tap_action: &id013
-        action: navigate
-        navigation_path: /casa-famiglia/camera_da_letto
-      icon_tap_action: *id013
-      state_content: current_temperature
-    - type: tile
-      entity: climate.thermo_4_thermostat
-      name: Bagno grande
-      icon: mdi:bathtub
-      color: primary
-      grid_options:
-        columns: 6
-      tap_action: &id014
-        action: navigate
-        navigation_path: /casa-famiglia/bathroom
-      icon_tap_action: *id014
-      state_content: current_temperature
-    - type: tile
-      entity: climate.thermo_5_thermostat
-      name: Corridoio
-      icon: mdi:walk
-      color: primary
-      grid_options:
-        columns: 6
-      tap_action: &id015
-        action: navigate
-        navigation_path: /casa-famiglia/hallway
-      icon_tap_action: *id015
-      state_content: current_temperature
-- title: Clima
-  path: clima
-  type: sections
-  max_columns: 3
-  sections:
-  - type: grid
-    cards:
-    - type: heading
-      heading: Ritmo della casa
-      heading_style: title
-    - type: tile
-      entity: input_datetime.household_bedtime
-      name: Buonanotte abituale
-    - type: tile
-      entity: input_datetime.household_wakeup
-      name: Risveglio abituale
-    - type: markdown
-      content: 'Gli orari servono ai promemoria. Le routine partono dai pulsanti, anche fuori orario.
-
-
-        Il riscaldamento resta regolato dai termostati: temperature e anticipo del pavimento saranno configurati
-        dopo le misure.'
-  - type: grid
-    cards:
-    - type: heading
-      heading: Camere
-      heading_style: title
-    - type: tile
-      entity: climate.thermo_7_thermostat
-      name: Camera Francesco
-      features:
-      - type: target-temperature
-    - type: tile
-      entity: climate.thermo_8_thermostat
-      name: Camera matrimoniale
-      features:
-      - type: target-temperature
-    - type: tile
-      entity: input_boolean.guest_bedroom_in_use
-      name: Camera Francesco in uso
-  - type: grid
-    cards:
-    - type: heading
-      heading: Altre zone
-      heading_style: title
-    - type: tile
-      entity: climate.thermo_4_thermostat
-      name: Bagno grande
-      features:
-      - type: target-temperature
-    - type: tile
-      entity: climate.thermo_2_thermostat
-      name: Ingresso
-      features:
-      - type: target-temperature
-    - type: tile
-      entity: climate.thermo_3_thermostat
-      name: Studio
-      features:
-      - type: target-temperature
-    - type: tile
-      entity: climate.thermo_thermostat
-      name: Bagno piccolo
-      features:
-      - type: target-temperature
-    - type: tile
-      entity: climate.thermo_5_thermostat
-      name: Corridoio
-      features:
-      - type: target-temperature
-    - type: tile
-      entity: climate.thermostat_6_thermostat
-      name: Sala da pranzo
-      features:
-      - type: target-temperature
-- title: Sicurezza
-  path: sicurezza
-  type: sections
-  max_columns: 3
-  sections:
-  - type: grid
-    cards:
-    - type: heading
-      heading: Privacy e videocamere
-      heading_style: title
-    - type: tile
-      entity: sensor.household_camera_status
-      name: Stato videocamere
-    - type: tile
-      entity: binary_sensor.household_cameras_operating
-      name: Video su tutte e tre
-      grid_options:
-        columns: 12
-      icon: mdi:cctv
-    - type: markdown
-      content: '**Privacy attiva:** spegnimento fisico verificato su tutte e tre le videocamere.
-
-
-        **Video attivo:** tutte e tre inviano immagini e hanno la registrazione abilitata. L’allarme intrusione
-        deve ancora essere configurato.'
-  - type: grid
-    cards:
-    - type: heading
-      heading: Presenza e modalità
-      heading_style: title
-    - type: tile
-      entity: sensor.household_mode
-      name: Modalità della casa
-      grid_options:
-        columns: 12
-    - type: tile
-      entity: input_boolean.household_guests
-      name: Ospiti restano in casa
-      grid_options:
-        columns: 12
-    - type: tile
-      entity: script.household_arriving
-      name: Rientro
-      grid_options:
-        columns: 6
-      icon: mdi:home-import-outline
-      hide_state: true
-      tap_action:
-        action: perform-action
-        perform_action: script.turn_on
-        target:
-          entity_id: script.household_arriving
-      icon_tap_action:
-        action: perform-action
-        perform_action: script.turn_on
-        target:
-          entity_id: script.household_arriving
-    - type: tile
-      entity: script.household_leaving
-      name: Usciamo
-      grid_options:
-        columns: 6
-      icon: mdi:home-export-outline
-      hide_state: true
-      tap_action:
-        action: perform-action
-        perform_action: script.turn_on
-        target:
-          entity_id: script.household_leaving
-        confirmation:
-          text: Stanno uscendo tutti? Usciamo attiva le videocamere. Se qualcuno rimane, usa Annulla.
-      icon_tap_action:
-        action: perform-action
-        perform_action: script.turn_on
-        target:
-          entity_id: script.household_leaving
-        confirmation:
-          text: Stanno uscendo tutti? Usciamo attiva le videocamere. Se qualcuno rimane, usa Annulla.
-  - type: grid
-    cards:
-    - type: heading
-      heading: Controllo videocamere
-      heading_style: title
-    - type: entities
-      show_header_toggle: false
-      entities:
-      - entity: sensor.camera_1_camera_fps
-        name: Soggiorno · immagini al secondo
-      - entity: sensor.camera_2_camera_fps
-        name: Ingresso · immagini al secondo
-      - entity: sensor.camera_3_camera_fps
-        name: Corridoio · immagini al secondo
-  - type: grid
-    cards:
-    - type: heading
-      heading: Porta e finestre
-      heading_style: title
-    - type: markdown
-      content: '{% set windows = [(''Cucina'', ''binary_sensor.kitchen_window_open'', ''binary_sensor.kitchen_window_tilted''),
-        (''Sala da pranzo'', ''binary_sensor.window_sensor_1_window_1_open'', ''binary_sensor.window_sensor_1_window_1_tilted''),
-        (''Soggiorno'', ''binary_sensor.window_sensor_1_window_2_open'', ''binary_sensor.window_sensor_1_window_2_tilted''),
-        (''Camera Francesco sinistra'', ''binary_sensor.window_sensor_2_window_1_open'', ''binary_sensor.window_sensor_2_window_1_tilted''),
-        (''Camera Francesco destra'', ''binary_sensor.window_sensor_2_window_2_open'', ''binary_sensor.window_sensor_2_window_2_tilted''),
-        (''Studio'', ''binary_sensor.window_sensor_3_open'', ''binary_sensor.window_sensor_3_tilted''), (''Bagno
-        grande'', ''binary_sensor.window_sensor_4_window_1_open'', ''binary_sensor.window_sensor_4_window_1_tilted''),
-        (''Camera matrimoniale'', ''binary_sensor.window_sensor_4_window_2_open'', ''binary_sensor.window_sensor_4_window_2_tilted'')]
-        %}
-
-        {% for name,a,b in windows %}
-
-        {% if is_state(a,''on'') %}• **{{ name }}:** aperta
-
-        {% elif is_state(b,''on'') %}• **{{ name }}:** a ribalta
-
-        {% elif not has_value(a) or not has_value(b) %}• **{{ name }}:** da verificare
-
-        {% endif %}{% endfor %}
-
-        {% if is_state(''binary_sensor.front_door_door'',''on'') %}• **Porta d’ingresso:** aperta{% elif not
-        has_value(''binary_sensor.front_door_door'') %}• **Porta d’ingresso:** da verificare{% endif %}
-
-        {% if is_state(''sensor.household_open_windows'',''0'') and is_state(''binary_sensor.front_door_door'',''off'')
-        %}Porta e finestre chiuse.{% endif %}'
-  - type: grid
-    cards:
-    - type: heading
-      heading: Visione videocamere
-      heading_style: title
-    - type: conditional
-      conditions:
-      - entity: binary_sensor.household_cameras_expected
-        state: 'on'
-      - entity: binary_sensor.household_camera_privacy_verified
-        state: 'off'
-      card:
-        type: vertical-stack
+  type: panel
+  cards:
+  - type: custom:mod-card
+    card_mod:
+      style:
+        .: |
+          :host { height: 100%; display: block; }
+          ha-card { height: 100%; background: none; border: none; box-shadow: none; }
+          hui-vertical-stack-card { height: 100%; }
+        hui-vertical-stack-card$: |
+          /* One screen-high column; the rooms grid (7th child) takes the height left over.
+             Panel views flatten nested cards (square, borderless): restore the theme's look. */
+          #root {
+            height: 100%;
+            box-sizing: border-box;
+            padding: max(8px, env(safe-area-inset-top)) 8px max(8px, env(safe-area-inset-bottom));
+            overflow: hidden;
+            --ha-card-border-radius: var(--ha-border-radius-lg, 12px);
+            --ha-card-border-width: 1px;
+          }
+          #root > :nth-child(7) { flex: 1 1 0; min-height: 0; }
+          #root > :nth-child(7) > * { height: 100%; }
+          @media (min-width: 900px) {
+            #root { width: 100%; max-width: 1100px; margin: 0 auto; padding: 16px; }
+          }
+    card:
+      type: vertical-stack
+      cards:
+      - type: custom:mushroom-template-card
+        entity: sensor.household_mode
+        icon: '{% if is_state(''input_boolean.household_night'',''on'') %}mdi:weather-night{% elif is_state(''input_select.household_presence'',''Fuori
+          casa'') %}mdi:home-export-outline{% else %}mdi:home-heart{% endif %}'
+        color: '{% if is_state(''input_boolean.household_night'',''on'') %}indigo{% elif is_state(''input_select.household_presence'',''Fuori
+          casa'') %}blue{% elif is_state(''input_select.household_presence'',''In casa'') %}green{% else %}grey{% endif %}'
+        primary: '{{ states(''sensor.household_mode'') }}{{ '' · con ospiti'' if is_state(''input_boolean.household_guests'',''on'')
+          else '''' }}'
+        secondary: '{% set lights = ["light.guardaroba", "light.faretti_3", "light.piano", "light.balcone_3", "light.faretti2",
+          "light.faretti1", "light.shellyplusrgbwpm_30c92257192c", "light.lampade", "light.faretti_2", "light.faretti_1",
+          "light.presa_lume", "light.led", "light.pensili", "light.faretti_6", "light.balcone_4", "light.isola", "light.luce_specchio_2",
+          "light.faretti_8", "light.doccia_2", "light.faretti_4", "light.porta", "light.faretti_9", "light.faretti_7", "light.lampade_2",
+          "light.lume_libreria", "light.shellyplusrgbwpm_30c92258a17c", "light.led_2", "light.balcone", "light.shellydimmer2_24d7ebe4585d",
+          "light.shellydimmer2_24d7ebe55395", "light.strip_led", "light.faretti", "light.luce_specchio", "light.specchio",
+          "light.vasca", "light.faretti_5"] | select(''is_state'',''on'') | list | count %}{% set w = states(''sensor.household_open_windows'')
+          | int(0) %}{% set d = is_state(''binary_sensor.front_door_door'',''on'') %}{% if is_state(''script.household_run_routine'',''on'')
+          %}{{ states(''input_text.household_routine_name'') }} in corso…{% else %}{{ ''Videocamere spente'' if is_state(''binary_sensor.household_camera_privacy_verified'',''on'')
+          else (''Videocamere accese'' if is_state(''binary_sensor.household_cameras_operating'',''on'') else ''Problema alle
+          videocamere'') }} · {{ ''Tutto chiuso'' if w == 0 and not d else (''Porta aperta'' if w == 0 else ((''Porta e ''
+          if d else '''') ~ w ~ ('' finestra'' if w == 1 else '' finestre'') ~ ('' aperte'' if d or w > 1 else '' aperta'')))
+          }} · {{ ''Luci spente'' if lights == 0 else (lights ~ ('' luce accesa'' if lights == 1 else '' luci accese'')) }}{%
+          endif %}'
+        multiline_secondary: true
+        badge_icon: '{% if is_state(''script.household_run_routine'',''on'') %}mdi:progress-clock{% elif is_state(''input_select.household_routine_status'',''Da
+          controllare'') or is_state(''input_select.household_routine_status'',''Interrotta'') %}mdi:alert{% endif %}'
+        badge_color: '{{ ''orange'' if is_state(''script.household_run_routine'',''on'') else ''red'' }}'
+        tap_action:
+          action: navigate
+          navigation_path: '#sicurezza'
+        hold_action:
+          action: navigate
+          navigation_path: /profile/general
+      - type: custom:mushroom-chips-card
+        alignment: justify
+        chips:
+        - type: template
+          icon: mdi:thermometer
+          icon_color: orange
+          tap_action:
+            action: navigate
+            navigation_path: '#clima'
+          content: '{% set t = ["climate.thermostat_6_thermostat", "climate.thermo_thermostat", "climate.thermo_7_thermostat",
+            "climate.thermo_3_thermostat", "climate.thermo_8_thermostat", "climate.thermo_4_thermostat", "climate.thermo_5_thermostat"]
+            | map(''state_attr'',''current_temperature'') | select(''number'') | list %}{{ (''%.1f'' | format(t | sum / t
+            | count) | replace(''.'', '','')) ~ ''°'' if t else ''Clima'' }}'
+          card_mod:
+            style: |
+              :host { display: block !important; }
+              ha-card { width: 100% !important; box-sizing: border-box; justify-content: center; }
+              ::slotted(span) { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        - type: template
+          icon: mdi:window-shutter
+          icon_color: blue
+          tap_action:
+            action: navigate
+            navigation_path: '#tapparelle'
+          content: '{% set ns = namespace(o=0) %}{% for c in ["cover.shellyplus2pm_30c922774de4", "cover.shellyplus2pm_c4d8d5561ffc",
+            "cover.shellyplus2pm_78ee4ccf104c", "cover.shellyplus2pm_8813bfd4933c", "cover.shellyplus2pm_2cbcbb2d92d8", "cover.shellyplus2pm_8813bfd0a3b8",
+            "cover.shellyplus2pm_8813bfd0b9ec"] %}{% set p = state_attr(c, ''current_position'') %}{% if (p is number and
+            p > 20) or (p is not number and is_state(c, ''open'')) %}{% set ns.o = ns.o + 1 %}{% endif %}{% endfor %}{{ ''Tutte
+            chiuse'' if ns.o == 0 else (ns.o ~ ('' aperta'' if ns.o == 1 else '' aperte'')) }}'
+          card_mod:
+            style: |
+              :host { display: block !important; }
+              ha-card { width: 100% !important; box-sizing: border-box; justify-content: center; }
+              ::slotted(span) { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        - type: template
+          tap_action:
+            action: navigate
+            navigation_path: '#sicurezza'
+          icon: '{{ ''mdi:shield-lock'' if is_state(''binary_sensor.household_camera_privacy_verified'',''on'') else ''mdi:cctv''
+            }}'
+          icon_color: '{{ ''green'' if is_state(''binary_sensor.household_camera_privacy_verified'',''on'') else (''blue''
+            if is_state(''binary_sensor.household_cameras_operating'',''on'') else ''orange'') }}'
+          content: '{{ ''…'' if is_state(''script.household_run_routine'',''on'') else (''Spente'' if is_state(''binary_sensor.household_camera_privacy_verified'',''on'')
+            else (''Accese'' if is_state(''binary_sensor.household_cameras_operating'',''on'') else ''Problema'')) }}'
+          card_mod:
+            style: |
+              :host { display: block !important; }
+              ha-card { width: 100% !important; box-sizing: border-box; justify-content: center; }
+              ::slotted(span) { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        - type: template
+          icon: mdi:flash
+          icon_color: amber
+          tap_action:
+            action: navigate
+            navigation_path: '#consumi'
+          content: '{{ states(''sensor.shellyemg3_dcb4d9c56334_energy_meter_0_potenza'') | int(0) ~ '' W'' if has_value(''sensor.shellyemg3_dcb4d9c56334_energy_meter_0_potenza'')
+            else ''Consumi'' }}'
+          card_mod:
+            style: |
+              :host { display: block !important; }
+              ha-card { width: 100% !important; box-sizing: border-box; justify-content: center; }
+              ::slotted(span) { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        card_mod:
+          style: |
+            /* Four equal columns across the full width. */
+            .chip-container { display: grid !important; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
+            @media (max-width: 380px) { ha-card { --mush-chip-spacing: 4px; --mush-chip-font-size: 0.75rem; } }
+      - type: grid
+        columns: 4
+        square: false
         cards:
-        - type: picture-entity
-          entity: camera.cam_soggiorno
-          name: Soggiorno
-          camera_view: auto
-          show_state: false
-        - type: picture-entity
-          entity: camera.camera_2
+        - type: custom:mushroom-template-card
+          entity: script.household_good_morning
+          primary: Buongiorno
+          icon: mdi:weather-sunset-up
+          color: amber
+          vertical: true
+          badge_icon: '{{ ''mdi:progress-clock'' if is_state(''script.household_run_routine'',''on'') and is_state(''input_text.household_routine_name'',''Buongiorno'')
+            else '''' }}'
+          badge_color: orange
+          tap_action:
+            action: perform-action
+            perform_action: script.turn_on
+            target:
+              entity_id: script.household_good_morning
+          icon_tap_action:
+            action: perform-action
+            perform_action: script.turn_on
+            target:
+              entity_id: script.household_good_morning
+          hold_action:
+            action: none
+          card_mod:
+            style: |
+              /* Narrow phones: smaller labels so "Buongiorno"/"Buonanotte" are not truncated. */
+              @media (max-width: 380px) {
+                ha-card { --mush-card-primary-font-size: 12px; --tile-info-primary-font-size: 12px; }
+                .content.vertical { padding-left: 2px; padding-right: 2px; }
+              }
+        - type: custom:mushroom-template-card
+          entity: script.household_good_night
+          primary: Buonanotte
+          icon: mdi:weather-night
+          color: indigo
+          vertical: true
+          badge_icon: '{{ ''mdi:progress-clock'' if is_state(''script.household_run_routine'',''on'') and is_state(''input_text.household_routine_name'',''Buonanotte'')
+            else '''' }}'
+          badge_color: orange
+          tap_action:
+            action: perform-action
+            perform_action: script.turn_on
+            target:
+              entity_id: script.household_good_night
+            confirmation:
+              text: Sono tutti a letto? Buonanotte accende le videocamere e abbassa le tapparelle della notte.
+          icon_tap_action:
+            action: perform-action
+            perform_action: script.turn_on
+            target:
+              entity_id: script.household_good_night
+            confirmation:
+              text: Sono tutti a letto? Buonanotte accende le videocamere e abbassa le tapparelle della notte.
+          hold_action:
+            action: none
+          card_mod:
+            style: |
+              /* Narrow phones: smaller labels so "Buongiorno"/"Buonanotte" are not truncated. */
+              @media (max-width: 380px) {
+                ha-card { --mush-card-primary-font-size: 12px; --tile-info-primary-font-size: 12px; }
+                .content.vertical { padding-left: 2px; padding-right: 2px; }
+              }
+        - type: custom:mushroom-template-card
+          entity: script.household_leaving
+          primary: Usciamo
+          icon: mdi:home-export-outline
+          color: blue
+          vertical: true
+          badge_icon: '{{ ''mdi:progress-clock'' if is_state(''script.household_run_routine'',''on'') and is_state(''input_text.household_routine_name'',''Usciamo'')
+            else '''' }}'
+          badge_color: orange
+          tap_action:
+            action: perform-action
+            perform_action: script.turn_on
+            target:
+              entity_id: script.household_leaving
+            confirmation:
+              text: Escono tutti? Usciamo accende le videocamere. Se resta qualcuno, annulla.
+          icon_tap_action:
+            action: perform-action
+            perform_action: script.turn_on
+            target:
+              entity_id: script.household_leaving
+            confirmation:
+              text: Escono tutti? Usciamo accende le videocamere. Se resta qualcuno, annulla.
+          hold_action:
+            action: none
+          card_mod:
+            style: |
+              /* Narrow phones: smaller labels so "Buongiorno"/"Buonanotte" are not truncated. */
+              @media (max-width: 380px) {
+                ha-card { --mush-card-primary-font-size: 12px; --tile-info-primary-font-size: 12px; }
+                .content.vertical { padding-left: 2px; padding-right: 2px; }
+              }
+        - type: custom:mushroom-template-card
+          entity: script.household_arriving
+          primary: Rientro
+          icon: mdi:home-import-outline
+          color: green
+          vertical: true
+          badge_icon: '{{ ''mdi:progress-clock'' if is_state(''script.household_run_routine'',''on'') and is_state(''input_text.household_routine_name'',''Rientro'')
+            else '''' }}'
+          badge_color: orange
+          tap_action:
+            action: perform-action
+            perform_action: script.turn_on
+            target:
+              entity_id: script.household_arriving
+          icon_tap_action:
+            action: perform-action
+            perform_action: script.turn_on
+            target:
+              entity_id: script.household_arriving
+          hold_action:
+            action: none
+          card_mod:
+            style: |
+              /* Narrow phones: smaller labels so "Buongiorno"/"Buonanotte" are not truncated. */
+              @media (max-width: 380px) {
+                ha-card { --mush-card-primary-font-size: 12px; --tile-info-primary-font-size: 12px; }
+                .content.vertical { padding-left: 2px; padding-right: 2px; }
+              }
+      - type: custom:mushroom-template-card
+        visibility:
+        - condition: state
+          entity: input_select.household_routine_status
+          state:
+          - In corso
+          - Da controllare
+          - Interrotta
+        icon: '{{ {''In corso'':''mdi:progress-clock'',''Da controllare'':''mdi:alert-circle-outline'',''Interrotta'':''mdi:close-circle-outline''}.get(states(''input_select.household_routine_status''),''mdi:information-outline'')
+          }}'
+        color: '{{ ''orange'' if is_state(''input_select.household_routine_status'',''In corso'') else ''red'' }}'
+        primary: '{% set s = states(''input_select.household_routine_status'') %}{% if s == ''In corso'' or is_state(''script.household_run_routine'',''on'')
+          %}{{ states(''input_text.household_routine_name'') }} in corso…{% elif s == ''Completata'' %}{{ states(''input_text.household_routine_name'')
+          }} completata{% elif s == ''Interrotta'' %}{{ states(''input_text.household_routine_name'') }} si è interrotta{%
+          else %}{{ states(''input_text.household_routine_name'') }}: qualcosa non è andato{% endif %}'
+        secondary: '{% if states(''input_select.household_routine_status'') == ''In corso'' or is_state(''script.household_run_routine'',''on'')
+          %}Può richiedere un paio di minuti.{% else %}{{ states(''input_text.household_routine_result'') }}{% endif %}'
+        multiline_secondary: true
+      - type: custom:mushroom-template-card
+        visibility:
+        - condition: or
+          conditions:
+          - condition: numeric_state
+            entity: sensor.household_open_windows
+            above: 0
+          - condition: state
+            entity: binary_sensor.front_door_door
+            state: 'on'
+        icon: mdi:window-open-variant
+        color: orange
+        primary: Aperture
+        secondary: '{% set w = [["sensor.household_window_living", "Soggiorno"], ["sensor.household_window_dining", "Sala
+          da pranzo"], ["sensor.household_window_kitchen", "Cucina"], ["sensor.household_window_guest_left", "Sinistra"],
+          ["sensor.household_window_guest_right", "Destra"], ["sensor.household_window_office", "Studio"], ["sensor.household_window_master",
+          "Camera matrimoniale"], ["sensor.household_window_bathroom", "Bagno grande"]] %}{% set ns = namespace(o=[]) %}{%
+          if is_state(''binary_sensor.front_door_door'',''on'') %}{% set ns.o = ns.o + [''Porta d’ingresso''] %}{% endif %}{%
+          for e, n in w %}{% if not is_state(e,''Chiusa'') and has_value(e) %}{% set ns.o = ns.o + [n ~ '' ('' ~ states(e)|lower
+          ~ '')''] %}{% endif %}{% endfor %}{{ ns.o | join('', '') }}'
+        multiline_secondary: true
+      - type: heading
+        heading: Stanze
+        heading_style: title
+      - type: grid
+        columns: 2
+        square: false
+        cards:
+        - type: custom:button-card
+          template: casa_room
           name: Ingresso
-          camera_view: auto
-          show_state: false
-        - type: picture-entity
-          entity: camera.camera_3
+          icon: mdi:door
+          variables:
+            lights:
+            - light.guardaroba
+            - light.faretti_3
+            windows: []
+            door: true
+          tap_action:
+            action: navigate
+            navigation_path: '#ingresso'
+          icon_tap_action:
+            action: perform-action
+            perform_action: script.room_quick_lights
+            data:
+              lights:
+              - light.guardaroba
+              - light.faretti_3
+              main:
+              - light.faretti_3
+        - type: custom:button-card
+          template: casa_room
+          name: Soggiorno
+          icon: mdi:sofa
+          variables:
+            lights:
+            - light.piano
+            - light.balcone_3
+            - light.faretti2
+            - light.faretti1
+            - light.shellyplusrgbwpm_30c92257192c
+            windows:
+            - sensor.household_window_living
+            climate: climate.thermostat_6_thermostat
+          tap_action:
+            action: navigate
+            navigation_path: '#soggiorno'
+          icon_tap_action:
+            action: perform-action
+            perform_action: script.room_quick_lights
+            data:
+              lights:
+              - light.piano
+              - light.balcone_3
+              - light.faretti2
+              - light.faretti1
+              - light.shellyplusrgbwpm_30c92257192c
+              main:
+              - light.faretti1
+              - light.faretti2
+        - type: custom:button-card
+          template: casa_room
+          name: Sala da pranzo
+          icon: mdi:table-chair
+          variables:
+            lights:
+            - light.lampade
+            - light.faretti_2
+            - light.faretti_1
+            - light.presa_lume
+            windows:
+            - sensor.household_window_dining
+            climate: climate.thermostat_6_thermostat
+          tap_action:
+            action: navigate
+            navigation_path: '#pranzo'
+          icon_tap_action:
+            action: perform-action
+            perform_action: script.room_quick_lights
+            data:
+              lights:
+              - light.lampade
+              - light.faretti_2
+              - light.faretti_1
+              - light.presa_lume
+              main:
+              - light.faretti_1
+              - light.faretti_2
+        - type: custom:button-card
+          template: casa_room
+          name: Cucina
+          icon: mdi:stove
+          variables:
+            lights:
+            - light.led
+            - light.pensili
+            - light.faretti_6
+            - light.balcone_4
+            - light.isola
+            windows:
+            - sensor.household_window_kitchen
+          tap_action:
+            action: navigate
+            navigation_path: '#cucina'
+          icon_tap_action:
+            action: perform-action
+            perform_action: script.room_quick_lights
+            data:
+              lights:
+              - light.led
+              - light.pensili
+              - light.faretti_6
+              - light.balcone_4
+              - light.isola
+              main:
+              - light.faretti_6
+        - type: custom:button-card
+          template: casa_room
+          name: Bagno piccolo
+          icon: mdi:shower
+          variables:
+            lights:
+            - light.luce_specchio_2
+            - light.faretti_8
+            - light.doccia_2
+            windows: []
+            climate: climate.thermo_thermostat
+          tap_action:
+            action: navigate
+            navigation_path: '#bagno-piccolo'
+          icon_tap_action:
+            action: perform-action
+            perform_action: script.room_quick_lights
+            data:
+              lights:
+              - light.luce_specchio_2
+              - light.faretti_8
+              - light.doccia_2
+              main:
+              - light.faretti_8
+        - type: custom:button-card
+          template: casa_room
+          name: Camera Francesco
+          icon: mdi:bed
+          variables:
+            lights:
+            - light.faretti_4
+            - light.porta
+            - light.faretti_9
+            windows:
+            - sensor.household_window_guest_left
+            - sensor.household_window_guest_right
+            climate: climate.thermo_7_thermostat
+          tap_action:
+            action: navigate
+            navigation_path: '#camera-francesco'
+          icon_tap_action:
+            action: perform-action
+            perform_action: script.room_quick_lights
+            data:
+              lights:
+              - light.faretti_4
+              - light.porta
+              - light.faretti_9
+              main:
+              - light.faretti_9
+        - type: custom:button-card
+          template: casa_room
+          name: Studio
+          icon: mdi:desk
+          variables:
+            lights:
+            - light.faretti_7
+            - light.lampade_2
+            - light.lume_libreria
+            - light.shellyplusrgbwpm_30c92258a17c
+            windows:
+            - sensor.household_window_office
+            climate: climate.thermo_3_thermostat
+          tap_action:
+            action: navigate
+            navigation_path: '#studio'
+          icon_tap_action:
+            action: perform-action
+            perform_action: script.room_quick_lights
+            data:
+              lights:
+              - light.faretti_7
+              - light.lampade_2
+              - light.lume_libreria
+              - light.shellyplusrgbwpm_30c92258a17c
+              main:
+              - light.faretti_7
+        - type: custom:button-card
+          template: casa_room
+          name: Camera matrimoniale
+          icon: mdi:bed-king
+          variables:
+            lights:
+            - light.led_2
+            - light.balcone
+            - light.shellydimmer2_24d7ebe4585d
+            - light.shellydimmer2_24d7ebe55395
+            - light.strip_led
+            windows:
+            - sensor.household_window_master
+            climate: climate.thermo_8_thermostat
+          tap_action:
+            action: navigate
+            navigation_path: '#matrimoniale'
+          icon_tap_action:
+            action: perform-action
+            perform_action: script.room_quick_lights
+            data:
+              lights:
+              - light.led_2
+              - light.balcone
+              - light.shellydimmer2_24d7ebe4585d
+              - light.shellydimmer2_24d7ebe55395
+              - light.strip_led
+              main:
+              - light.led_2
+        - type: custom:button-card
+          template: casa_room
+          name: Bagno grande
+          icon: mdi:bathtub
+          variables:
+            lights:
+            - light.faretti
+            - light.luce_specchio
+            - light.specchio
+            - light.vasca
+            windows:
+            - sensor.household_window_bathroom
+            climate: climate.thermo_4_thermostat
+          tap_action:
+            action: navigate
+            navigation_path: '#bagno-grande'
+          icon_tap_action:
+            action: perform-action
+            perform_action: script.room_quick_lights
+            data:
+              lights:
+              - light.faretti
+              - light.luce_specchio
+              - light.specchio
+              - light.vasca
+              main:
+              - light.faretti
+        - type: custom:button-card
+          template: casa_room
           name: Corridoio
-          camera_view: auto
+          icon: mdi:walk
+          variables:
+            lights:
+            - light.faretti_5
+            windows: []
+            climate: climate.thermo_5_thermostat
+          tap_action:
+            action: navigate
+            navigation_path: '#corridoio'
+          icon_tap_action:
+            action: perform-action
+            perform_action: script.room_quick_lights
+            data:
+              lights:
+              - light.faretti_5
+              main:
+              - light.faretti_5
+        card_mod:
+          style: |
+            :host { height: 100%; }
+            #root { height: 100%; grid-auto-rows: minmax(0, 1fr); }
+            #root > * { min-height: 0; }
+            #root > * > * { height: 100%; }
+            @media (min-width: 900px) {
+              #root { grid-template-columns: repeat(5, minmax(0, 1fr)) !important; }
+            }
+      - type: custom:bubble-card
+        card_type: pop-up
+        hash: '#ingresso'
+        name: Ingresso
+        icon: mdi:door
+        sub_button:
+        - icon: mdi:lightbulb-off-outline
+          name: Spegni
+          show_name: false
+          show_background: true
+          tap_action:
+            action: perform-action
+            perform_action: light.turn_off
+            target:
+              entity_id:
+              - light.guardaroba
+              - light.faretti_3
+        cards:
+        - type: custom:mushroom-template-card
+          grid_options:
+            columns: 12
+          icon: mdi:information-outline
+          color: disabled
+          primary: '{% set t = none %}{{ (''%.1f'' | format(t) | replace(''.'', '','')) ~ ''°'' if t is not none else ''Stato''
+            }}'
+          secondary: '{% set ns = namespace(p=[]) %}{% set ns.p = ns.p + [''Porta '' ~ (''aperta'' if is_state(''binary_sensor.front_door_door'',''on'')
+            else ''chiusa'')] %}{{ ns.p | join('' · '') }}'
+          multiline_secondary: true
+        - type: custom:bubble-card
+          card_type: separator
+          name: Luci
+          icon: mdi:lightbulb-group
+        - type: grid
+          columns: 2
+          square: false
+          cards:
+          - type: custom:bubble-card
+            card_type: button
+            button_type: switch
+            entity: light.guardaroba
+            name: Guardaroba
+            show_state: false
+            styles: |2
+
+              .bubble-button-card-container { background: ${state === 'on' ? 'rgba(255, 179, 0, 0.28)' : ''} !important; }
+              .bubble-icon { color: ${state === 'on' ? '#e69500 !important' : ''}; opacity: ${state === 'on' ? '1 !important' : ''}; }
+            tap_action:
+              action: toggle
+            button_action:
+              tap_action:
+                action: toggle
+              hold_action:
+                action: more-info
+          - type: custom:bubble-card
+            card_type: button
+            button_type: switch
+            entity: light.faretti_3
+            name: Faretti
+            show_state: false
+            styles: |2
+
+              .bubble-button-card-container { background: ${state === 'on' ? 'rgba(255, 179, 0, 0.28)' : ''} !important; }
+              .bubble-icon { color: ${state === 'on' ? '#e69500 !important' : ''}; opacity: ${state === 'on' ? '1 !important' : ''}; }
+            tap_action:
+              action: toggle
+            button_action:
+              tap_action:
+                action: toggle
+              hold_action:
+                action: more-info
+      - type: custom:bubble-card
+        card_type: pop-up
+        hash: '#soggiorno'
+        name: Soggiorno
+        icon: mdi:sofa
+        sub_button:
+        - icon: mdi:lightbulb-off-outline
+          name: Spegni
+          show_name: false
+          show_background: true
+          tap_action:
+            action: perform-action
+            perform_action: light.turn_off
+            target:
+              entity_id:
+              - light.piano
+              - light.balcone_3
+              - light.faretti2
+              - light.faretti1
+              - light.shellyplusrgbwpm_30c92257192c
+        cards:
+        - type: custom:mushroom-template-card
+          grid_options:
+            columns: 12
+          icon: mdi:information-outline
+          color: disabled
+          primary: '{% set t = state_attr(''climate.thermostat_6_thermostat'',''current_temperature'') %}{{ (''%.1f'' | format(t)
+            | replace(''.'', '','')) ~ ''°'' if t is not none else ''Stato'' }}'
+          secondary: '{% set ns = namespace(p=[]) %}{% if has_value(''sensor.household_window_living'') %}{% set ns.p = ns.p
+            + [''Finestra '' ~ states(''sensor.household_window_living'') | lower] %}{% endif %}{{ ns.p | join('' · '') }}'
+          multiline_secondary: true
+        - type: custom:bubble-card
+          card_type: separator
+          name: Luci
+          icon: mdi:lightbulb-group
+        - type: grid
+          columns: 2
+          square: false
+          cards:
+          - type: custom:bubble-card
+            card_type: button
+            button_type: switch
+            entity: light.piano
+            name: Piano
+            show_state: false
+            styles: |2
+
+              .bubble-button-card-container { background: ${state === 'on' ? 'rgba(255, 179, 0, 0.28)' : ''} !important; }
+              .bubble-icon { color: ${state === 'on' ? '#e69500 !important' : ''}; opacity: ${state === 'on' ? '1 !important' : ''}; }
+            tap_action:
+              action: toggle
+            button_action:
+              tap_action:
+                action: toggle
+              hold_action:
+                action: more-info
+          - type: custom:bubble-card
+            card_type: button
+            button_type: switch
+            entity: light.balcone_3
+            name: Balcone
+            show_state: false
+            styles: |2
+
+              .bubble-button-card-container { background: ${state === 'on' ? 'rgba(255, 179, 0, 0.28)' : ''} !important; }
+              .bubble-icon { color: ${state === 'on' ? '#e69500 !important' : ''}; opacity: ${state === 'on' ? '1 !important' : ''}; }
+            tap_action:
+              action: toggle
+            button_action:
+              tap_action:
+                action: toggle
+              hold_action:
+                action: more-info
+          - type: custom:bubble-card
+            card_type: button
+            button_type: switch
+            entity: light.faretti2
+            name: Faretti 2
+            show_state: false
+            styles: |2
+
+              .bubble-button-card-container { background: ${state === 'on' ? 'rgba(255, 179, 0, 0.28)' : ''} !important; }
+              .bubble-icon { color: ${state === 'on' ? '#e69500 !important' : ''}; opacity: ${state === 'on' ? '1 !important' : ''}; }
+            tap_action:
+              action: toggle
+            button_action:
+              tap_action:
+                action: toggle
+              hold_action:
+                action: more-info
+          - type: custom:bubble-card
+            card_type: button
+            button_type: switch
+            entity: light.faretti1
+            name: Faretti 1
+            show_state: false
+            styles: |2
+
+              .bubble-button-card-container { background: ${state === 'on' ? 'rgba(255, 179, 0, 0.28)' : ''} !important; }
+              .bubble-icon { color: ${state === 'on' ? '#e69500 !important' : ''}; opacity: ${state === 'on' ? '1 !important' : ''}; }
+            tap_action:
+              action: toggle
+            button_action:
+              tap_action:
+                action: toggle
+              hold_action:
+                action: more-info
+          - type: custom:bubble-card
+            card_type: button
+            button_type: slider
+            entity: light.shellyplusrgbwpm_30c92257192c
+            name: Striscia LED
+            show_state: false
+            styles: |2
+
+              .bubble-button-card-container { background: ${state === 'on' ? 'rgba(255, 179, 0, 0.28)' : ''} !important; }
+              .bubble-icon { color: ${state === 'on' ? '#e69500 !important' : ''}; opacity: ${state === 'on' ? '1 !important' : ''}; }
+            tap_action:
+              action: toggle
+            button_action:
+              tap_action:
+                action: toggle
+              hold_action:
+                action: more-info
+        - type: custom:bubble-card
+          card_type: separator
+          name: Tapparelle
+          icon: mdi:window-shutter
+        - type: custom:bubble-card
+          card_type: button
+          button_type: slider
+          entity: cover.shellyplus2pm_30c922774de4
+          name: Tapparella
+          icon: mdi:window-shutter
           show_state: false
-- title: Ingresso
-  path: entrance
-  icon: mdi:door
-  subview: true
-  type: sections
-  max_columns: 3
-  sections:
-  - type: grid
-    cards:
-    - type: heading
-      heading: Luci
-      heading_style: title
-    - type: tile
-      entity: light.guardaroba
-    - type: tile
-      entity: light.faretti_3
-  - type: grid
-    cards:
-    - type: heading
-      heading: Temperatura
-      heading_style: title
-    - type: tile
-      entity: climate.thermo_2_thermostat
-      name: Termostato
-      features:
-      - type: target-temperature
-  - type: grid
-    cards:
-    - type: heading
-      heading: Presenza e aperture
-      heading_style: title
-    - type: tile
-      entity: binary_sensor.front_door_door
-- title: Soggiorno
-  path: soggiorno
-  icon: mdi:sofa
-  subview: true
-  type: sections
-  max_columns: 3
-  sections:
-  - type: grid
-    cards:
-    - type: heading
-      heading: Luci
-      heading_style: title
-    - type: tile
-      entity: light.piano
-    - type: tile
-      entity: light.balcone_3
-    - type: tile
-      entity: light.faretti2
-    - type: tile
-      entity: light.faretti1
-    - type: tile
-      entity: light.shellyplusrgbwpm_30c92257192c
-      features:
-      - type: light-brightness
-  - type: grid
-    cards:
-    - type: heading
-      heading: Tapparelle
-      heading_style: title
-    - type: tile
-      entity: cover.shellyplus2pm_30c922774de4
-      features:
-      - type: cover-open-close
-      - type: cover-position
-  - type: grid
-    cards:
-    - type: heading
-      heading: Presenza e aperture
-      heading_style: title
-    - type: tile
-      entity: sensor.household_window_living
-      name: Finestra soggiorno
-- title: Sala da pranzo
-  path: dining
-  icon: mdi:table-chair
-  subview: true
-  type: sections
-  max_columns: 3
-  sections:
-  - type: grid
-    cards:
-    - type: heading
-      heading: Luci
-      heading_style: title
-    - type: tile
-      entity: light.lampade
-    - type: tile
-      entity: light.faretti_2
-    - type: tile
-      entity: light.faretti_1
-    - type: tile
-      entity: light.presa_lume
-  - type: grid
-    cards:
-    - type: heading
-      heading: Tapparelle
-      heading_style: title
-    - type: tile
-      entity: cover.shellyplus2pm_c4d8d5561ffc
-      features:
-      - type: cover-open-close
-      - type: cover-position
-  - type: grid
-    cards:
-    - type: heading
-      heading: Temperatura
-      heading_style: title
-    - type: tile
-      entity: climate.thermostat_6_thermostat
-      name: Termostato
-      features:
-      - type: target-temperature
-  - type: grid
-    cards:
-    - type: heading
-      heading: Presenza e aperture
-      heading_style: title
-    - type: tile
-      entity: sensor.household_window_dining
-      name: Finestra sala da pranzo
-- title: Cucina
-  path: cucina
-  icon: mdi:stove
-  subview: true
-  type: sections
-  max_columns: 3
-  sections:
-  - type: grid
-    cards:
-    - type: heading
-      heading: Luci
-      heading_style: title
-    - type: tile
-      entity: light.led
-    - type: tile
-      entity: light.pensili
-    - type: tile
-      entity: light.faretti_6
-    - type: tile
-      entity: light.balcone_4
-    - type: tile
-      entity: light.isola
-  - type: grid
-    cards:
-    - type: heading
-      heading: Tapparelle
-      heading_style: title
-    - type: tile
-      entity: cover.shellyplus2pm_78ee4ccf104c
-      features:
-      - type: cover-open-close
-      - type: cover-position
-  - type: grid
-    cards:
-    - type: heading
-      heading: Presenza e aperture
-      heading_style: title
-    - type: tile
-      entity: binary_sensor.presence_sensor_4_presence_ld2420
-      name: Presenza
-    - type: tile
-      entity: sensor.household_window_kitchen
-      name: Finestra cucina
-- title: Bagno piccolo
-  path: restroom
-  icon: mdi:shower
-  subview: true
-  type: sections
-  max_columns: 3
-  sections:
-  - type: grid
-    cards:
-    - type: heading
-      heading: Luci
-      heading_style: title
-    - type: tile
-      entity: light.luce_specchio_2
-    - type: tile
-      entity: light.faretti_8
-    - type: tile
-      entity: light.doccia_2
-  - type: grid
-    cards:
-    - type: heading
-      heading: Temperatura
-      heading_style: title
-    - type: tile
-      entity: climate.thermo_thermostat
-      name: Termostato
-      features:
-      - type: target-temperature
-- title: Camera Francesco
-  path: room
-  icon: mdi:bed
-  subview: true
-  type: sections
-  max_columns: 3
-  sections:
-  - type: grid
-    cards:
-    - type: heading
-      heading: Luci
-      heading_style: title
-    - type: tile
-      entity: light.faretti_4
-    - type: tile
-      entity: light.porta
-    - type: tile
-      entity: light.faretti_9
-  - type: grid
-    cards:
-    - type: heading
-      heading: Tapparelle
-      heading_style: title
-    - type: tile
-      entity: cover.shellyplus2pm_8813bfd4933c
-      features:
-      - type: cover-open-close
-      - type: cover-position
-    - type: tile
-      entity: cover.shellyplus2pm_2cbcbb2d92d8
-      features:
-      - type: cover-open-close
-      - type: cover-position
-  - type: grid
-    cards:
-    - type: heading
-      heading: Temperatura
-      heading_style: title
-    - type: tile
-      entity: climate.thermo_7_thermostat
-      name: Termostato
-      features:
-      - type: target-temperature
-  - type: grid
-    cards:
-    - type: heading
-      heading: Presenza e aperture
-      heading_style: title
-    - type: tile
-      entity: binary_sensor.presence_sensor_2_presence_ld2420
-      name: Presenza
-    - type: tile
-      entity: sensor.household_window_guest_left
-      name: Finestra sinistra
-    - type: tile
-      entity: sensor.household_window_guest_right
-      name: Finestra destra
-- title: Studio
-  path: office
-  icon: mdi:desk
-  subview: true
-  type: sections
-  max_columns: 3
-  sections:
-  - type: grid
-    cards:
-    - type: heading
-      heading: Luci
-      heading_style: title
-    - type: tile
-      entity: light.faretti_7
-    - type: tile
-      entity: light.lampade_2
-      name: Riflettori
-    - type: tile
-      entity: light.lume_libreria
-    - type: tile
-      entity: light.shellyplusrgbwpm_30c92258a17c
-      features:
-      - type: light-brightness
-  - type: grid
-    cards:
-    - type: heading
-      heading: Tapparelle
-      heading_style: title
-    - type: tile
-      entity: cover.shellyplus2pm_8813bfd0a3b8
-      features:
-      - type: cover-open-close
-      - type: cover-position
-  - type: grid
-    cards:
-    - type: heading
-      heading: Temperatura
-      heading_style: title
-    - type: tile
-      entity: climate.thermo_3_thermostat
-      name: Termostato
-      features:
-      - type: target-temperature
-  - type: grid
-    cards:
-    - type: heading
-      heading: Presenza e aperture
-      heading_style: title
-    - type: tile
-      entity: binary_sensor.presence_sensor_1_presence_ld2420
-      name: Presenza
-    - type: tile
-      entity: sensor.household_window_office
-      name: Finestra studio
-- title: Camera matrimoniale
-  path: camera_da_letto
-  icon: mdi:bed-king
-  subview: true
-  type: sections
-  max_columns: 3
-  sections:
-  - type: grid
-    cards:
-    - type: heading
-      heading: Luci
-      heading_style: title
-    - type: tile
-      entity: light.led_2
-    - type: tile
-      entity: light.balcone
-    - type: tile
-      entity: light.shellydimmer2_24d7ebe4585d
-      features:
-      - type: light-brightness
-    - type: tile
-      entity: light.shellydimmer2_24d7ebe55395
-      features:
-      - type: light-brightness
-    - type: tile
-      entity: light.strip_led
-      features:
-      - type: light-brightness
-  - type: grid
-    cards:
-    - type: heading
-      heading: Tapparelle
-      heading_style: title
-    - type: tile
-      entity: cover.shellyplus2pm_8813bfd0b9ec
-      features:
-      - type: cover-open-close
-      - type: cover-position
-  - type: grid
-    cards:
-    - type: heading
-      heading: Temperatura
-      heading_style: title
-    - type: tile
-      entity: climate.thermo_8_thermostat
-      name: Termostato
-      features:
-      - type: target-temperature
-  - type: grid
-    cards:
-    - type: heading
-      heading: Presenza e aperture
-      heading_style: title
-    - type: tile
-      entity: binary_sensor.presence_sensor_3_presence_ld2420
-      name: Presenza
-    - type: tile
-      entity: sensor.household_window_master
-      name: Finestra camera matrimoniale
-- title: Bagno grande
-  path: bathroom
-  icon: mdi:bathtub
-  subview: true
-  type: sections
-  max_columns: 3
-  sections:
-  - type: grid
-    cards:
-    - type: heading
-      heading: Luci
-      heading_style: title
-    - type: tile
-      entity: light.faretti
-    - type: tile
-      entity: light.luce_specchio
-    - type: tile
-      entity: light.specchio
-    - type: tile
-      entity: light.vasca
-      features:
-      - type: light-brightness
-  - type: grid
-    cards:
-    - type: heading
-      heading: Temperatura
-      heading_style: title
-    - type: tile
-      entity: climate.thermo_4_thermostat
-      name: Termostato
-      features:
-      - type: target-temperature
-  - type: grid
-    cards:
-    - type: heading
-      heading: Presenza e aperture
-      heading_style: title
-    - type: tile
-      entity: sensor.household_window_bathroom
-      name: Finestra bagno grande
-- title: Corridoio
-  path: hallway
-  icon: mdi:walk
-  subview: true
-  type: sections
-  max_columns: 3
-  sections:
-  - type: grid
-    cards:
-    - type: heading
-      heading: Luci
-      heading_style: title
-    - type: tile
-      entity: light.faretti_5
-  - type: grid
-    cards:
-    - type: heading
-      heading: Temperatura
-      heading_style: title
-    - type: tile
-      entity: climate.thermo_5_thermostat
-      name: Termostato
-      features:
-      - type: target-temperature
+          show_attribute: true
+          attribute: current_position
+          sub_button:
+          - icon: mdi:arrow-up
+            tap_action:
+              action: perform-action
+              perform_action: cover.open_cover
+              target:
+                entity_id: cover.shellyplus2pm_30c922774de4
+          - icon: mdi:stop
+            tap_action:
+              action: perform-action
+              perform_action: cover.stop_cover
+              target:
+                entity_id: cover.shellyplus2pm_30c922774de4
+          - icon: mdi:arrow-down
+            tap_action:
+              action: perform-action
+              perform_action: cover.close_cover
+              target:
+                entity_id: cover.shellyplus2pm_30c922774de4
+        - type: custom:bubble-card
+          card_type: separator
+          name: Riscaldamento (con Sala da pranzo)
+          icon: mdi:heating-coil
+        - type: custom:bubble-card
+          card_type: climate
+          entity: climate.thermostat_6_thermostat
+          name: Temperatura desiderata
+          step: 0.5
+          state_color: true
+      - type: custom:bubble-card
+        card_type: pop-up
+        hash: '#pranzo'
+        name: Sala da pranzo
+        icon: mdi:table-chair
+        sub_button:
+        - icon: mdi:lightbulb-off-outline
+          name: Spegni
+          show_name: false
+          show_background: true
+          tap_action:
+            action: perform-action
+            perform_action: light.turn_off
+            target:
+              entity_id:
+              - light.lampade
+              - light.faretti_2
+              - light.faretti_1
+              - light.presa_lume
+        cards:
+        - type: custom:mushroom-template-card
+          grid_options:
+            columns: 12
+          icon: mdi:thermometer
+          color: orange
+          primary: '{% set t = state_attr(''climate.thermostat_6_thermostat'',''current_temperature'') %}{{ (''%.1f'' | format(t)
+            | replace(''.'', '','')) ~ ''°'' if t is not none else ''Stato'' }}'
+          secondary: '{% set ns = namespace(p=[]) %}{% if has_value(''sensor.household_window_dining'') %}{% set ns.p = ns.p
+            + [''Finestra '' ~ states(''sensor.household_window_dining'') | lower] %}{% endif %}{{ ns.p | join('' · '') }}'
+          multiline_secondary: true
+        - type: custom:bubble-card
+          card_type: separator
+          name: Luci
+          icon: mdi:lightbulb-group
+        - type: grid
+          columns: 2
+          square: false
+          cards:
+          - type: custom:bubble-card
+            card_type: button
+            button_type: switch
+            entity: light.lampade
+            name: Lampade
+            show_state: false
+            styles: |2
+
+              .bubble-button-card-container { background: ${state === 'on' ? 'rgba(255, 179, 0, 0.28)' : ''} !important; }
+              .bubble-icon { color: ${state === 'on' ? '#e69500 !important' : ''}; opacity: ${state === 'on' ? '1 !important' : ''}; }
+            tap_action:
+              action: toggle
+            button_action:
+              tap_action:
+                action: toggle
+              hold_action:
+                action: more-info
+          - type: custom:bubble-card
+            card_type: button
+            button_type: switch
+            entity: light.faretti_2
+            name: Faretti
+            show_state: false
+            styles: |2
+
+              .bubble-button-card-container { background: ${state === 'on' ? 'rgba(255, 179, 0, 0.28)' : ''} !important; }
+              .bubble-icon { color: ${state === 'on' ? '#e69500 !important' : ''}; opacity: ${state === 'on' ? '1 !important' : ''}; }
+            tap_action:
+              action: toggle
+            button_action:
+              tap_action:
+                action: toggle
+              hold_action:
+                action: more-info
+          - type: custom:bubble-card
+            card_type: button
+            button_type: switch
+            entity: light.faretti_1
+            name: Faretti
+            show_state: false
+            styles: |2
+
+              .bubble-button-card-container { background: ${state === 'on' ? 'rgba(255, 179, 0, 0.28)' : ''} !important; }
+              .bubble-icon { color: ${state === 'on' ? '#e69500 !important' : ''}; opacity: ${state === 'on' ? '1 !important' : ''}; }
+            tap_action:
+              action: toggle
+            button_action:
+              tap_action:
+                action: toggle
+              hold_action:
+                action: more-info
+          - type: custom:bubble-card
+            card_type: button
+            button_type: switch
+            entity: light.presa_lume
+            name: Lume
+            show_state: false
+            styles: |2
+
+              .bubble-button-card-container { background: ${state === 'on' ? 'rgba(255, 179, 0, 0.28)' : ''} !important; }
+              .bubble-icon { color: ${state === 'on' ? '#e69500 !important' : ''}; opacity: ${state === 'on' ? '1 !important' : ''}; }
+            tap_action:
+              action: toggle
+            button_action:
+              tap_action:
+                action: toggle
+              hold_action:
+                action: more-info
+        - type: custom:bubble-card
+          card_type: separator
+          name: Tapparelle
+          icon: mdi:window-shutter
+        - type: custom:bubble-card
+          card_type: button
+          button_type: slider
+          entity: cover.shellyplus2pm_c4d8d5561ffc
+          name: Tapparella
+          icon: mdi:window-shutter
+          show_state: false
+          show_attribute: true
+          attribute: current_position
+          sub_button:
+          - icon: mdi:arrow-up
+            tap_action:
+              action: perform-action
+              perform_action: cover.open_cover
+              target:
+                entity_id: cover.shellyplus2pm_c4d8d5561ffc
+          - icon: mdi:stop
+            tap_action:
+              action: perform-action
+              perform_action: cover.stop_cover
+              target:
+                entity_id: cover.shellyplus2pm_c4d8d5561ffc
+          - icon: mdi:arrow-down
+            tap_action:
+              action: perform-action
+              perform_action: cover.close_cover
+              target:
+                entity_id: cover.shellyplus2pm_c4d8d5561ffc
+        - type: custom:bubble-card
+          card_type: separator
+          name: Riscaldamento (con Soggiorno)
+          icon: mdi:heating-coil
+        - type: custom:bubble-card
+          card_type: climate
+          entity: climate.thermostat_6_thermostat
+          name: Temperatura desiderata
+          step: 0.5
+          state_color: true
+      - type: custom:bubble-card
+        card_type: pop-up
+        hash: '#cucina'
+        name: Cucina
+        icon: mdi:stove
+        sub_button:
+        - icon: mdi:lightbulb-off-outline
+          name: Spegni
+          show_name: false
+          show_background: true
+          tap_action:
+            action: perform-action
+            perform_action: light.turn_off
+            target:
+              entity_id:
+              - light.led
+              - light.pensili
+              - light.faretti_6
+              - light.balcone_4
+              - light.isola
+        cards:
+        - type: custom:mushroom-template-card
+          grid_options:
+            columns: 12
+          icon: mdi:information-outline
+          color: disabled
+          primary: '{% set t = none %}{{ (''%.1f'' | format(t) | replace(''.'', '','')) ~ ''°'' if t is not none else ''Stato''
+            }}'
+          secondary: '{% set ns = namespace(p=[]) %}{% if has_value(''sensor.household_window_kitchen'') %}{% set ns.p = ns.p
+            + [''Finestra '' ~ states(''sensor.household_window_kitchen'') | lower] %}{% endif %}{% set ns.p = ns.p + [''Qualcuno
+            presente'' if is_state(''binary_sensor.presence_sensor_4_presence_ld2420'',''on'') else ''Nessuno presente'']
+            %}{{ ns.p | join('' · '') }}'
+          multiline_secondary: true
+        - type: custom:bubble-card
+          card_type: separator
+          name: Luci
+          icon: mdi:lightbulb-group
+        - type: grid
+          columns: 2
+          square: false
+          cards:
+          - type: custom:bubble-card
+            card_type: button
+            button_type: switch
+            entity: light.led
+            name: Striscia LED
+            show_state: false
+            styles: |2
+
+              .bubble-button-card-container { background: ${state === 'on' ? 'rgba(255, 179, 0, 0.28)' : ''} !important; }
+              .bubble-icon { color: ${state === 'on' ? '#e69500 !important' : ''}; opacity: ${state === 'on' ? '1 !important' : ''}; }
+            tap_action:
+              action: toggle
+            button_action:
+              tap_action:
+                action: toggle
+              hold_action:
+                action: more-info
+          - type: custom:bubble-card
+            card_type: button
+            button_type: switch
+            entity: light.pensili
+            name: Pensili
+            show_state: false
+            styles: |2
+
+              .bubble-button-card-container { background: ${state === 'on' ? 'rgba(255, 179, 0, 0.28)' : ''} !important; }
+              .bubble-icon { color: ${state === 'on' ? '#e69500 !important' : ''}; opacity: ${state === 'on' ? '1 !important' : ''}; }
+            tap_action:
+              action: toggle
+            button_action:
+              tap_action:
+                action: toggle
+              hold_action:
+                action: more-info
+          - type: custom:bubble-card
+            card_type: button
+            button_type: switch
+            entity: light.faretti_6
+            name: Faretti
+            show_state: false
+            styles: |2
+
+              .bubble-button-card-container { background: ${state === 'on' ? 'rgba(255, 179, 0, 0.28)' : ''} !important; }
+              .bubble-icon { color: ${state === 'on' ? '#e69500 !important' : ''}; opacity: ${state === 'on' ? '1 !important' : ''}; }
+            tap_action:
+              action: toggle
+            button_action:
+              tap_action:
+                action: toggle
+              hold_action:
+                action: more-info
+          - type: custom:bubble-card
+            card_type: button
+            button_type: switch
+            entity: light.balcone_4
+            name: Balcone
+            show_state: false
+            styles: |2
+
+              .bubble-button-card-container { background: ${state === 'on' ? 'rgba(255, 179, 0, 0.28)' : ''} !important; }
+              .bubble-icon { color: ${state === 'on' ? '#e69500 !important' : ''}; opacity: ${state === 'on' ? '1 !important' : ''}; }
+            tap_action:
+              action: toggle
+            button_action:
+              tap_action:
+                action: toggle
+              hold_action:
+                action: more-info
+          - type: custom:bubble-card
+            card_type: button
+            button_type: switch
+            entity: light.isola
+            name: Isola
+            show_state: false
+            styles: |2
+
+              .bubble-button-card-container { background: ${state === 'on' ? 'rgba(255, 179, 0, 0.28)' : ''} !important; }
+              .bubble-icon { color: ${state === 'on' ? '#e69500 !important' : ''}; opacity: ${state === 'on' ? '1 !important' : ''}; }
+            tap_action:
+              action: toggle
+            button_action:
+              tap_action:
+                action: toggle
+              hold_action:
+                action: more-info
+        - type: custom:bubble-card
+          card_type: separator
+          name: Tapparelle
+          icon: mdi:window-shutter
+        - type: custom:bubble-card
+          card_type: button
+          button_type: slider
+          entity: cover.shellyplus2pm_78ee4ccf104c
+          name: Tapparella
+          icon: mdi:window-shutter
+          show_state: false
+          show_attribute: true
+          attribute: current_position
+          sub_button:
+          - icon: mdi:arrow-up
+            tap_action:
+              action: perform-action
+              perform_action: cover.open_cover
+              target:
+                entity_id: cover.shellyplus2pm_78ee4ccf104c
+          - icon: mdi:stop
+            tap_action:
+              action: perform-action
+              perform_action: cover.stop_cover
+              target:
+                entity_id: cover.shellyplus2pm_78ee4ccf104c
+          - icon: mdi:arrow-down
+            tap_action:
+              action: perform-action
+              perform_action: cover.close_cover
+              target:
+                entity_id: cover.shellyplus2pm_78ee4ccf104c
+      - type: custom:bubble-card
+        card_type: pop-up
+        hash: '#bagno-piccolo'
+        name: Bagno piccolo
+        icon: mdi:shower
+        sub_button:
+        - icon: mdi:lightbulb-off-outline
+          name: Spegni
+          show_name: false
+          show_background: true
+          tap_action:
+            action: perform-action
+            perform_action: light.turn_off
+            target:
+              entity_id:
+              - light.luce_specchio_2
+              - light.faretti_8
+              - light.doccia_2
+        cards:
+        - type: custom:mushroom-template-card
+          grid_options:
+            columns: 12
+          icon: mdi:thermometer
+          color: orange
+          primary: '{% set t = state_attr(''climate.thermo_thermostat'',''current_temperature'') %}{{ (''%.1f'' | format(t)
+            | replace(''.'', '','')) ~ ''°'' if t is not none else ''Stato'' }}'
+          secondary: '{% set ns = namespace(p=[]) %}{{ ns.p | join('' · '') }}'
+          multiline_secondary: true
+        - type: custom:bubble-card
+          card_type: separator
+          name: Luci
+          icon: mdi:lightbulb-group
+        - type: grid
+          columns: 2
+          square: false
+          cards:
+          - type: custom:bubble-card
+            card_type: button
+            button_type: switch
+            entity: light.luce_specchio_2
+            name: Luce specchio
+            show_state: false
+            styles: |2
+
+              .bubble-button-card-container { background: ${state === 'on' ? 'rgba(255, 179, 0, 0.28)' : ''} !important; }
+              .bubble-icon { color: ${state === 'on' ? '#e69500 !important' : ''}; opacity: ${state === 'on' ? '1 !important' : ''}; }
+            tap_action:
+              action: toggle
+            button_action:
+              tap_action:
+                action: toggle
+              hold_action:
+                action: more-info
+          - type: custom:bubble-card
+            card_type: button
+            button_type: switch
+            entity: light.faretti_8
+            name: Faretti
+            show_state: false
+            styles: |2
+
+              .bubble-button-card-container { background: ${state === 'on' ? 'rgba(255, 179, 0, 0.28)' : ''} !important; }
+              .bubble-icon { color: ${state === 'on' ? '#e69500 !important' : ''}; opacity: ${state === 'on' ? '1 !important' : ''}; }
+            tap_action:
+              action: toggle
+            button_action:
+              tap_action:
+                action: toggle
+              hold_action:
+                action: more-info
+          - type: custom:bubble-card
+            card_type: button
+            button_type: switch
+            entity: light.doccia_2
+            name: Doccia
+            show_state: false
+            styles: |2
+
+              .bubble-button-card-container { background: ${state === 'on' ? 'rgba(255, 179, 0, 0.28)' : ''} !important; }
+              .bubble-icon { color: ${state === 'on' ? '#e69500 !important' : ''}; opacity: ${state === 'on' ? '1 !important' : ''}; }
+            tap_action:
+              action: toggle
+            button_action:
+              tap_action:
+                action: toggle
+              hold_action:
+                action: more-info
+        - type: custom:bubble-card
+          card_type: separator
+          name: Riscaldamento
+          icon: mdi:heating-coil
+        - type: custom:bubble-card
+          card_type: climate
+          entity: climate.thermo_thermostat
+          name: Temperatura desiderata
+          step: 0.5
+          state_color: true
+      - type: custom:bubble-card
+        card_type: pop-up
+        hash: '#camera-francesco'
+        name: Camera Francesco
+        icon: mdi:bed
+        sub_button:
+        - icon: mdi:lightbulb-off-outline
+          name: Spegni
+          show_name: false
+          show_background: true
+          tap_action:
+            action: perform-action
+            perform_action: light.turn_off
+            target:
+              entity_id:
+              - light.faretti_4
+              - light.porta
+              - light.faretti_9
+        cards:
+        - type: custom:mushroom-template-card
+          grid_options:
+            columns: 12
+          icon: mdi:thermometer
+          color: orange
+          primary: '{% set t = state_attr(''climate.thermo_7_thermostat'',''current_temperature'') %}{{ (''%.1f'' | format(t)
+            | replace(''.'', '','')) ~ ''°'' if t is not none else ''Stato'' }}'
+          secondary: '{% set ns = namespace(p=[]) %}{% if has_value(''sensor.household_window_guest_left'') %}{% set ns.p
+            = ns.p + [''Finestra sinistra '' ~ states(''sensor.household_window_guest_left'') | lower] %}{% endif %}{% if
+            has_value(''sensor.household_window_guest_right'') %}{% set ns.p = ns.p + [''Finestra destra '' ~ states(''sensor.household_window_guest_right'')
+            | lower] %}{% endif %}{% set ns.p = ns.p + [''Qualcuno presente'' if is_state(''binary_sensor.presence_sensor_2_presence_ld2420'',''on'')
+            else ''Nessuno presente''] %}{{ ns.p | join('' · '') }}'
+          multiline_secondary: true
+        - type: custom:bubble-card
+          card_type: separator
+          name: Luci
+          icon: mdi:lightbulb-group
+        - type: grid
+          columns: 2
+          square: false
+          cards:
+          - type: custom:bubble-card
+            card_type: button
+            button_type: switch
+            entity: light.faretti_4
+            name: Luce letto dx
+            show_state: false
+            styles: |2
+
+              .bubble-button-card-container { background: ${state === 'on' ? 'rgba(255, 179, 0, 0.28)' : ''} !important; }
+              .bubble-icon { color: ${state === 'on' ? '#e69500 !important' : ''}; opacity: ${state === 'on' ? '1 !important' : ''}; }
+            tap_action:
+              action: toggle
+            button_action:
+              tap_action:
+                action: toggle
+              hold_action:
+                action: more-info
+          - type: custom:bubble-card
+            card_type: button
+            button_type: switch
+            entity: light.porta
+            name: Luce letto sx
+            show_state: false
+            styles: |2
+
+              .bubble-button-card-container { background: ${state === 'on' ? 'rgba(255, 179, 0, 0.28)' : ''} !important; }
+              .bubble-icon { color: ${state === 'on' ? '#e69500 !important' : ''}; opacity: ${state === 'on' ? '1 !important' : ''}; }
+            tap_action:
+              action: toggle
+            button_action:
+              tap_action:
+                action: toggle
+              hold_action:
+                action: more-info
+          - type: custom:bubble-card
+            card_type: button
+            button_type: switch
+            entity: light.faretti_9
+            name: Faretti
+            show_state: false
+            styles: |2
+
+              .bubble-button-card-container { background: ${state === 'on' ? 'rgba(255, 179, 0, 0.28)' : ''} !important; }
+              .bubble-icon { color: ${state === 'on' ? '#e69500 !important' : ''}; opacity: ${state === 'on' ? '1 !important' : ''}; }
+            tap_action:
+              action: toggle
+            button_action:
+              tap_action:
+                action: toggle
+              hold_action:
+                action: more-info
+        - type: custom:bubble-card
+          card_type: separator
+          name: Tapparelle
+          icon: mdi:window-shutter
+        - type: custom:bubble-card
+          card_type: button
+          button_type: slider
+          entity: cover.shellyplus2pm_8813bfd4933c
+          name: Sinistra
+          icon: mdi:window-shutter
+          show_state: false
+          show_attribute: true
+          attribute: current_position
+          sub_button:
+          - icon: mdi:arrow-up
+            tap_action:
+              action: perform-action
+              perform_action: cover.open_cover
+              target:
+                entity_id: cover.shellyplus2pm_8813bfd4933c
+          - icon: mdi:stop
+            tap_action:
+              action: perform-action
+              perform_action: cover.stop_cover
+              target:
+                entity_id: cover.shellyplus2pm_8813bfd4933c
+          - icon: mdi:arrow-down
+            tap_action:
+              action: perform-action
+              perform_action: cover.close_cover
+              target:
+                entity_id: cover.shellyplus2pm_8813bfd4933c
+        - type: custom:bubble-card
+          card_type: button
+          button_type: slider
+          entity: cover.shellyplus2pm_2cbcbb2d92d8
+          name: Destra
+          icon: mdi:window-shutter
+          show_state: false
+          show_attribute: true
+          attribute: current_position
+          sub_button:
+          - icon: mdi:arrow-up
+            tap_action:
+              action: perform-action
+              perform_action: cover.open_cover
+              target:
+                entity_id: cover.shellyplus2pm_2cbcbb2d92d8
+          - icon: mdi:stop
+            tap_action:
+              action: perform-action
+              perform_action: cover.stop_cover
+              target:
+                entity_id: cover.shellyplus2pm_2cbcbb2d92d8
+          - icon: mdi:arrow-down
+            tap_action:
+              action: perform-action
+              perform_action: cover.close_cover
+              target:
+                entity_id: cover.shellyplus2pm_2cbcbb2d92d8
+        - type: custom:bubble-card
+          card_type: separator
+          name: Riscaldamento
+          icon: mdi:heating-coil
+        - type: custom:bubble-card
+          card_type: climate
+          entity: climate.thermo_7_thermostat
+          name: Temperatura desiderata
+          step: 0.5
+          state_color: true
+      - type: custom:bubble-card
+        card_type: pop-up
+        hash: '#studio'
+        name: Studio
+        icon: mdi:desk
+        sub_button:
+        - icon: mdi:lightbulb-off-outline
+          name: Spegni
+          show_name: false
+          show_background: true
+          tap_action:
+            action: perform-action
+            perform_action: light.turn_off
+            target:
+              entity_id:
+              - light.faretti_7
+              - light.lampade_2
+              - light.lume_libreria
+              - light.shellyplusrgbwpm_30c92258a17c
+        cards:
+        - type: custom:mushroom-template-card
+          grid_options:
+            columns: 12
+          icon: mdi:thermometer
+          color: orange
+          primary: '{% set t = state_attr(''climate.thermo_3_thermostat'',''current_temperature'') %}{{ (''%.1f'' | format(t)
+            | replace(''.'', '','')) ~ ''°'' if t is not none else ''Stato'' }}'
+          secondary: '{% set ns = namespace(p=[]) %}{% if has_value(''sensor.household_window_office'') %}{% set ns.p = ns.p
+            + [''Finestra '' ~ states(''sensor.household_window_office'') | lower] %}{% endif %}{% set ns.p = ns.p + [''Qualcuno
+            presente'' if is_state(''binary_sensor.presence_sensor_1_presence_ld2420'',''on'') else ''Nessuno presente'']
+            %}{{ ns.p | join('' · '') }}'
+          multiline_secondary: true
+        - type: custom:bubble-card
+          card_type: separator
+          name: Luci
+          icon: mdi:lightbulb-group
+        - type: grid
+          columns: 2
+          square: false
+          cards:
+          - type: custom:bubble-card
+            card_type: button
+            button_type: switch
+            entity: light.faretti_7
+            name: Faretti
+            show_state: false
+            styles: |2
+
+              .bubble-button-card-container { background: ${state === 'on' ? 'rgba(255, 179, 0, 0.28)' : ''} !important; }
+              .bubble-icon { color: ${state === 'on' ? '#e69500 !important' : ''}; opacity: ${state === 'on' ? '1 !important' : ''}; }
+            tap_action:
+              action: toggle
+            button_action:
+              tap_action:
+                action: toggle
+              hold_action:
+                action: more-info
+          - type: custom:bubble-card
+            card_type: button
+            button_type: switch
+            entity: light.lampade_2
+            name: Riflettori
+            show_state: false
+            styles: |2
+
+              .bubble-button-card-container { background: ${state === 'on' ? 'rgba(255, 179, 0, 0.28)' : ''} !important; }
+              .bubble-icon { color: ${state === 'on' ? '#e69500 !important' : ''}; opacity: ${state === 'on' ? '1 !important' : ''}; }
+            tap_action:
+              action: toggle
+            button_action:
+              tap_action:
+                action: toggle
+              hold_action:
+                action: more-info
+          - type: custom:bubble-card
+            card_type: button
+            button_type: switch
+            entity: light.lume_libreria
+            name: Lume libreria
+            show_state: false
+            styles: |2
+
+              .bubble-button-card-container { background: ${state === 'on' ? 'rgba(255, 179, 0, 0.28)' : ''} !important; }
+              .bubble-icon { color: ${state === 'on' ? '#e69500 !important' : ''}; opacity: ${state === 'on' ? '1 !important' : ''}; }
+            tap_action:
+              action: toggle
+            button_action:
+              tap_action:
+                action: toggle
+              hold_action:
+                action: more-info
+          - type: custom:bubble-card
+            card_type: button
+            button_type: slider
+            entity: light.shellyplusrgbwpm_30c92258a17c
+            name: Striscia LED
+            show_state: false
+            styles: |2
+
+              .bubble-button-card-container { background: ${state === 'on' ? 'rgba(255, 179, 0, 0.28)' : ''} !important; }
+              .bubble-icon { color: ${state === 'on' ? '#e69500 !important' : ''}; opacity: ${state === 'on' ? '1 !important' : ''}; }
+            tap_action:
+              action: toggle
+            button_action:
+              tap_action:
+                action: toggle
+              hold_action:
+                action: more-info
+        - type: custom:bubble-card
+          card_type: separator
+          name: Tapparelle
+          icon: mdi:window-shutter
+        - type: custom:bubble-card
+          card_type: button
+          button_type: slider
+          entity: cover.shellyplus2pm_8813bfd0a3b8
+          name: Tapparella
+          icon: mdi:window-shutter
+          show_state: false
+          show_attribute: true
+          attribute: current_position
+          sub_button:
+          - icon: mdi:arrow-up
+            tap_action:
+              action: perform-action
+              perform_action: cover.open_cover
+              target:
+                entity_id: cover.shellyplus2pm_8813bfd0a3b8
+          - icon: mdi:stop
+            tap_action:
+              action: perform-action
+              perform_action: cover.stop_cover
+              target:
+                entity_id: cover.shellyplus2pm_8813bfd0a3b8
+          - icon: mdi:arrow-down
+            tap_action:
+              action: perform-action
+              perform_action: cover.close_cover
+              target:
+                entity_id: cover.shellyplus2pm_8813bfd0a3b8
+        - type: custom:bubble-card
+          card_type: separator
+          name: Riscaldamento
+          icon: mdi:heating-coil
+        - type: custom:bubble-card
+          card_type: climate
+          entity: climate.thermo_3_thermostat
+          name: Temperatura desiderata
+          step: 0.5
+          state_color: true
+      - type: custom:bubble-card
+        card_type: pop-up
+        hash: '#matrimoniale'
+        name: Camera matrimoniale
+        icon: mdi:bed-king
+        sub_button:
+        - icon: mdi:lightbulb-off-outline
+          name: Spegni
+          show_name: false
+          show_background: true
+          tap_action:
+            action: perform-action
+            perform_action: light.turn_off
+            target:
+              entity_id:
+              - light.led_2
+              - light.balcone
+              - light.shellydimmer2_24d7ebe4585d
+              - light.shellydimmer2_24d7ebe55395
+              - light.strip_led
+        cards:
+        - type: custom:mushroom-template-card
+          grid_options:
+            columns: 12
+          icon: mdi:thermometer
+          color: orange
+          primary: '{% set t = state_attr(''climate.thermo_8_thermostat'',''current_temperature'') %}{{ (''%.1f'' | format(t)
+            | replace(''.'', '','')) ~ ''°'' if t is not none else ''Stato'' }}'
+          secondary: '{% set ns = namespace(p=[]) %}{% if has_value(''sensor.household_window_master'') %}{% set ns.p = ns.p
+            + [''Finestra '' ~ states(''sensor.household_window_master'') | lower] %}{% endif %}{% set ns.p = ns.p + [''Qualcuno
+            presente'' if is_state(''binary_sensor.presence_sensor_3_presence_ld2420'',''on'') else ''Nessuno presente'']
+            %}{{ ns.p | join('' · '') }}'
+          multiline_secondary: true
+        - type: custom:bubble-card
+          card_type: separator
+          name: Luci
+          icon: mdi:lightbulb-group
+        - type: grid
+          columns: 2
+          square: false
+          cards:
+          - type: custom:bubble-card
+            card_type: button
+            button_type: switch
+            entity: light.led_2
+            name: Faretti
+            show_state: false
+            styles: |2
+
+              .bubble-button-card-container { background: ${state === 'on' ? 'rgba(255, 179, 0, 0.28)' : ''} !important; }
+              .bubble-icon { color: ${state === 'on' ? '#e69500 !important' : ''}; opacity: ${state === 'on' ? '1 !important' : ''}; }
+            tap_action:
+              action: toggle
+            button_action:
+              tap_action:
+                action: toggle
+              hold_action:
+                action: more-info
+          - type: custom:bubble-card
+            card_type: button
+            button_type: switch
+            entity: light.balcone
+            name: Balcone
+            show_state: false
+            styles: |2
+
+              .bubble-button-card-container { background: ${state === 'on' ? 'rgba(255, 179, 0, 0.28)' : ''} !important; }
+              .bubble-icon { color: ${state === 'on' ? '#e69500 !important' : ''}; opacity: ${state === 'on' ? '1 !important' : ''}; }
+            tap_action:
+              action: toggle
+            button_action:
+              tap_action:
+                action: toggle
+              hold_action:
+                action: more-info
+          - type: custom:bubble-card
+            card_type: button
+            button_type: slider
+            entity: light.shellydimmer2_24d7ebe4585d
+            name: Luce letto sx
+            show_state: false
+            styles: |2
+
+              .bubble-button-card-container { background: ${state === 'on' ? 'rgba(255, 179, 0, 0.28)' : ''} !important; }
+              .bubble-icon { color: ${state === 'on' ? '#e69500 !important' : ''}; opacity: ${state === 'on' ? '1 !important' : ''}; }
+            tap_action:
+              action: toggle
+            button_action:
+              tap_action:
+                action: toggle
+              hold_action:
+                action: more-info
+          - type: custom:bubble-card
+            card_type: button
+            button_type: slider
+            entity: light.shellydimmer2_24d7ebe55395
+            name: Luce letto dx
+            show_state: false
+            styles: |2
+
+              .bubble-button-card-container { background: ${state === 'on' ? 'rgba(255, 179, 0, 0.28)' : ''} !important; }
+              .bubble-icon { color: ${state === 'on' ? '#e69500 !important' : ''}; opacity: ${state === 'on' ? '1 !important' : ''}; }
+            tap_action:
+              action: toggle
+            button_action:
+              tap_action:
+                action: toggle
+              hold_action:
+                action: more-info
+          - type: custom:bubble-card
+            card_type: button
+            button_type: slider
+            entity: light.strip_led
+            name: Striscia LED
+            show_state: false
+            styles: |2
+
+              .bubble-button-card-container { background: ${state === 'on' ? 'rgba(255, 179, 0, 0.28)' : ''} !important; }
+              .bubble-icon { color: ${state === 'on' ? '#e69500 !important' : ''}; opacity: ${state === 'on' ? '1 !important' : ''}; }
+            tap_action:
+              action: toggle
+            button_action:
+              tap_action:
+                action: toggle
+              hold_action:
+                action: more-info
+        - type: custom:bubble-card
+          card_type: separator
+          name: Tapparelle
+          icon: mdi:window-shutter
+        - type: custom:bubble-card
+          card_type: button
+          button_type: slider
+          entity: cover.shellyplus2pm_8813bfd0b9ec
+          name: Tapparella
+          icon: mdi:window-shutter
+          show_state: false
+          show_attribute: true
+          attribute: current_position
+          sub_button:
+          - icon: mdi:arrow-up
+            tap_action:
+              action: perform-action
+              perform_action: cover.open_cover
+              target:
+                entity_id: cover.shellyplus2pm_8813bfd0b9ec
+          - icon: mdi:stop
+            tap_action:
+              action: perform-action
+              perform_action: cover.stop_cover
+              target:
+                entity_id: cover.shellyplus2pm_8813bfd0b9ec
+          - icon: mdi:arrow-down
+            tap_action:
+              action: perform-action
+              perform_action: cover.close_cover
+              target:
+                entity_id: cover.shellyplus2pm_8813bfd0b9ec
+        - type: custom:bubble-card
+          card_type: separator
+          name: Riscaldamento
+          icon: mdi:heating-coil
+        - type: custom:bubble-card
+          card_type: climate
+          entity: climate.thermo_8_thermostat
+          name: Temperatura desiderata
+          step: 0.5
+          state_color: true
+      - type: custom:bubble-card
+        card_type: pop-up
+        hash: '#bagno-grande'
+        name: Bagno grande
+        icon: mdi:bathtub
+        sub_button:
+        - icon: mdi:lightbulb-off-outline
+          name: Spegni
+          show_name: false
+          show_background: true
+          tap_action:
+            action: perform-action
+            perform_action: light.turn_off
+            target:
+              entity_id:
+              - light.faretti
+              - light.luce_specchio
+              - light.specchio
+              - light.vasca
+        cards:
+        - type: custom:mushroom-template-card
+          grid_options:
+            columns: 12
+          icon: mdi:thermometer
+          color: orange
+          primary: '{% set t = state_attr(''climate.thermo_4_thermostat'',''current_temperature'') %}{{ (''%.1f'' | format(t)
+            | replace(''.'', '','')) ~ ''°'' if t is not none else ''Stato'' }}'
+          secondary: '{% set ns = namespace(p=[]) %}{% if has_value(''sensor.household_window_bathroom'') %}{% set ns.p =
+            ns.p + [''Finestra '' ~ states(''sensor.household_window_bathroom'') | lower] %}{% endif %}{{ ns.p | join('' ·
+            '') }}'
+          multiline_secondary: true
+        - type: custom:bubble-card
+          card_type: separator
+          name: Luci
+          icon: mdi:lightbulb-group
+        - type: grid
+          columns: 2
+          square: false
+          cards:
+          - type: custom:bubble-card
+            card_type: button
+            button_type: switch
+            entity: light.faretti
+            name: Faretti
+            show_state: false
+            styles: |2
+
+              .bubble-button-card-container { background: ${state === 'on' ? 'rgba(255, 179, 0, 0.28)' : ''} !important; }
+              .bubble-icon { color: ${state === 'on' ? '#e69500 !important' : ''}; opacity: ${state === 'on' ? '1 !important' : ''}; }
+            tap_action:
+              action: toggle
+            button_action:
+              tap_action:
+                action: toggle
+              hold_action:
+                action: more-info
+          - type: custom:bubble-card
+            card_type: button
+            button_type: switch
+            entity: light.luce_specchio
+            name: Luce specchio
+            show_state: false
+            styles: |2
+
+              .bubble-button-card-container { background: ${state === 'on' ? 'rgba(255, 179, 0, 0.28)' : ''} !important; }
+              .bubble-icon { color: ${state === 'on' ? '#e69500 !important' : ''}; opacity: ${state === 'on' ? '1 !important' : ''}; }
+            tap_action:
+              action: toggle
+            button_action:
+              tap_action:
+                action: toggle
+              hold_action:
+                action: more-info
+          - type: custom:bubble-card
+            card_type: button
+            button_type: switch
+            entity: light.specchio
+            name: Doccia
+            show_state: false
+            styles: |2
+
+              .bubble-button-card-container { background: ${state === 'on' ? 'rgba(255, 179, 0, 0.28)' : ''} !important; }
+              .bubble-icon { color: ${state === 'on' ? '#e69500 !important' : ''}; opacity: ${state === 'on' ? '1 !important' : ''}; }
+            tap_action:
+              action: toggle
+            button_action:
+              tap_action:
+                action: toggle
+              hold_action:
+                action: more-info
+          - type: custom:bubble-card
+            card_type: button
+            button_type: slider
+            entity: light.vasca
+            name: Striscia LED
+            show_state: false
+            styles: |2
+
+              .bubble-button-card-container { background: ${state === 'on' ? 'rgba(255, 179, 0, 0.28)' : ''} !important; }
+              .bubble-icon { color: ${state === 'on' ? '#e69500 !important' : ''}; opacity: ${state === 'on' ? '1 !important' : ''}; }
+            tap_action:
+              action: toggle
+            button_action:
+              tap_action:
+                action: toggle
+              hold_action:
+                action: more-info
+        - type: custom:bubble-card
+          card_type: separator
+          name: Riscaldamento
+          icon: mdi:heating-coil
+        - type: custom:bubble-card
+          card_type: climate
+          entity: climate.thermo_4_thermostat
+          name: Temperatura desiderata
+          step: 0.5
+          state_color: true
+      - type: custom:bubble-card
+        card_type: pop-up
+        hash: '#corridoio'
+        name: Corridoio
+        icon: mdi:walk
+        sub_button:
+        - icon: mdi:lightbulb-off-outline
+          name: Spegni
+          show_name: false
+          show_background: true
+          tap_action:
+            action: perform-action
+            perform_action: light.turn_off
+            target:
+              entity_id:
+              - light.faretti_5
+        cards:
+        - type: custom:mushroom-template-card
+          grid_options:
+            columns: 12
+          icon: mdi:thermometer
+          color: orange
+          primary: '{% set t = state_attr(''climate.thermo_5_thermostat'',''current_temperature'') %}{{ (''%.1f'' | format(t)
+            | replace(''.'', '','')) ~ ''°'' if t is not none else ''Stato'' }}'
+          secondary: '{% set ns = namespace(p=[]) %}{{ ns.p | join('' · '') }}'
+          multiline_secondary: true
+        - type: custom:bubble-card
+          card_type: separator
+          name: Luci
+          icon: mdi:lightbulb-group
+        - type: grid
+          columns: 2
+          square: false
+          cards:
+          - type: custom:bubble-card
+            card_type: button
+            button_type: switch
+            entity: light.faretti_5
+            name: Faretti
+            show_state: false
+            styles: |2
+
+              .bubble-button-card-container { background: ${state === 'on' ? 'rgba(255, 179, 0, 0.28)' : ''} !important; }
+              .bubble-icon { color: ${state === 'on' ? '#e69500 !important' : ''}; opacity: ${state === 'on' ? '1 !important' : ''}; }
+            tap_action:
+              action: toggle
+            button_action:
+              tap_action:
+                action: toggle
+              hold_action:
+                action: more-info
+        - type: custom:bubble-card
+          card_type: separator
+          name: Riscaldamento
+          icon: mdi:heating-coil
+        - type: custom:bubble-card
+          card_type: climate
+          entity: climate.thermo_5_thermostat
+          name: Temperatura desiderata
+          step: 0.5
+          state_color: true
+      - type: custom:bubble-card
+        card_type: pop-up
+        hash: '#sicurezza'
+        name: Sicurezza
+        icon: mdi:shield-home
+        sub_button: []
+        cards:
+        - type: custom:mushroom-template-card
+          entity: sensor.household_camera_status
+          icon: '{{ ''mdi:cctv-off'' if is_state(''binary_sensor.household_camera_privacy_verified'',''on'') else ''mdi:cctv''
+            }}'
+          color: '{% if is_state(''binary_sensor.household_camera_privacy_verified'',''on'') %}green{% elif is_state(''binary_sensor.household_cameras_operating'',''on'')
+            %}blue{% else %}orange{% endif %}'
+          primary: '{% if is_state(''script.household_run_routine'',''on'') %}{{ states(''input_text.household_routine_name'')
+            }} in corso…{% elif is_state(''binary_sensor.household_camera_privacy_verified'',''on'') %}Videocamere spente{%
+            elif is_state(''binary_sensor.household_cameras_operating'',''on'') %}Videocamere accese{% else %}Problema alle
+            videocamere{% endif %}'
+          secondary: '{% if is_state(''script.household_run_routine'',''on'') %}Attendi qualche istante.{% elif is_state(''binary_sensor.household_camera_privacy_verified'',''on'')
+            %}Sono scollegate: non vedono e non registrano.{% elif is_state(''binary_sensor.household_cameras_operating'',''on'')
+            %}Tutte e tre registrano.{% else %}{{ states(''input_text.household_routine_cameras'') }}{% endif %}'
+          multiline_secondary: true
+          grid_options:
+            columns: 12
+          tap_action:
+            action: more-info
+        - type: custom:mushroom-template-card
+          entity: input_boolean.household_guests
+          grid_options:
+            columns: 12
+          icon: mdi:account-group
+          color: '{{ ''purple'' if is_state(''input_boolean.household_guests'',''on'') else ''disabled'' }}'
+          primary: Ospiti in casa
+          secondary: '{{ ''Sì · uscendo, le videocamere restano spente'' if is_state(''input_boolean.household_guests'',''on'')
+            else ''No · tocca per segnalarli'' }}'
+          tap_action:
+            action: toggle
+            confirmation:
+              text: Cambiare lo stato degli ospiti? Le videocamere si accendono o spengono di conseguenza.
+          icon_tap_action:
+            action: toggle
+            confirmation:
+              text: Cambiare lo stato degli ospiti? Le videocamere si accendono o spengono di conseguenza.
+        - type: custom:mushroom-template-card
+          grid_options:
+            columns: 12
+          icon: '{{ ''mdi:window-closed-variant'' if is_state(''sensor.household_open_windows'',''0'') and is_state(''binary_sensor.front_door_door'',''off'')
+            else ''mdi:window-open-variant'' }}'
+          color: '{{ ''green'' if is_state(''sensor.household_open_windows'',''0'') and is_state(''binary_sensor.front_door_door'',''off'')
+            else ''orange'' }}'
+          primary: Aperture
+          secondary: '{% set w = [["sensor.household_window_living", "Soggiorno"], ["sensor.household_window_dining", "Sala
+            da pranzo"], ["sensor.household_window_kitchen", "Cucina"], ["sensor.household_window_guest_left", "Sinistra"],
+            ["sensor.household_window_guest_right", "Destra"], ["sensor.household_window_office", "Studio"], ["sensor.household_window_master",
+            "Camera matrimoniale"], ["sensor.household_window_bathroom", "Bagno grande"]] %}{% set ns = namespace(o=[]) %}{%
+            if is_state(''binary_sensor.front_door_door'',''on'') %}{% set ns.o = ns.o + [''Porta d’ingresso''] %}{% endif
+            %}{% for e, n in w %}{% if not is_state(e,''Chiusa'') and has_value(e) %}{% set ns.o = ns.o + [n ~ '' ('' ~ states(e)|lower
+            ~ '')''] %}{% endif %}{% endfor %}{{ ns.o | join('', '') if ns.o else ''Porta e finestre chiuse'' }}'
+          multiline_secondary: true
+        - type: conditional
+          conditions:
+          - condition: state
+            entity: binary_sensor.household_cameras_operating
+            state: 'on'
+          card:
+            type: vertical-stack
+            cards:
+            - type: custom:advanced-camera-card
+              cameras:
+              - camera_entity: camera.cam_soggiorno
+                title: Soggiorno
+                live_provider: go2rtc
+              - camera_entity: camera.camera_2
+                title: Ingresso
+                live_provider: go2rtc
+              - camera_entity: camera.camera_3
+                title: Corridoio
+                live_provider: go2rtc
+              view:
+                default: live
+              live:
+                display:
+                  mode: single
+                auto_mute:
+                - unselected
+                - hidden
+                show_image_during_load: true
+                draggable: false
+                zoomable: false
+                controls:
+                  builtin: false
+                  thumbnails:
+                    mode: none
+                  next_previous:
+                    style: none
+                  ptz:
+                    mode: 'off'
+                  timeline:
+                    mode: none
+              menu:
+                style: overlay
+                position: bottom
+                alignment: left
+                buttons:
+                  call:
+                    enabled: false
+                  camera_ui:
+                    enabled: false
+                  cameras:
+                    enabled: false
+                  clips:
+                    enabled: false
+                  ptz_home:
+                    enabled: false
+                  display_mode:
+                    enabled: false
+                  download:
+                    enabled: false
+                  expand:
+                    enabled: false
+                  folders:
+                    enabled: false
+                  iris:
+                    enabled: false
+                  fullscreen:
+                    enabled: true
+                  image:
+                    enabled: false
+                  info:
+                    enabled: false
+                  gallery:
+                    enabled: false
+                  live:
+                    enabled: false
+                  media_player:
+                    enabled: false
+                  microphone:
+                    enabled: false
+                  mute:
+                    enabled: false
+                  pip:
+                    enabled: false
+                  play:
+                    enabled: false
+                  ptz_controls:
+                    enabled: false
+                  recordings:
+                    enabled: false
+                  reviews:
+                    enabled: false
+                  set_review:
+                    enabled: false
+                  screenshot:
+                    enabled: false
+                  snapshots:
+                    enabled: false
+                  substreams:
+                    enabled: false
+                  timeline:
+                    enabled: false
+              status_bar:
+                style: none
+              overrides:
+              - conditions:
+                - condition: fullscreen
+                  fullscreen: true
+                merge:
+                  live:
+                    draggable: true
+                    zoomable: true
+                    controls:
+                      next_previous:
+                        style: chevrons
+            - type: custom:advanced-camera-card
+              cameras:
+              - camera_entity: camera.camera_2
+                title: Ingresso
+                live_provider: go2rtc
+              - camera_entity: camera.camera_3
+                title: Corridoio
+                live_provider: go2rtc
+              - camera_entity: camera.cam_soggiorno
+                title: Soggiorno
+                live_provider: go2rtc
+              view:
+                default: live
+              live:
+                display:
+                  mode: single
+                auto_mute:
+                - unselected
+                - hidden
+                show_image_during_load: true
+                draggable: false
+                zoomable: false
+                controls:
+                  builtin: false
+                  thumbnails:
+                    mode: none
+                  next_previous:
+                    style: none
+                  ptz:
+                    mode: 'off'
+                  timeline:
+                    mode: none
+              menu:
+                style: overlay
+                position: bottom
+                alignment: left
+                buttons:
+                  call:
+                    enabled: false
+                  camera_ui:
+                    enabled: false
+                  cameras:
+                    enabled: false
+                  clips:
+                    enabled: false
+                  ptz_home:
+                    enabled: false
+                  display_mode:
+                    enabled: false
+                  download:
+                    enabled: false
+                  expand:
+                    enabled: false
+                  folders:
+                    enabled: false
+                  iris:
+                    enabled: false
+                  fullscreen:
+                    enabled: true
+                  image:
+                    enabled: false
+                  info:
+                    enabled: false
+                  gallery:
+                    enabled: false
+                  live:
+                    enabled: false
+                  media_player:
+                    enabled: false
+                  microphone:
+                    enabled: false
+                  mute:
+                    enabled: false
+                  pip:
+                    enabled: false
+                  play:
+                    enabled: false
+                  ptz_controls:
+                    enabled: false
+                  recordings:
+                    enabled: false
+                  reviews:
+                    enabled: false
+                  set_review:
+                    enabled: false
+                  screenshot:
+                    enabled: false
+                  snapshots:
+                    enabled: false
+                  substreams:
+                    enabled: false
+                  timeline:
+                    enabled: false
+              status_bar:
+                style: none
+              overrides:
+              - conditions:
+                - condition: fullscreen
+                  fullscreen: true
+                merge:
+                  live:
+                    draggable: true
+                    zoomable: true
+                    controls:
+                      next_previous:
+                        style: chevrons
+            - type: custom:advanced-camera-card
+              cameras:
+              - camera_entity: camera.camera_3
+                title: Corridoio
+                live_provider: go2rtc
+              - camera_entity: camera.cam_soggiorno
+                title: Soggiorno
+                live_provider: go2rtc
+              - camera_entity: camera.camera_2
+                title: Ingresso
+                live_provider: go2rtc
+              view:
+                default: live
+              live:
+                display:
+                  mode: single
+                auto_mute:
+                - unselected
+                - hidden
+                show_image_during_load: true
+                draggable: false
+                zoomable: false
+                controls:
+                  builtin: false
+                  thumbnails:
+                    mode: none
+                  next_previous:
+                    style: none
+                  ptz:
+                    mode: 'off'
+                  timeline:
+                    mode: none
+              menu:
+                style: overlay
+                position: bottom
+                alignment: left
+                buttons:
+                  call:
+                    enabled: false
+                  camera_ui:
+                    enabled: false
+                  cameras:
+                    enabled: false
+                  clips:
+                    enabled: false
+                  ptz_home:
+                    enabled: false
+                  display_mode:
+                    enabled: false
+                  download:
+                    enabled: false
+                  expand:
+                    enabled: false
+                  folders:
+                    enabled: false
+                  iris:
+                    enabled: false
+                  fullscreen:
+                    enabled: true
+                  image:
+                    enabled: false
+                  info:
+                    enabled: false
+                  gallery:
+                    enabled: false
+                  live:
+                    enabled: false
+                  media_player:
+                    enabled: false
+                  microphone:
+                    enabled: false
+                  mute:
+                    enabled: false
+                  pip:
+                    enabled: false
+                  play:
+                    enabled: false
+                  ptz_controls:
+                    enabled: false
+                  recordings:
+                    enabled: false
+                  reviews:
+                    enabled: false
+                  set_review:
+                    enabled: false
+                  screenshot:
+                    enabled: false
+                  snapshots:
+                    enabled: false
+                  substreams:
+                    enabled: false
+                  timeline:
+                    enabled: false
+              status_bar:
+                style: none
+              overrides:
+              - conditions:
+                - condition: fullscreen
+                  fullscreen: true
+                merge:
+                  live:
+                    draggable: true
+                    zoomable: true
+                    controls:
+                      next_previous:
+                        style: chevrons
+      - type: custom:bubble-card
+        card_type: pop-up
+        hash: '#clima'
+        name: Clima
+        icon: mdi:home-thermometer
+        sub_button: []
+        cards:
+        - type: custom:bubble-card
+          card_type: climate
+          entity: climate.thermostat_6_thermostat
+          name: Soggiorno e sala da pranzo
+          step: 0.5
+          state_color: true
+          show_state: false
+          show_attribute: true
+          attribute: current_temperature
+        - type: custom:bubble-card
+          card_type: climate
+          entity: climate.thermo_thermostat
+          name: Bagno piccolo
+          step: 0.5
+          state_color: true
+          show_state: false
+          show_attribute: true
+          attribute: current_temperature
+        - type: custom:bubble-card
+          card_type: climate
+          entity: climate.thermo_7_thermostat
+          name: Camera Francesco
+          step: 0.5
+          state_color: true
+          show_state: false
+          show_attribute: true
+          attribute: current_temperature
+        - type: custom:bubble-card
+          card_type: climate
+          entity: climate.thermo_3_thermostat
+          name: Studio
+          step: 0.5
+          state_color: true
+          show_state: false
+          show_attribute: true
+          attribute: current_temperature
+        - type: custom:bubble-card
+          card_type: climate
+          entity: climate.thermo_8_thermostat
+          name: Camera matrimoniale
+          step: 0.5
+          state_color: true
+          show_state: false
+          show_attribute: true
+          attribute: current_temperature
+        - type: custom:bubble-card
+          card_type: climate
+          entity: climate.thermo_4_thermostat
+          name: Bagno grande
+          step: 0.5
+          state_color: true
+          show_state: false
+          show_attribute: true
+          attribute: current_temperature
+        - type: custom:bubble-card
+          card_type: climate
+          entity: climate.thermo_5_thermostat
+          name: Corridoio
+          step: 0.5
+          state_color: true
+          show_state: false
+          show_attribute: true
+          attribute: current_temperature
+      - type: custom:bubble-card
+        card_type: pop-up
+        hash: '#tapparelle'
+        name: Tapparelle
+        icon: mdi:window-shutter
+        sub_button:
+        - icon: mdi:arrow-up
+          name: Tutte su
+          show_background: true
+          tap_action:
+            action: perform-action
+            perform_action: cover.open_cover
+            target:
+              entity_id:
+              - cover.shellyplus2pm_30c922774de4
+              - cover.shellyplus2pm_c4d8d5561ffc
+              - cover.shellyplus2pm_78ee4ccf104c
+              - cover.shellyplus2pm_8813bfd4933c
+              - cover.shellyplus2pm_2cbcbb2d92d8
+              - cover.shellyplus2pm_8813bfd0a3b8
+              - cover.shellyplus2pm_8813bfd0b9ec
+            confirmation:
+              text: Alzare tutte le tapparelle?
+        - icon: mdi:arrow-down
+          name: Tutte giù
+          show_background: true
+          tap_action:
+            action: perform-action
+            perform_action: cover.close_cover
+            target:
+              entity_id:
+              - cover.shellyplus2pm_30c922774de4
+              - cover.shellyplus2pm_c4d8d5561ffc
+              - cover.shellyplus2pm_78ee4ccf104c
+              - cover.shellyplus2pm_8813bfd4933c
+              - cover.shellyplus2pm_2cbcbb2d92d8
+              - cover.shellyplus2pm_8813bfd0a3b8
+              - cover.shellyplus2pm_8813bfd0b9ec
+            confirmation:
+              text: Abbassare tutte le tapparelle?
+        cards:
+        - type: custom:bubble-card
+          card_type: button
+          button_type: slider
+          entity: cover.shellyplus2pm_30c922774de4
+          name: Soggiorno
+          icon: mdi:window-shutter
+          show_state: false
+          show_attribute: true
+          attribute: current_position
+          sub_button:
+          - icon: mdi:arrow-up
+            tap_action:
+              action: perform-action
+              perform_action: cover.open_cover
+              target:
+                entity_id: cover.shellyplus2pm_30c922774de4
+          - icon: mdi:stop
+            tap_action:
+              action: perform-action
+              perform_action: cover.stop_cover
+              target:
+                entity_id: cover.shellyplus2pm_30c922774de4
+          - icon: mdi:arrow-down
+            tap_action:
+              action: perform-action
+              perform_action: cover.close_cover
+              target:
+                entity_id: cover.shellyplus2pm_30c922774de4
+        - type: custom:bubble-card
+          card_type: button
+          button_type: slider
+          entity: cover.shellyplus2pm_c4d8d5561ffc
+          name: Sala da pranzo
+          icon: mdi:window-shutter
+          show_state: false
+          show_attribute: true
+          attribute: current_position
+          sub_button:
+          - icon: mdi:arrow-up
+            tap_action:
+              action: perform-action
+              perform_action: cover.open_cover
+              target:
+                entity_id: cover.shellyplus2pm_c4d8d5561ffc
+          - icon: mdi:stop
+            tap_action:
+              action: perform-action
+              perform_action: cover.stop_cover
+              target:
+                entity_id: cover.shellyplus2pm_c4d8d5561ffc
+          - icon: mdi:arrow-down
+            tap_action:
+              action: perform-action
+              perform_action: cover.close_cover
+              target:
+                entity_id: cover.shellyplus2pm_c4d8d5561ffc
+        - type: custom:bubble-card
+          card_type: button
+          button_type: slider
+          entity: cover.shellyplus2pm_78ee4ccf104c
+          name: Cucina
+          icon: mdi:window-shutter
+          show_state: false
+          show_attribute: true
+          attribute: current_position
+          sub_button:
+          - icon: mdi:arrow-up
+            tap_action:
+              action: perform-action
+              perform_action: cover.open_cover
+              target:
+                entity_id: cover.shellyplus2pm_78ee4ccf104c
+          - icon: mdi:stop
+            tap_action:
+              action: perform-action
+              perform_action: cover.stop_cover
+              target:
+                entity_id: cover.shellyplus2pm_78ee4ccf104c
+          - icon: mdi:arrow-down
+            tap_action:
+              action: perform-action
+              perform_action: cover.close_cover
+              target:
+                entity_id: cover.shellyplus2pm_78ee4ccf104c
+        - type: custom:bubble-card
+          card_type: button
+          button_type: slider
+          entity: cover.shellyplus2pm_8813bfd4933c
+          name: Camera Francesco sinistra
+          icon: mdi:window-shutter
+          show_state: false
+          show_attribute: true
+          attribute: current_position
+          sub_button:
+          - icon: mdi:arrow-up
+            tap_action:
+              action: perform-action
+              perform_action: cover.open_cover
+              target:
+                entity_id: cover.shellyplus2pm_8813bfd4933c
+          - icon: mdi:stop
+            tap_action:
+              action: perform-action
+              perform_action: cover.stop_cover
+              target:
+                entity_id: cover.shellyplus2pm_8813bfd4933c
+          - icon: mdi:arrow-down
+            tap_action:
+              action: perform-action
+              perform_action: cover.close_cover
+              target:
+                entity_id: cover.shellyplus2pm_8813bfd4933c
+        - type: custom:bubble-card
+          card_type: button
+          button_type: slider
+          entity: cover.shellyplus2pm_2cbcbb2d92d8
+          name: Camera Francesco destra
+          icon: mdi:window-shutter
+          show_state: false
+          show_attribute: true
+          attribute: current_position
+          sub_button:
+          - icon: mdi:arrow-up
+            tap_action:
+              action: perform-action
+              perform_action: cover.open_cover
+              target:
+                entity_id: cover.shellyplus2pm_2cbcbb2d92d8
+          - icon: mdi:stop
+            tap_action:
+              action: perform-action
+              perform_action: cover.stop_cover
+              target:
+                entity_id: cover.shellyplus2pm_2cbcbb2d92d8
+          - icon: mdi:arrow-down
+            tap_action:
+              action: perform-action
+              perform_action: cover.close_cover
+              target:
+                entity_id: cover.shellyplus2pm_2cbcbb2d92d8
+        - type: custom:bubble-card
+          card_type: button
+          button_type: slider
+          entity: cover.shellyplus2pm_8813bfd0a3b8
+          name: Studio
+          icon: mdi:window-shutter
+          show_state: false
+          show_attribute: true
+          attribute: current_position
+          sub_button:
+          - icon: mdi:arrow-up
+            tap_action:
+              action: perform-action
+              perform_action: cover.open_cover
+              target:
+                entity_id: cover.shellyplus2pm_8813bfd0a3b8
+          - icon: mdi:stop
+            tap_action:
+              action: perform-action
+              perform_action: cover.stop_cover
+              target:
+                entity_id: cover.shellyplus2pm_8813bfd0a3b8
+          - icon: mdi:arrow-down
+            tap_action:
+              action: perform-action
+              perform_action: cover.close_cover
+              target:
+                entity_id: cover.shellyplus2pm_8813bfd0a3b8
+        - type: custom:bubble-card
+          card_type: button
+          button_type: slider
+          entity: cover.shellyplus2pm_8813bfd0b9ec
+          name: Camera matrimoniale
+          icon: mdi:window-shutter
+          show_state: false
+          show_attribute: true
+          attribute: current_position
+          sub_button:
+          - icon: mdi:arrow-up
+            tap_action:
+              action: perform-action
+              perform_action: cover.open_cover
+              target:
+                entity_id: cover.shellyplus2pm_8813bfd0b9ec
+          - icon: mdi:stop
+            tap_action:
+              action: perform-action
+              perform_action: cover.stop_cover
+              target:
+                entity_id: cover.shellyplus2pm_8813bfd0b9ec
+          - icon: mdi:arrow-down
+            tap_action:
+              action: perform-action
+              perform_action: cover.close_cover
+              target:
+                entity_id: cover.shellyplus2pm_8813bfd0b9ec
+      - type: custom:bubble-card
+        card_type: pop-up
+        hash: '#consumi'
+        name: Consumi
+        icon: mdi:flash
+        sub_button: []
+        cards:
+        - type: custom:mushroom-template-card
+          entity: sensor.shellyemg3_dcb4d9c56334_energy_meter_0_potenza
+          grid_options:
+            columns: 12
+          icon: mdi:flash
+          color: '{% set w = states(''sensor.shellyemg3_dcb4d9c56334_energy_meter_0_potenza'') | float(0) %}{{ ''red'' if
+            w >= 5000 else (''orange'' if w >= 4000 else (''amber'' if w >= 1500 else ''green'')) }}'
+          primary: Adesso {{ states('sensor.shellyemg3_dcb4d9c56334_energy_meter_0_potenza') | float(0) | round(0) | int }}
+            W
+          secondary: |-
+            {% set ns = namespace(t=0) %}{% for e in ["sensor.shellyplus2pm_ecc9ff603a84_switch_0_power", "sensor.shellyplus2pm_8813bfd1fa7c_switch_0_power", "sensor.shellyplus2pm_ecc9ff603a84_switch_1_power", "sensor.vasca_power", "sensor.shellyplus2pm_ecc9ff5fbe50_switch_1_power", "sensor.shellyplus2pm_2043a80b17b0_switch_0_power", "sensor.shellyplus2pm_ecc9ff5fbe50_switch_0_power", "sensor.shellyplus2pm_2043a80b17b0_switch_1_power", "sensor.faretti_potenza", "sensor.shellyplus2pm_1c6920456084_switch_1_power", "sensor.shellyplus2pm_1c6920456084_switch_0_power", "sensor.shellyplus2pm_2cbcbb2d92d8_power", "sensor.shellyplus2pm_8813bfd4933c_power", "sensor.shellyplus1pm_30c922502b64_power", "sensor.shellyplus1pm_78ee4cc9db84_power", "sensor.strip_led_power", "sensor.shellyplus2pm_8813bfd0b9ec_power", "sensor.shellyplus2pm_8813bfd1fa7c_switch_1_power", "sensor.shellyplus2pm_1c692047e2a8_switch_0_power", "sensor.shellyplus2pm_1c6920489568_switch_1_power", "sensor.shellyplus2pm_1c692047e2a8_switch_1_power", "sensor.luce_led_cucina_power", "sensor.shellyplus2pm_1c6920489568_switch_0_power", "sensor.shellyplus2pm_78ee4ccf104c_power", "sensor.shellyplus2pm_1c692046a3ec_switch_1_power", "sensor.shellyplus2pm_1c692046a3ec_switch_0_power", "sensor.shellyplus2pm_1c692047e844_switch_0_power", "sensor.shellyplus2pm_1c692047e844_switch_1_power", "sensor.shellyplus1pm_78ee4cc9ab04_power", "sensor.presa_lume_potenza", "sensor.shellyplus2pm_c4d8d5561ffc_power", "sensor.shellyplus2pm_30c9227538b0_switch_1_power", "sensor.shellyplus2pm_30c9227538a8_switch_0_power", "sensor.shellyplus2pm_30c9227538a8_switch_1_power", "sensor.shellyplus2pm_30c9227538b0_switch_0_power", "sensor.shellyplusrgbwpm_30c92257192c_power", "sensor.shellyplus2pm_30c922774de4_power", "sensor.shellyplus2pm_1c6920471458_switch_0_power", "sensor.lume_libreria_potenza", "sensor.shellyplus2pm_1c6920471458_switch_1_power", "sensor.shellyplusrgbwpm_30c92258a17c_power", "sensor.shellyplus2pm_8813bfd0a3b8_power"] %}{% set ns.t = ns.t + states(e) | float(0) %}{% endfor %}{% set w = states('sensor.shellyemg3_dcb4d9c56334_energy_meter_0_potenza') | float(0) %}Luci {{ ns.t | round(0) | int }} W · Prese e altro {{ [w - ns.t, 0] | max | round(0) | int }} W{% if w >= 4000 %}
+            Attenzione: consumo molto alto, evita di accendere altri elettrodomestici.{% endif %}
+          multiline_secondary: true
+          tap_action:
+            action: more-info
+        - type: custom:mushroom-template-card
+          grid_options:
+            columns: 4
+          vertical: true
+          icon: mdi:calendar-today
+          color: blue
+          primary: '{{ (''%.1f'' | format(states(''sensor.shelly_emg3_energy_meter_0_consumo_giornaliero_kw'') | float(0)))
+            | replace(''.'', '','') }} kWh'
+          secondary: Oggi · {{ ('%.2f' | format(states('sensor.shelly_emg3_energy_meter_0_consumo_giornaliero_kw') | float(0)
+            * (states('sensor.household_energy_price') | float(0.2246)))) | replace('.', ',') }} €
+          multiline_secondary: true
+        - type: custom:mushroom-template-card
+          grid_options:
+            columns: 4
+          vertical: true
+          icon: mdi:calendar-arrow-left
+          color: grey
+          primary: '{% set y = state_attr(''sensor.shelly_emg3_energy_meter_0_consumo_giornaliero_kw'',''last_period'') |
+            float(0) %}{{ (''%.1f'' | format(y)) | replace(''.'', '','') ~ '' kWh'' if y > 0 else ''—'' }}'
+          secondary: Ieri · {% set y = state_attr('sensor.shelly_emg3_energy_meter_0_consumo_giornaliero_kw','last_period')
+            | float(0) %}{{ ('%.2f' | format(y * (states('sensor.household_energy_price') | float(0.2246)))) | replace('.',
+            ',') ~ ' €' if y > 0 else 'n.d.' }}
+          multiline_secondary: true
+        - type: custom:mushroom-template-card
+          grid_options:
+            columns: 4
+          vertical: true
+          icon: mdi:calendar-month
+          color: purple
+          primary: '{{ (''%.1f'' | format(states(''sensor.shelly_emg3_energy_meter_0_consumo_mensile_kw'') | float(0))) |
+            replace(''.'', '','') }} kWh'
+          secondary: Mese · {{ ('%.2f' | format(states('sensor.shelly_emg3_energy_meter_0_consumo_mensile_kw') | float(0)
+            * (states('sensor.household_energy_price') | float(0.2246)))) | replace('.', ',') }} €
+          multiline_secondary: true
+        - type: custom:mushroom-template-card
+          grid_options:
+            columns: 12
+          icon: mdi:receipt-text-outline
+          color: amber
+          primary: '{% set months = [''gennaio'',''febbraio'',''marzo'',''aprile'',''maggio'',''giugno'',''luglio'',''agosto'',''settembre'',''ottobre'',''novembre'',''dicembre'']
+            %}{% set kwh = states(''sensor.shelly_emg3_energy_meter_0_consumo_mensile_kw'') | float(0) %}{% set price = (states(''sensor.household_energy_price'')
+            | float(0.2246)) %}{% set fixed = states(''sensor.household_energy_fixed_cost'') | float(24.2) %}{% set start
+            = [now().replace(day=1, hour=0, minute=0, second=0, microsecond=0), as_datetime(''2026-11-14T00:00:00'').replace(tzinfo=now().tzinfo)]
+            | max %}{% set days = [(now() - start).total_seconds() / 86400, 0.5] | max %}{% set dim = ((now().replace(day=28)
+            + timedelta(days=4)).replace(day=1) - timedelta(days=1)).day %}{% set projected = kwh / days * dim * price + fixed
+            %}Bolletta di {{ months[now().month - 1] }}: circa {{ ''%.0f'' | format(projected) }} €'
+          secondary: '{% set kwh = states(''sensor.shelly_emg3_energy_meter_0_consumo_mensile_kw'') | float(0) %}{% set price
+            = (states(''sensor.household_energy_price'') | float(0.2246)) %}{% set per_day = state_attr(''sensor.household_energy_fixed_cost'',''per_day'')
+            | float(0.7956) %}Finora {{ (''%.2f'' | format(kwh * price + per_day * now().day)) | replace(''.'', '','') }}
+            € (consumi {{ (''%.2f'' | format(kwh * price)) | replace(''.'', '','') }} € + quote fisse). Previsione sul consumo
+            medio dei giorni misurati.'
+          multiline_secondary: true
+          tap_action:
+            action: none
+        - type: custom:apexcharts-card
+          graph_span: 24h
+          grid_options:
+            columns: 12
+          header:
+            show: true
+            title: Ultime 24 ore
+            show_states: false
+          apex_config:
+            chart:
+              height: 180
+            legend:
+              show: false
+            yaxis:
+              labels:
+                formatter: EVAL:function(v){return Math.round(v)+' W'}
+            xaxis:
+              labels:
+                datetimeUTC: false
+                datetimeFormatter:
+                  hour: HH:mm
+                  day: dd/MM
+            tooltip:
+              x:
+                format: HH:mm
+          series:
+          - entity: sensor.shellyemg3_dcb4d9c56334_energy_meter_0_potenza
+            name: Potenza
+            type: area
+            color: '#f5a623'
+            opacity: 0.25
+            stroke_width: 2
+            group_by:
+              func: avg
+              duration: 10min
+            float_precision: 0
+        - type: custom:apexcharts-card
+          graph_span: 14d
+          span:
+            end: day
+          grid_options:
+            columns: 12
+          header:
+            show: true
+            title: Ultimi 14 giorni
+            show_states: false
+          apex_config:
+            chart:
+              height: 180
+            legend:
+              show: false
+            yaxis:
+              labels:
+                formatter: EVAL:function(v){return v.toFixed(0)+' kWh'}
+            xaxis:
+              labels:
+                datetimeUTC: false
+                datetimeFormatter:
+                  day: dd/MM
+                  month: MMM
+            tooltip:
+              x:
+                format: dd/MM
+            plotOptions:
+              bar:
+                borderRadius: 4
+                columnWidth: 60%
+          series:
+          - entity: sensor.shellyemg3_dcb4d9c56334_energy_meter_0_energia
+            name: Consumo
+            type: column
+            color: '#7e57c2'
+            float_precision: 1
+            statistics:
+              type: change
+              period: day
+              align: start
+        - type: custom:mushroom-template-card
+          grid_options:
+            columns: 12
+          icon: mdi:lightbulb-on-outline
+          color: amber
+          primary: Cosa consuma adesso
+          secondary: |-
+            {% set items = [["sensor.shellyplus2pm_ecc9ff603a84_switch_0_power", "Bagno grande · Doccia"], ["sensor.shellyplus2pm_8813bfd1fa7c_switch_0_power", "Bagno grande · Faretti"], ["sensor.shellyplus2pm_ecc9ff603a84_switch_1_power", "Bagno grande · Luce specchio"], ["sensor.vasca_power", "Bagno grande · Striscia LED"], ["sensor.shellyplus2pm_ecc9ff5fbe50_switch_1_power", "Bagno piccolo · Doccia"], ["sensor.shellyplus2pm_2043a80b17b0_switch_0_power", "Bagno piccolo · Estrattore"], ["sensor.shellyplus2pm_ecc9ff5fbe50_switch_0_power", "Bagno piccolo · Faretti"], ["sensor.shellyplus2pm_2043a80b17b0_switch_1_power", "Bagno piccolo · Luce specchio"], ["sensor.faretti_potenza", "Camera Francesco · Faretti"], ["sensor.shellyplus2pm_1c6920456084_switch_1_power", "Camera Francesco · Luce letto dx"], ["sensor.shellyplus2pm_1c6920456084_switch_0_power", "Camera Francesco · Luce letto sx"], ["sensor.shellyplus2pm_2cbcbb2d92d8_power", "Camera Francesco · Tapparella dx"], ["sensor.shellyplus2pm_8813bfd4933c_power", "Camera Francesco · Tapparella sx"], ["sensor.shellyplus1pm_30c922502b64_power", "Camera matrimoniale · Balcone"], ["sensor.shellyplus1pm_78ee4cc9db84_power", "Camera matrimoniale · Faretti"], ["sensor.strip_led_power", "Camera matrimoniale · Striscia LED"], ["sensor.shellyplus2pm_8813bfd0b9ec_power", "Camera matrimoniale · Tapparella"], ["sensor.shellyplus2pm_8813bfd1fa7c_switch_1_power", "Corridoio · Faretti"], ["sensor.shellyplus2pm_1c692047e2a8_switch_0_power", "Cucina · Balcone"], ["sensor.shellyplus2pm_1c6920489568_switch_1_power", "Cucina · Faretti"], ["sensor.shellyplus2pm_1c692047e2a8_switch_1_power", "Cucina · Isola"], ["sensor.luce_led_cucina_power", "Cucina · LED"], ["sensor.shellyplus2pm_1c6920489568_switch_0_power", "Cucina · Pensili"], ["sensor.shellyplus2pm_78ee4ccf104c_power", "Cucina · Tapparella"], ["sensor.shellyplus2pm_1c692046a3ec_switch_1_power", "Ingresso · Faretti"], ["sensor.shellyplus2pm_1c692046a3ec_switch_0_power", "Ingresso · Guardaroba"], ["sensor.shellyplus2pm_1c692047e844_switch_0_power", "Sala da pranzo · Faretti"], ["sensor.shellyplus2pm_1c692047e844_switch_1_power", "Sala da pranzo · Faretti"], ["sensor.shellyplus1pm_78ee4cc9ab04_power", "Sala da pranzo · Lampade"], ["sensor.presa_lume_potenza", "Sala da pranzo · Lume piantana"], ["sensor.shellyplus2pm_c4d8d5561ffc_power", "Sala da pranzo · Tapparella"], ["sensor.shellyplus2pm_30c9227538b0_switch_1_power", "Soggiorno · Balcone"], ["sensor.shellyplus2pm_30c9227538a8_switch_0_power", "Soggiorno · Faretti"], ["sensor.shellyplus2pm_30c9227538a8_switch_1_power", "Soggiorno · Faretti"], ["sensor.shellyplus2pm_30c9227538b0_switch_0_power", "Soggiorno · Piano"], ["sensor.shellyplusrgbwpm_30c92257192c_power", "Soggiorno · Striscia LED"], ["sensor.shellyplus2pm_30c922774de4_power", "Soggiorno · Tapparella"], ["sensor.shellyplus2pm_1c6920471458_switch_0_power", "Studio · Faretti"], ["sensor.lume_libreria_potenza", "Studio · Lume libreria"], ["sensor.shellyplus2pm_1c6920471458_switch_1_power", "Studio · Riflettori"], ["sensor.shellyplusrgbwpm_30c92258a17c_power", "Studio · Striscia LED"], ["sensor.shellyplus2pm_8813bfd0a3b8_power", "Studio · Tapparella"]] %}{% set ns = namespace(o=[]) %}{% for e, n in items %}{% set w = states(e) | float(0) %}{% if w >= 1 %}{% set ns.o = ns.o + [[w, n]] %}{% endif %}{% endfor %}{% if ns.o %}{% for w, n in ns.o | sort(attribute='0', reverse=true) %}{{ n }}: {{ w | round(0) | int }} W
+            {% endfor %}{% else %}Nessuna luce o tapparella in funzione.{% endif %}
+          multiline_secondary: true
+        - type: custom:mushroom-template-card
+          grid_options:
+            columns: 12
+          icon: mdi:information-outline
+          color: disabled
+          primary: Cosa viene misurato
+          secondary: 'Contatore generale: misura tutta la casa. Prezzi dalla bolletta NeN di novembre 2026: {{ (''%.3f'' |
+            format(states(''sensor.household_energy_price'') | float(0.2246))) | replace(''.'', '','') }} €/kWh più {{ (''%.2f''
+            | format(states(''sensor.household_energy_fixed_cost'') | float(24.2))) | replace(''.'', '','') }} € al mese di
+            quote fisse, IVA inclusa. Non inclusi il canone RAI (9 €/mese) e il riscaldamento, che è a gas.'
+          multiline_secondary: true
+kiosk_mode:
+  mobile_settings:
+    custom_width: 600
+    hide_header: true
