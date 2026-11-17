@@ -26,6 +26,24 @@ endpoints:
         success-threshold: 2
         send-on-resolved: true
 
+  - name: Home Assistant (public)
+    group: important
+    # Through ct-tunnel; no Cloudflare Access (it would break the companion
+    # app), so HA's own login is the gate: passwords + lockout after 5 failures,
+    # and a WAF rule blocks non-Italian clients. A 400 here usually means ct-tunnel
+    # (192.168.3.6) fell out of HA's trusted_proxies (Settings → System → Network).
+    url: "https://home.${PERSONAL_DOMAIN}/manifest.json"
+    interval: 5m
+    conditions:
+      - "[CONNECTED] == true"
+      - "[STATUS] == 200"
+      - "[CERTIFICATE_EXPIRATION] > 168h"
+    alerts:
+      - type: telegram
+        failure-threshold: 3
+        success-threshold: 2
+        send-on-resolved: true
+
   - name: Frigate
     group: critical
     url: "http://192.168.3.7:5000"
