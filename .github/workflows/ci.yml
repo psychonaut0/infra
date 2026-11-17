@@ -6,16 +6,30 @@ on:
     branches: [master]
     paths:
       - 'cli/**'
+      - 'scripts/ha-config.py'
+      - 'scripts/test_ha_config.py'
+      - 'scripts/test_camera_power.py'
+      - 'stacks/ct-ha/config/**'
       - '.github/workflows/ci.yml'
   pull_request:
     paths:
       - 'cli/**'
+      - 'scripts/ha-config.py'
+      - 'scripts/test_ha_config.py'
+      - 'scripts/test_camera_power.py'
+      - 'stacks/ct-ha/config/**'
       - '.github/workflows/ci.yml'
 
 permissions:
   contents: read
 
 jobs:
+  ha-config:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - run: python3 -m unittest discover -s scripts -p 'test_*.py' -v
+
   test:
     runs-on: ubuntu-latest
     defaults:

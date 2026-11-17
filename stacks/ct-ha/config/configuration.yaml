@@ -1,0 +1,256 @@
+default_config: null
+automation: !include 'automations.yaml'
+script: !include 'scripts.yaml'
+scene: !include 'scenes.yaml'
+lovelace:
+  dashboards:
+    casa-famiglia:
+      mode: yaml
+      title: Casa
+      icon: mdi:home-heart
+      show_in_sidebar: true
+      filename: dashboards/casa.yaml
+    casa-impostazioni:
+      mode: yaml
+      title: Routine casa
+      icon: mdi:tune
+      show_in_sidebar: true
+      require_admin: true
+      filename: dashboards/impostazioni.yaml
+input_select:
+  household_presence:
+    name: Presenza in casa
+    options:
+    - Da verificare
+    - In casa
+    - Fuori casa
+    icon: mdi:home-account
+  household_routine_status:
+    name: Stato della routine
+    options: [Pronta, In corso, Completata, Da controllare, Interrotta]
+    icon: mdi:progress-check
+input_boolean:
+  household_night:
+    name: Modalità notte
+    icon: mdi:weather-night
+  household_guests:
+    name: Ospiti presenti
+    icon: mdi:account-group
+  household_long_absence:
+    name: Fuori a lungo
+    icon: mdi:bag-suitcase
+  guest_bedroom_in_use:
+    name: Camera Francesco in uso
+    icon: mdi:bed
+  household_shutters_enabled:
+    name: Tapparelle con Buonanotte
+    icon: mdi:window-shutter
+  household_morning_shutters:
+    name: Tapparelle con Buongiorno
+    icon: mdi:window-shutter-open
+  household_evening_reminder:
+    name: Promemoria buonanotte
+    icon: mdi:bell-outline
+  household_morning_reminder:
+    name: Promemoria buongiorno
+    icon: mdi:bell-outline
+input_text:
+  household_routine_name:
+    name: Ultima routine
+    max: 255
+  household_routine_step:
+    name: Avanzamento routine
+    max: 255
+  household_routine_cameras:
+    name: Risultato videocamere
+    max: 255
+  household_routine_shutters:
+    name: Risultato tapparelle
+    max: 255
+  household_routine_result:
+    name: Risultato routine
+    max: 255
+input_datetime:
+  household_routine_finished:
+    name: Fine della routine
+    has_date: true
+    has_time: true
+  household_bedtime:
+    name: Ora abituale della buonanotte
+    has_date: false
+    has_time: true
+    icon: mdi:bed-clock
+  household_wakeup:
+    name: Ora abituale del risveglio
+    has_date: false
+    has_time: true
+    icon: mdi:weather-sunset-up
+input_number:
+  night_shutter_office:
+    name: Studio di notte
+    min: 0
+    max: 100
+    step: 1
+    mode: box
+    unit_of_measurement: '%'
+    icon: mdi:window-shutter
+  night_shutter_master:
+    name: Camera matrimoniale di notte
+    min: 0
+    max: 100
+    step: 1
+    mode: box
+    unit_of_measurement: '%'
+    icon: mdi:window-shutter
+  night_shutter_guest_left:
+    name: Camera ospiti sinistra di notte
+    min: 0
+    max: 100
+    step: 1
+    mode: box
+    unit_of_measurement: '%'
+    icon: mdi:window-shutter
+  night_shutter_guest_right:
+    name: Camera ospiti destra di notte
+    min: 0
+    max: 100
+    step: 1
+    mode: box
+    unit_of_measurement: '%'
+    icon: mdi:window-shutter
+  night_shutter_kitchen:
+    name: Cucina di notte
+    min: 0
+    max: 100
+    step: 1
+    mode: box
+    unit_of_measurement: '%'
+    icon: mdi:window-shutter
+  morning_shutter_position:
+    name: Apertura con Buongiorno
+    min: 0
+    max: 100
+    step: 1
+    mode: box
+    unit_of_measurement: '%'
+    icon: mdi:window-shutter-open
+shell_command:
+  household_camera_power_on: python3 /config/tools/camera_power.py on
+  household_camera_power_off: python3 /config/tools/camera_power.py off
+command_line:
+- sensor:
+    name: Camera power
+    unique_id: household_camera_power
+    command: python3 /config/tools/camera_power.py status
+    scan_interval: 30
+    command_timeout: 45
+    value_template: '{{ value_json.status }}'
+    json_attributes:
+    - cameras
+    - privacy_verified
+    - ready
+    - checked_at
+template:
+- sensor:
+  - name: Household mode
+    unique_id: household_mode
+    icon: mdi:home-heart
+    state: '{% if is_state(''input_boolean.household_guests'',''on'') and is_state(''input_select.household_presence'',''Fuori
+      casa'') %}Ospiti in casa{% elif is_state(''input_select.household_presence'',''Fuori casa'') %}Fuori
+      casa{% elif is_state(''input_boolean.household_night'',''on'') %}Notte{% elif is_state(''input_select.household_presence'',''In
+      casa'') %}In casa{% else %}Presenza da verificare{% endif %}'
+  - name: Household open windows
+    unique_id: household_open_windows
+    icon: mdi:window-open
+    unit_of_measurement: finestre
+    availability: '{{ [''binary_sensor.kitchen_window_open'', ''binary_sensor.kitchen_window_tilted'', ''binary_sensor.window_sensor_1_window_1_open'',
+      ''binary_sensor.window_sensor_1_window_1_tilted'', ''binary_sensor.window_sensor_1_window_2_open'', ''binary_sensor.window_sensor_1_window_2_tilted'',
+      ''binary_sensor.window_sensor_2_window_1_open'', ''binary_sensor.window_sensor_2_window_1_tilted'', ''binary_sensor.window_sensor_2_window_2_open'',
+      ''binary_sensor.window_sensor_2_window_2_tilted'', ''binary_sensor.window_sensor_3_open'', ''binary_sensor.window_sensor_3_tilted'',
+      ''binary_sensor.window_sensor_4_window_1_open'', ''binary_sensor.window_sensor_4_window_1_tilted'', ''binary_sensor.window_sensor_4_window_2_open'',
+      ''binary_sensor.window_sensor_4_window_2_tilted'', ''binary_sensor.front_door_door''] | select(''has_value'')
+      | list | count == 17 }}'
+    state: |-
+      {% set pairs = [('binary_sensor.kitchen_window_open', 'binary_sensor.kitchen_window_tilted'), ('binary_sensor.window_sensor_1_window_1_open', 'binary_sensor.window_sensor_1_window_1_tilted'), ('binary_sensor.window_sensor_1_window_2_open', 'binary_sensor.window_sensor_1_window_2_tilted'), ('binary_sensor.window_sensor_2_window_1_open', 'binary_sensor.window_sensor_2_window_1_tilted'), ('binary_sensor.window_sensor_2_window_2_open', 'binary_sensor.window_sensor_2_window_2_tilted'), ('binary_sensor.window_sensor_3_open', 'binary_sensor.window_sensor_3_tilted'), ('binary_sensor.window_sensor_4_window_1_open', 'binary_sensor.window_sensor_4_window_1_tilted'), ('binary_sensor.window_sensor_4_window_2_open', 'binary_sensor.window_sensor_4_window_2_tilted')] %}
+      {% set ns = namespace(count=0) %}
+      {% for a,b in pairs %}{% if is_state(a,'on') or is_state(b,'on') %}{% set ns.count = ns.count + 1 %}{% endif %}{% endfor %}
+      {{ ns.count }}
+  - name: Household camera status
+    unique_id: household_camera_status
+    icon: mdi:cctv
+    state: '{% if is_state(''binary_sensor.household_camera_privacy_verified'',''on'') %}Privacy attiva{% elif
+      is_state(''binary_sensor.household_cameras_operating'',''on'') %}Video attivo · 3 videocamere{% elif not
+      is_state(''sensor.camera_power'',''ok'') %}Da verificare{% else %}Video da verificare{% endif %}'
+  - name: Household window kitchen
+    unique_id: household_window_kitchen
+    icon: mdi:window-closed
+    availability: '{{ has_value(''sensor.kitchen_window_position'') }}'
+    state: '{{ {''closed'':''Chiusa'',''open'':''Aperta'',''tilted'':''A ribalta''}.get(states(''sensor.kitchen_window_position''),''Da
+      verificare'') }}'
+  - name: Household window dining
+    unique_id: household_window_dining
+    icon: mdi:window-closed
+    availability: '{{ has_value(''sensor.window_sensor_1_window_1_position'') }}'
+    state: '{{ {''closed'':''Chiusa'',''open'':''Aperta'',''tilted'':''A ribalta''}.get(states(''sensor.window_sensor_1_window_1_position''),''Da
+      verificare'') }}'
+  - name: Household window living
+    unique_id: household_window_living
+    icon: mdi:window-closed
+    availability: '{{ has_value(''sensor.window_sensor_1_window_2_position'') }}'
+    state: '{{ {''closed'':''Chiusa'',''open'':''Aperta'',''tilted'':''A ribalta''}.get(states(''sensor.window_sensor_1_window_2_position''),''Da
+      verificare'') }}'
+  - name: Household window guest left
+    unique_id: household_window_guest_left
+    icon: mdi:window-closed
+    availability: '{{ has_value(''sensor.window_sensor_2_window_1_position'') }}'
+    state: '{{ {''closed'':''Chiusa'',''open'':''Aperta'',''tilted'':''A ribalta''}.get(states(''sensor.window_sensor_2_window_1_position''),''Da
+      verificare'') }}'
+  - name: Household window guest right
+    unique_id: household_window_guest_right
+    icon: mdi:window-closed
+    availability: '{{ has_value(''sensor.window_sensor_2_window_2_position'') }}'
+    state: '{{ {''closed'':''Chiusa'',''open'':''Aperta'',''tilted'':''A ribalta''}.get(states(''sensor.window_sensor_2_window_2_position''),''Da
+      verificare'') }}'
+  - name: Household window office
+    unique_id: household_window_office
+    icon: mdi:window-closed
+    availability: '{{ has_value(''sensor.window_sensor_3_position'') }}'
+    state: '{{ {''closed'':''Chiusa'',''open'':''Aperta'',''tilted'':''A ribalta''}.get(states(''sensor.window_sensor_3_position''),''Da
+      verificare'') }}'
+  - name: Household window bathroom
+    unique_id: household_window_bathroom
+    icon: mdi:window-closed
+    availability: '{{ has_value(''sensor.window_sensor_4_window_1_position'') }}'
+    state: '{{ {''closed'':''Chiusa'',''open'':''Aperta'',''tilted'':''A ribalta''}.get(states(''sensor.window_sensor_4_window_1_position''),''Da
+      verificare'') }}'
+  - name: Household window master
+    unique_id: household_window_master
+    icon: mdi:window-closed
+    availability: '{{ has_value(''sensor.window_sensor_4_window_2_position'') }}'
+    state: '{{ {''closed'':''Chiusa'',''open'':''Aperta'',''tilted'':''A ribalta''}.get(states(''sensor.window_sensor_4_window_2_position''),''Da
+      verificare'') }}'
+  binary_sensor:
+  - name: Household camera privacy verified
+    unique_id: household_camera_privacy_verified
+    icon: mdi:cctv-off
+    availability: '{{ is_state(''sensor.camera_power'',''ok'') and (as_timestamp(now()) - (state_attr(''sensor.camera_power'',''checked_at'')
+      | float(0))) < 90 }}'
+    state: '{{ state_attr(''sensor.camera_power'',''privacy_verified'') == true }}'
+  - name: Household cameras expected
+    unique_id: household_cameras_expected
+    icon: mdi:cctv
+    state: '{{ (is_state(''input_select.household_presence'',''Fuori casa'') and is_state(''input_boolean.household_guests'',''off''))
+      or (is_state(''input_boolean.household_night'',''on'') and (is_state(''input_select.household_presence'',''In
+      casa'') or is_state(''input_boolean.household_guests'',''on''))) }}'
+
+  - name: Household cameras operating
+    unique_id: household_cameras_operating
+    icon: mdi:cctv
+    state: '{{ is_state(''sensor.camera_power'',''ok'') and (as_timestamp(now()) - (state_attr(''sensor.camera_power'',''checked_at'')
+      | float(0))) < 90 and state_attr(''sensor.camera_power'',''ready'') == true and [''camera.cam_soggiorno'',
+      ''camera.camera_2'', ''camera.camera_3''] | select(''is_state'',''recording'') | list | count == 3 and [''switch.camera_1_recordings'',
+      ''switch.camera_2_recordings'', ''switch.camera_3_recordings''] | select(''is_state'',''on'') | list | count
+      == 3 and states(''sensor.camera_1_camera_fps'') | float(0) > 0 and states(''sensor.camera_2_camera_fps'')
+      | float(0) > 0 and states(''sensor.camera_3_camera_fps'') | float(0) > 0 and (as_timestamp(now()) - as_timestamp(states.sensor.camera_1_camera_fps.last_reported,0))
+      < 90 and (as_timestamp(now()) - as_timestamp(states.sensor.camera_2_camera_fps.last_reported,0)) < 90 and
+      (as_timestamp(now()) - as_timestamp(states.sensor.camera_3_camera_fps.last_reported,0)) < 90 }}'

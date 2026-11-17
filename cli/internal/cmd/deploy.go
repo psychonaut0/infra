@@ -113,7 +113,8 @@ func newDeployCmd() *cobra.Command {
 // syncStack tars stacks/<ct>/ from the local repo and untars it into
 // /opt/stacks/ on the target host, so config changes in the repo reach
 // the deployed bind-mounts. .env files are excluded — they are
-// server-managed and would clobber live secrets.
+// server-managed and would clobber live secrets. HA YAML has a separate
+// validate/backup/apply workflow; generic stack deploys must not overwrite it.
 func syncStack(ctx context.Context, runner *ssh.Runner, target, ct, repoRoot string) error {
 	stacksDir := filepath.Join(repoRoot, "stacks")
 	if _, err := os.Stat(filepath.Join(stacksDir, ct)); err != nil {
@@ -121,11 +122,16 @@ func syncStack(ctx context.Context, runner *ssh.Runner, target, ct, repoRoot str
 	}
 
 	pr, pw := io.Pipe()
-	tarCmd := exec.CommandContext(ctx, "tar",
+	tarArgs := []string{
 		"-C", stacksDir,
 		"--exclude=.env",
 		"--exclude=.env.local",
-		"-cf", "-", ct)
+	}
+	if ct == "ct-ha" {
+		tarArgs = append(tarArgs, "--exclude=ct-ha/config")
+	}
+	tarArgs = append(tarArgs, "-cf", "-", ct)
+	tarCmd := exec.CommandContext(ctx, "tar", tarArgs...)
 	tarCmd.Stdout = pw
 	tarCmd.Stderr = os.Stderr
 

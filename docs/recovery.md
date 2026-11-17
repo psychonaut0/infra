@@ -180,7 +180,11 @@ for CT in ct-dns ct-tunnel ct-nvr ct-media ct-photos ct-files ct-mgmt ct-ha ct-t
 done
 ```
 
-For ct-ha and ct-tools, restore the full stack state (HA config, Mosquitto, ESPHome) over the repo's compose-only content:
+For ct-ha and ct-tools, restore the full stack state (HA config, Mosquitto, ESPHome)
+over the repository content. ct-ha now tracks four user-authored HA YAML files;
+the backup also restores private runtime state that Git cannot rebuild. Reconcile
+the restored YAML with the intended Git revision before starting HA; see
+`stacks/ct-ha/README.md`.
 
 ```bash
 rsync -a /recovery/var/backup-staging/stacks/ct-ha/   stacks/ct-ha/

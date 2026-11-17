@@ -1,7 +1,19 @@
 **/.env
 
+# HA: allow only the reviewed, user-authored YAML; runtime and secrets stay private.
+stacks/ct-ha/config/*
+!stacks/ct-ha/config/configuration.yaml
+!stacks/ct-ha/config/automations.yaml
+!stacks/ct-ha/config/scripts.yaml
+!stacks/ct-ha/config/scenes.yaml
+!stacks/ct-ha/config/dashboards/
+stacks/ct-ha/config/dashboards/*
+!stacks/ct-ha/config/dashboards/casa.yaml
+!stacks/ct-ha/config/dashboards/impostazioni.yaml
+!stacks/ct-ha/config/tools/
+stacks/ct-ha/config/tools/*
+!stacks/ct-ha/config/tools/camera_power.py
 # runtime state — lives on the CTs, never in git
-stacks/ct-ha/config/
 stacks/ct-ha/mosquitto/data/
 stacks/ct-ha/mosquitto/log/
 stacks/ct-ha/mosquitto/config/passwd

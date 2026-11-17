@@ -1,0 +1,519 @@
+household_apply_camera_policy:
+  alias: Casa · verifica videocamere
+  mode: restart
+  sequence:
+  - if:
+    - condition: template
+      value_template: '{{ states(''input_select.household_presence'') not in [''In casa'',''Fuori casa''] and
+        not is_state(''input_boolean.household_guests'',''on'') }}'
+    then:
+    - variables:
+        result:
+          ok: false
+          detail: 'Presenza da verificare: nessun comando alle videocamere.'
+    - stop: 'Presenza da verificare: nessun comando alle videocamere.'
+      response_variable: result
+  - variables:
+      cameras_wanted: '{{ (is_state(''input_select.household_presence'',''Fuori casa'') and is_state(''input_boolean.household_guests'',''off''))
+        or (is_state(''input_boolean.household_night'',''on'') and (is_state(''input_select.household_presence'',''In
+        casa'') or is_state(''input_boolean.household_guests'',''on''))) }}'
+      requested_at: '{{ as_timestamp(now()) }}'
+  - choose:
+    - conditions:
+      - condition: template
+        value_template: '{{ cameras_wanted }}'
+      sequence:
+      - action: shell_command.household_camera_power_on
+        response_variable: power_result
+        continue_on_error: true
+      - if:
+        - condition: template
+          value_template: '{{ power_result is not defined or power_result.returncode != 0 }}'
+        then:
+        - action: persistent_notification.create
+          data:
+            notification_id: household_camera_control
+            title: Videocamere da verificare
+            message: Alimentazione videocamere non riuscita. Controllare Sicurezza.
+        - variables:
+            result:
+              ok: false
+              detail: Alimentazione videocamere non riuscita. Controllare Sicurezza.
+        - stop: Alimentazione videocamere non riuscita. Controllare Sicurezza.
+          response_variable: result
+      - action: homeassistant.update_entity
+        target:
+          entity_id: sensor.camera_power
+        continue_on_error: true
+      - wait_template: '{{ is_state(''sensor.camera_power'',''ok'') and (as_timestamp(now()) - (state_attr(''sensor.camera_power'',''checked_at'')
+          | float(0))) < 90 and state_attr(''sensor.camera_power'',''checked_at'') | float(0) >= requested_at
+          and state_attr(''sensor.camera_power'',''ready'') == true }}'
+        timeout: 00:03:00
+        continue_on_timeout: true
+      - if:
+        - condition: template
+          value_template: '{{ not wait.completed }}'
+        then:
+        - action: persistent_notification.create
+          data:
+            notification_id: household_camera_control
+            title: Videocamere da verificare
+            message: Una o più videocamere non sono raggiungibili dopo l’accensione.
+        - variables:
+            result:
+              ok: false
+              detail: Una o più videocamere non sono raggiungibili dopo l’accensione.
+        - stop: Una o più videocamere non sono raggiungibili dopo l’accensione.
+          response_variable: result
+      - if:
+        - condition: template
+          value_template: '{{ cameras_wanted != ((is_state(''input_select.household_presence'',''Fuori casa'')
+            and is_state(''input_boolean.household_guests'',''off'')) or (is_state(''input_boolean.household_night'',''on'')
+            and (is_state(''input_select.household_presence'',''In casa'') or is_state(''input_boolean.household_guests'',''on''))))
+            }}'
+        then:
+        - variables:
+            result:
+              ok: false
+              detail: Modalità cambiata durante l’avvio delle videocamere.
+        - stop: Modalità cambiata durante l’avvio delle videocamere.
+          response_variable: result
+      - action: camera.turn_on
+        target:
+          entity_id:
+          - camera.cam_soggiorno
+          - camera.camera_2
+          - camera.camera_3
+        continue_on_error: true
+      - action: switch.turn_on
+        target:
+          entity_id:
+          - switch.camera_1_recordings
+          - switch.camera_2_recordings
+          - switch.camera_3_recordings
+        continue_on_error: true
+      - wait_template: '{{ is_state(''sensor.camera_power'',''ok'') and (as_timestamp(now()) - (state_attr(''sensor.camera_power'',''checked_at'')
+          | float(0))) < 90 and state_attr(''sensor.camera_power'',''ready'') == true and [''camera.cam_soggiorno'',
+          ''camera.camera_2'', ''camera.camera_3''] | select(''is_state'',''recording'') | list | count ==
+          3 and [''switch.camera_1_recordings'', ''switch.camera_2_recordings'', ''switch.camera_3_recordings'']
+          | select(''is_state'',''on'') | list | count == 3 and states(''sensor.camera_1_camera_fps'') | float(0)
+          > 0 and states(''sensor.camera_2_camera_fps'') | float(0) > 0 and states(''sensor.camera_3_camera_fps'')
+          | float(0) > 0 and (as_timestamp(now()) - as_timestamp(states.sensor.camera_1_camera_fps.last_reported,0))
+          < 90 and (as_timestamp(now()) - as_timestamp(states.sensor.camera_2_camera_fps.last_reported,0))
+          < 90 and (as_timestamp(now()) - as_timestamp(states.sensor.camera_3_camera_fps.last_reported,0))
+          < 90 and as_timestamp(states.sensor.camera_1_camera_fps.last_reported,0) >= requested_at and as_timestamp(states.sensor.camera_2_camera_fps.last_reported,0)
+          >= requested_at and as_timestamp(states.sensor.camera_3_camera_fps.last_reported,0) >= requested_at
+          }}'
+        timeout: 00:02:00
+        continue_on_timeout: true
+      - if:
+        - condition: template
+          value_template: '{{ not wait.completed }}'
+        then:
+        - action: persistent_notification.create
+          data:
+            notification_id: household_camera_control
+            title: Videocamere da verificare
+            message: Video o registrazione non attivi su tutte e tre le videocamere.
+        - variables:
+            result:
+              ok: false
+              detail: Video o registrazione non attivi su tutte e tre le videocamere.
+        - stop: Video o registrazione non attivi su tutte e tre le videocamere.
+          response_variable: result
+      - action: persistent_notification.dismiss
+        data:
+          notification_id: household_camera_control
+      - variables:
+          result:
+            ok: true
+            detail: Video attivo su 3 videocamere; registrazione abilitata.
+      - stop: Video attivo su 3 videocamere; registrazione abilitata.
+        response_variable: result
+    default:
+    - action: camera.turn_off
+      target:
+        entity_id:
+        - camera.cam_soggiorno
+        - camera.camera_2
+        - camera.camera_3
+      continue_on_error: true
+    - action: shell_command.household_camera_power_off
+      response_variable: power_result
+      continue_on_error: true
+    - if:
+      - condition: template
+        value_template: '{{ power_result is not defined or power_result.returncode != 0 }}'
+      then:
+      - action: persistent_notification.create
+        data:
+          notification_id: household_camera_control
+          title: Videocamere da verificare
+          message: Spegnimento PoE non riuscito. La privacy non è confermata.
+      - variables:
+          result:
+            ok: false
+            detail: Spegnimento PoE non riuscito. La privacy non è confermata.
+      - stop: Spegnimento PoE non riuscito. La privacy non è confermata.
+        response_variable: result
+    - action: homeassistant.update_entity
+      target:
+        entity_id: sensor.camera_power
+      continue_on_error: true
+    - wait_template: '{{ is_state(''sensor.camera_power'',''ok'') and (as_timestamp(now()) - (state_attr(''sensor.camera_power'',''checked_at'')
+        | float(0))) < 90 and state_attr(''sensor.camera_power'',''checked_at'') | float(0) >= requested_at
+        and state_attr(''sensor.camera_power'',''privacy_verified'') == true }}'
+      timeout: 00:03:00
+      continue_on_timeout: true
+    - if:
+      - condition: template
+        value_template: '{{ not wait.completed }}'
+      then:
+      - action: persistent_notification.create
+        data:
+          notification_id: household_camera_control
+          title: Videocamere da verificare
+          message: Spegnimento fisico non confermato su tutte e tre le videocamere.
+      - variables:
+          result:
+            ok: false
+            detail: Spegnimento fisico non confermato su tutte e tre le videocamere.
+      - stop: Spegnimento fisico non confermato su tutte e tre le videocamere.
+        response_variable: result
+    - action: persistent_notification.dismiss
+      data:
+        notification_id: household_camera_control
+    - variables:
+        result:
+          ok: true
+          detail: 'Privacy verificata: 3 videocamere spente fisicamente.'
+    - stop: 'Privacy verificata: 3 videocamere spente fisicamente.'
+      response_variable: result
+household_position_shutters:
+  alias: Casa · posiziona e verifica tapparelle
+  mode: restart
+  fields:
+    routine:
+      required: true
+      selector:
+        select:
+          options:
+          - night
+          - morning
+  sequence:
+  - if:
+    - condition: template
+      value_template: '{{ routine | default('''') not in [''night'',''morning''] }}'
+    then:
+    - variables:
+        result:
+          ok: false
+          detail: Routine tapparelle non valida.
+    - stop: Routine tapparelle non valida.
+      response_variable: result
+  - variables:
+      enabled: '{{ is_state(''input_boolean.household_shutters_enabled'' if routine == ''night'' else ''input_boolean.household_morning_shutters'',''on'')
+        }}'
+      targets: '{{ [{''entity'': ''cover.shellyplus2pm_8813bfd0a3b8'', ''name'': ''Studio'', ''target'': ''input_number.night_shutter_office''},
+        {''entity'': ''cover.shellyplus2pm_8813bfd0b9ec'', ''name'': ''Camera matrimoniale'', ''target'': ''input_number.night_shutter_master''},
+        {''entity'': ''cover.shellyplus2pm_8813bfd4933c'', ''name'': ''Camera Francesco sinistra'', ''target'':
+        ''input_number.night_shutter_guest_left''}, {''entity'': ''cover.shellyplus2pm_2cbcbb2d92d8'', ''name'':
+        ''Camera Francesco destra'', ''target'': ''input_number.night_shutter_guest_right''}, {''entity'':
+        ''cover.shellyplus2pm_78ee4ccf104c'', ''name'': ''Cucina'', ''target'': ''input_number.night_shutter_kitchen''}]
+        if routine == ''night'' else [{''entity'': ''cover.shellyplus2pm_8813bfd0a3b8'', ''name'': ''Studio'',
+        ''target'': ''input_number.morning_shutter_position''}, {''entity'': ''cover.shellyplus2pm_8813bfd0b9ec'',
+        ''name'': ''Camera matrimoniale'', ''target'': ''input_number.morning_shutter_position''}, {''entity'':
+        ''cover.shellyplus2pm_78ee4ccf104c'', ''name'': ''Cucina'', ''target'': ''input_number.morning_shutter_position''}]
+        }}'
+  - if:
+    - condition: template
+      value_template: '{{ not enabled }}'
+    then:
+    - variables:
+        result:
+          ok: true
+          detail: Tapparelle escluse dalle impostazioni.
+    - stop: Tapparelle escluse dalle impostazioni.
+      response_variable: result
+  - repeat:
+      for_each: '{{ targets }}'
+      sequence:
+      - if:
+        - condition: template
+          value_template: '{{ has_value(repeat.item.entity) and is_number(states(repeat.item.target)) and 0
+            <= states(repeat.item.target) | float(-1) <= 100 and is_number(state_attr(repeat.item.entity,''current_position''))
+            and state_attr(repeat.item.entity,''supported_features'') | int(0) | bitwise_and(4) > 0 }}'
+        then:
+        - if:
+          - condition: template
+            value_template: '{{ (state_attr(repeat.item.entity,''current_position'') | float - states(repeat.item.target)
+              | float) | abs > 2 or states(repeat.item.entity) in [''opening'',''closing''] }}'
+          then:
+          - action: cover.set_cover_position
+            target:
+              entity_id: '{{ repeat.item.entity }}'
+            data:
+              position: '{{ states(repeat.item.target) | int }}'
+            continue_on_error: true
+  - wait_template: "{% set ns = namespace(ok=true) %}\n{% for item in targets %}\n  {% set position = state_attr(item.entity,'current_position')\
+      \ %}\n  {% set desired = states(item.target) %}\n  {% if not has_value(item.entity) or not is_number(position)\
+      \ or not is_number(desired) or not 0 <= desired | float(-1) <= 100 or (position | float(-999) - desired\
+      \ | float(-999)) | abs > 2 or states(item.entity) in ['opening','closing'] %}\n    {% set ns.ok = false\
+      \ %}\n  {% endif %}\n{% endfor %}\n{{ ns.ok }}"
+    timeout: 00:01:30
+    continue_on_timeout: true
+  - variables:
+      failed_shutters: "{% set ns = namespace(names=[]) %}\n{% for item in targets %}\n  {% set position =\
+        \ state_attr(item.entity,'current_position') %}\n  {% set desired = states(item.target) %}\n  {% if\
+        \ not has_value(item.entity) or not is_number(position) or not is_number(desired) or not 0 <= desired\
+        \ | float(-1) <= 100 or (position | float(-999) - desired | float(-999)) | abs > 2 or states(item.entity)\
+        \ in ['opening','closing'] %}\n    {% set ns.names = ns.names + [item.name] %}\n  {% endif %}\n{% endfor\
+        \ %}\n{{ ns.names }}"
+  - if:
+    - condition: template
+      value_template: '{{ failed_shutters | count > 0 }}'
+    then:
+    - variables:
+        result:
+          ok: false
+          detail: 'Da verificare: {{ failed_shutters | join(", ") }}.'
+    - stop: 'Da verificare: {{ failed_shutters | join(", ") }}.'
+      response_variable: result
+  - variables:
+      result:
+        ok: true
+        detail: Posizione raggiunta e verificata su {{ targets | count }} tapparelle.
+  - stop: Posizione raggiunta e verificata su {{ targets | count }} tapparelle.
+    response_variable: result
+household_run_routine:
+  alias: Casa · esegui routine
+  description: Esegue e verifica le azioni. Una nuova richiesta sostituisce la precedente.
+  mode: restart
+  fields:
+    routine:
+      required: true
+      selector:
+        select:
+          options:
+          - night
+          - morning
+          - leaving
+          - arriving
+  sequence:
+  - if:
+    - condition: template
+      value_template: '{{ routine | default('''') not in [''night'',''morning'',''leaving'',''arriving''] }}'
+    then:
+    - stop: Routine non valida.
+      error: true
+  - action: script.turn_off
+    target:
+      entity_id:
+      - script.household_apply_camera_policy
+      - script.household_position_shutters
+  - variables:
+      routine_name: '{{ {''night'':''Buonanotte'',''morning'':''Buongiorno'',''leaving'':''Usciamo'',''arriving'':''Rientro''}[routine]
+        }}'
+  - action: input_text.set_value
+    target:
+      entity_id: input_text.household_routine_name
+    data:
+      value: '{{ routine_name }}'
+  - action: input_select.select_option
+    target:
+      entity_id: input_select.household_routine_status
+    data:
+      option: In corso
+  - action: input_text.set_value
+    target:
+      entity_id: input_text.household_routine_step
+    data:
+      value: Preparazione della casa…
+  - action: input_text.set_value
+    target:
+      entity_id: input_text.household_routine_cameras
+    data:
+      value: '{{ camera_result.get(''detail'',''Controllo videocamere interrotto.'') if camera_result is defined
+        and camera_result is mapping else ''Controllo videocamere interrotto.'' }}'
+  - action: input_text.set_value
+    target:
+      entity_id: input_text.household_routine_shutters
+    data:
+      value: In attesa
+  - action: input_text.set_value
+    target:
+      entity_id: input_text.household_routine_result
+    data:
+      value: Verifica in corso.
+  - if:
+    - condition: template
+      value_template: '{{ routine == ''leaving'' and is_state(''input_boolean.household_guests'',''on'') }}'
+    then:
+    - action: input_text.set_value
+      target:
+        entity_id: input_text.household_routine_cameras
+      data:
+        value: 'La casa resta occupata: nessun comando.'
+    - action: input_text.set_value
+      target:
+        entity_id: input_text.household_routine_shutters
+      data:
+        value: Non previste.
+    - action: input_text.set_value
+      target:
+        entity_id: input_text.household_routine_step
+      data:
+        value: Ospiti ancora in casa
+    - action: input_text.set_value
+      target:
+        entity_id: input_text.household_routine_result
+      data:
+        value: 'Usciamo non attivata: ci sono ospiti in casa.'
+    - action: input_select.select_option
+      target:
+        entity_id: input_select.household_routine_status
+      data:
+        option: Da controllare
+    - action: input_datetime.set_datetime
+      target:
+        entity_id: input_datetime.household_routine_finished
+      data:
+        timestamp: '{{ as_timestamp(now()) }}'
+    - stop: Ospiti presenti.
+  - action: input_boolean.turn_{{ 'on' if routine == 'night' else 'off' }}
+    target:
+      entity_id: input_boolean.household_night
+  - action: input_select.select_option
+    target:
+      entity_id: input_select.household_presence
+    data:
+      option: '{{ ''Fuori casa'' if routine == ''leaving'' else ''In casa'' }}'
+  - if:
+    - condition: template
+      value_template: '{{ routine in [''morning'',''arriving''] }}'
+    then:
+    - action: input_boolean.turn_off
+      target:
+        entity_id: input_boolean.household_long_absence
+  - action: persistent_notification.dismiss
+    data:
+      notification_id: household_bedtime
+  - action: persistent_notification.dismiss
+    data:
+      notification_id: household_wakeup
+  - variables:
+      camera_result:
+        ok: false
+        detail: Controllo videocamere interrotto.
+      shutter_result: '{{ {''ok'': false, ''detail'': ''Controllo tapparelle interrotto.''} if routine in [''night'',''morning'']
+        else {''ok'': true, ''detail'': ''Non previste per questa routine.''} }}'
+  - action: input_text.set_value
+    target:
+      entity_id: input_text.household_routine_step
+    data:
+      value: Verifica videocamere e tapparelle…
+  - action: input_text.set_value
+    target:
+      entity_id: input_text.household_routine_cameras
+    data:
+      value: '{{ ''Avvio e verifica video…'' if routine in [''night'',''leaving''] else ''Spegnimento e verifica
+        privacy…'' }}'
+  - action: input_text.set_value
+    target:
+      entity_id: input_text.household_routine_shutters
+    data:
+      value: '{{ ''Posizionamento e verifica…'' if routine in [''night'',''morning''] else ''Non previste per
+        questa routine.'' }}'
+  - parallel:
+    - sequence:
+      - action: script.household_apply_camera_policy
+        response_variable: camera_result
+        continue_on_error: true
+      - action: input_text.set_value
+        target:
+          entity_id: input_text.household_routine_cameras
+        data:
+          value: '{{ camera_result.get(''detail'',''Controllo videocamere interrotto.'') if camera_result is
+            defined and camera_result is mapping else ''Controllo videocamere interrotto.'' }}'
+    - sequence:
+      - if:
+        - condition: template
+          value_template: '{{ routine in [''night'',''morning''] }}'
+        then:
+        - action: script.household_position_shutters
+          data:
+            routine: '{{ routine }}'
+          response_variable: shutter_result
+          continue_on_error: true
+      - action: input_text.set_value
+        target:
+          entity_id: input_text.household_routine_shutters
+        data:
+          value: '{{ shutter_result.get(''detail'',''Controllo tapparelle interrotto.'') if shutter_result
+            is mapping else ''Controllo tapparelle interrotto.'' }}'
+  - variables:
+      camera_ok: '{{ camera_result is mapping and camera_result.get(''ok'',false) }}'
+  - variables:
+      routine_ok: '{{ camera_ok and shutter_result is mapping and shutter_result.get(''ok'',false) }}'
+      openings_ok: '{{ is_state(''sensor.household_open_windows'',''0'') and is_state(''binary_sensor.front_door_door'',''off'')
+        }}'
+  - action: input_text.set_value
+    target:
+      entity_id: input_text.household_routine_step
+    data:
+      value: '{{ ''Azioni completate'' if routine_ok else ''Alcune azioni richiedono un controllo'' }}'
+  - action: input_text.set_value
+    target:
+      entity_id: input_text.household_routine_result
+    data:
+      value: '{{ ''Routine completata.'' if routine_ok else ''Routine completata solo in parte: controlla i
+        risultati.'' }}{{ '' Porta o finestre aperte, oppure sensori da verificare.'' if not openings_ok else
+        '''' }}'
+  - action: input_datetime.set_datetime
+    target:
+      entity_id: input_datetime.household_routine_finished
+    data:
+      timestamp: '{{ as_timestamp(now()) }}'
+  - action: input_select.select_option
+    target:
+      entity_id: input_select.household_routine_status
+    data:
+      option: '{{ ''Completata'' if routine_ok and openings_ok else ''Da controllare'' }}'
+  - action: logbook.log
+    data:
+      name: Routine casa
+      message: '{{ routine_name }}: {{ states(''input_select.household_routine_status'') }}. {{ states(''input_text.household_routine_cameras'')
+        }} {{ states(''input_text.household_routine_shutters'') }}'
+      entity_id: input_select.household_routine_status
+household_good_night:
+  alias: Buonanotte
+  icon: mdi:weather-night
+  mode: restart
+  sequence:
+  - action: script.household_run_routine
+    data:
+      routine: night
+household_good_morning:
+  alias: Buongiorno
+  icon: mdi:weather-sunset-up
+  mode: restart
+  sequence:
+  - action: script.household_run_routine
+    data:
+      routine: morning
+household_leaving:
+  alias: Usciamo
+  icon: mdi:home-export-outline
+  mode: restart
+  sequence:
+  - action: script.household_run_routine
+    data:
+      routine: leaving
+household_arriving:
+  alias: Rientro
+  icon: mdi:home-import-outline
+  mode: restart
+  sequence:
+  - action: script.household_run_routine
+    data:
+      routine: arriving

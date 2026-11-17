@@ -1,0 +1,1054 @@
+title: Casa
+views:
+- title: Casa
+  path: casa
+  type: sections
+  max_columns: 2
+  sections:
+  - type: grid
+    cards:
+    - type: heading
+      heading: Cosa facciamo?
+      heading_style: title
+    - type: tile
+      entity: script.household_good_morning
+      name: Buongiorno
+      grid_options:
+        columns: 6
+      icon: mdi:weather-sunset-up
+      hide_state: true
+      tap_action:
+        action: perform-action
+        perform_action: script.turn_on
+        target:
+          entity_id: script.household_good_morning
+      icon_tap_action:
+        action: perform-action
+        perform_action: script.turn_on
+        target:
+          entity_id: script.household_good_morning
+    - type: tile
+      entity: script.household_good_night
+      name: Buonanotte
+      grid_options:
+        columns: 6
+      icon: mdi:weather-night
+      hide_state: true
+      tap_action:
+        action: perform-action
+        perform_action: script.turn_on
+        target:
+          entity_id: script.household_good_night
+        confirmation:
+          text: Sono tutti a letto? Buonanotte attiva le videocamere e porta le cinque tapparelle alle posizioni
+            notte.
+      icon_tap_action:
+        action: perform-action
+        perform_action: script.turn_on
+        target:
+          entity_id: script.household_good_night
+        confirmation:
+          text: Sono tutti a letto? Buonanotte attiva le videocamere e porta le cinque tapparelle alle posizioni
+            notte.
+    - type: tile
+      entity: script.household_leaving
+      name: Usciamo
+      grid_options:
+        columns: 6
+      icon: mdi:home-export-outline
+      hide_state: true
+      tap_action:
+        action: perform-action
+        perform_action: script.turn_on
+        target:
+          entity_id: script.household_leaving
+        confirmation:
+          text: Stanno uscendo tutti? Usciamo attiva le videocamere. Se qualcuno rimane, usa Annulla.
+      icon_tap_action:
+        action: perform-action
+        perform_action: script.turn_on
+        target:
+          entity_id: script.household_leaving
+        confirmation:
+          text: Stanno uscendo tutti? Usciamo attiva le videocamere. Se qualcuno rimane, usa Annulla.
+    - type: tile
+      entity: script.household_arriving
+      name: Rientro
+      grid_options:
+        columns: 6
+      icon: mdi:home-import-outline
+      hide_state: true
+      tap_action:
+        action: perform-action
+        perform_action: script.turn_on
+        target:
+          entity_id: script.household_arriving
+      icon_tap_action:
+        action: perform-action
+        perform_action: script.turn_on
+        target:
+          entity_id: script.household_arriving
+    - type: conditional
+      conditions:
+      - entity: input_select.household_routine_status
+        state_not: Pronta
+      - entity: input_select.household_routine_status
+        state_not: unknown
+      - entity: input_select.household_routine_status
+        state_not: unavailable
+      card:
+        type: markdown
+        content: '{% set running = is_state(''script.household_run_routine'',''on'') %}
+
+          {% set name = states(''input_text.household_routine_name'') %}
+
+          {% if name in [''unknown'',''unavailable'',''''] %}
+
+          Scegli una routine. Qui vedrai l’avanzamento e il risultato delle azioni.
+
+          {% else %}
+
+          ### {{ name }} · {{ states(''input_select.household_routine_status'') }}
+
+          {% if running %}
+
+          **{{ states(''input_text.household_routine_step'') }}**
+
+          {% else %}
+
+          {{ states(''input_text.household_routine_result'') }}
+
+          {% endif %}
+
+
+          **Videocamere:** {{ states(''input_text.household_routine_cameras'') }}
+
+
+          **Tapparelle:** {{ states(''input_text.household_routine_shutters'') }}
+
+          {% if not running and has_value(''input_datetime.household_routine_finished'') %}
+
+
+          _Verifica delle {{ as_timestamp(states(''input_datetime.household_routine_finished'')) | timestamp_custom(''%H:%M
+          · %d/%m'') }}_
+
+          {% endif %}
+
+          {% endif %}'
+    - type: markdown
+      content: '**Buonanotte:** solo quando tutti sono a letto. Usa **Rientro** per riattivare la privacy senza
+        muovere le tapparelle.'
+  - type: grid
+    cards:
+    - type: heading
+      heading: La casa adesso
+      heading_style: title
+    - type: tile
+      entity: sensor.household_open_windows
+      name: Finestre
+      grid_options:
+        columns: 6
+      icon: mdi:window-closed
+    - type: tile
+      entity: binary_sensor.front_door_door
+      name: Ingresso
+      grid_options:
+        columns: 6
+      icon: mdi:door-closed
+    - type: markdown
+      content: '{% set windows = [(''Cucina'', ''binary_sensor.kitchen_window_open'', ''binary_sensor.kitchen_window_tilted''),
+        (''Sala da pranzo'', ''binary_sensor.window_sensor_1_window_1_open'', ''binary_sensor.window_sensor_1_window_1_tilted''),
+        (''Soggiorno'', ''binary_sensor.window_sensor_1_window_2_open'', ''binary_sensor.window_sensor_1_window_2_tilted''),
+        (''Camera Francesco sinistra'', ''binary_sensor.window_sensor_2_window_1_open'', ''binary_sensor.window_sensor_2_window_1_tilted''),
+        (''Camera Francesco destra'', ''binary_sensor.window_sensor_2_window_2_open'', ''binary_sensor.window_sensor_2_window_2_tilted''),
+        (''Studio'', ''binary_sensor.window_sensor_3_open'', ''binary_sensor.window_sensor_3_tilted''), (''Bagno
+        grande'', ''binary_sensor.window_sensor_4_window_1_open'', ''binary_sensor.window_sensor_4_window_1_tilted''),
+        (''Camera matrimoniale'', ''binary_sensor.window_sensor_4_window_2_open'', ''binary_sensor.window_sensor_4_window_2_tilted'')]
+        %}
+
+        {% for name,a,b in windows %}
+
+        {% if is_state(a,''on'') %}• **{{ name }}:** aperta
+
+        {% elif is_state(b,''on'') %}• **{{ name }}:** a ribalta
+
+        {% elif not has_value(a) or not has_value(b) %}• **{{ name }}:** da verificare
+
+        {% endif %}{% endfor %}
+
+        {% if is_state(''binary_sensor.front_door_door'',''on'') %}• **Porta d’ingresso:** aperta{% elif not
+        has_value(''binary_sensor.front_door_door'') %}• **Porta d’ingresso:** da verificare{% endif %}
+
+        {% if is_state(''sensor.household_open_windows'',''0'') and is_state(''binary_sensor.front_door_door'',''off'')
+        %}Porta e finestre chiuse.{% endif %}'
+    - type: tile
+      entity: input_boolean.household_guests
+      name: Ospiti in casa
+      grid_options:
+        columns: 12
+      icon: mdi:account-group
+  - type: grid
+    cards:
+    - type: heading
+      heading: Accesso rapido
+      heading_style: title
+    - type: tile
+      entity: light.led
+      name: Cucina
+      icon: mdi:stove
+      color: primary
+      grid_options:
+        columns: 6
+      tap_action: &id001
+        action: navigate
+        navigation_path: /casa-famiglia/cucina
+      icon_tap_action: *id001
+      hide_state: true
+    - type: tile
+      entity: light.piano
+      name: Soggiorno
+      icon: mdi:sofa
+      color: primary
+      grid_options:
+        columns: 6
+      tap_action: &id002
+        action: navigate
+        navigation_path: /casa-famiglia/soggiorno
+      icon_tap_action: *id002
+      hide_state: true
+    - type: tile
+      entity: climate.thermo_8_thermostat
+      name: Camera matrimoniale
+      icon: mdi:bed-king
+      color: primary
+      grid_options:
+        columns: 6
+      tap_action: &id003
+        action: navigate
+        navigation_path: /casa-famiglia/camera_da_letto
+      icon_tap_action: *id003
+      state_content: current_temperature
+    - type: tile
+      entity: climate.thermo_7_thermostat
+      name: Camera Francesco
+      icon: mdi:bed
+      color: primary
+      grid_options:
+        columns: 6
+      tap_action: &id004
+        action: navigate
+        navigation_path: /casa-famiglia/room
+      icon_tap_action: *id004
+      state_content: current_temperature
+    - type: tile
+      entity: climate.thermo_3_thermostat
+      name: Studio
+      icon: mdi:desk
+      color: primary
+      grid_options:
+        columns: 6
+      tap_action: &id005
+        action: navigate
+        navigation_path: /casa-famiglia/office
+      icon_tap_action: *id005
+      state_content: current_temperature
+  badges:
+  - type: entity
+    entity: sensor.household_mode
+    name: Casa
+    show_name: true
+    show_state: true
+    tap_action:
+      action: more-info
+  - type: entity
+    entity: sensor.household_camera_status
+    name: Videocamere
+    show_name: true
+    show_state: true
+    tap_action:
+      action: more-info
+- title: Stanze
+  path: stanze
+  type: sections
+  max_columns: 3
+  sections:
+  - type: grid
+    cards:
+    - type: heading
+      heading: Scegli una stanza
+      heading_style: title
+    - type: tile
+      entity: climate.thermo_2_thermostat
+      name: Ingresso
+      icon: mdi:door
+      color: primary
+      grid_options:
+        columns: 6
+      tap_action: &id006
+        action: navigate
+        navigation_path: /casa-famiglia/entrance
+      icon_tap_action: *id006
+      state_content: current_temperature
+    - type: tile
+      entity: light.piano
+      name: Soggiorno
+      icon: mdi:sofa
+      color: primary
+      grid_options:
+        columns: 6
+      tap_action: &id007
+        action: navigate
+        navigation_path: /casa-famiglia/soggiorno
+      icon_tap_action: *id007
+      hide_state: true
+    - type: tile
+      entity: climate.thermostat_6_thermostat
+      name: Sala da pranzo
+      icon: mdi:table-chair
+      color: primary
+      grid_options:
+        columns: 6
+      tap_action: &id008
+        action: navigate
+        navigation_path: /casa-famiglia/dining
+      icon_tap_action: *id008
+      state_content: current_temperature
+    - type: tile
+      entity: light.led
+      name: Cucina
+      icon: mdi:stove
+      color: primary
+      grid_options:
+        columns: 6
+      tap_action: &id009
+        action: navigate
+        navigation_path: /casa-famiglia/cucina
+      icon_tap_action: *id009
+      hide_state: true
+    - type: tile
+      entity: climate.thermo_thermostat
+      name: Bagno piccolo
+      icon: mdi:shower
+      color: primary
+      grid_options:
+        columns: 6
+      tap_action: &id010
+        action: navigate
+        navigation_path: /casa-famiglia/restroom
+      icon_tap_action: *id010
+      state_content: current_temperature
+    - type: tile
+      entity: climate.thermo_7_thermostat
+      name: Camera Francesco
+      icon: mdi:bed
+      color: primary
+      grid_options:
+        columns: 6
+      tap_action: &id011
+        action: navigate
+        navigation_path: /casa-famiglia/room
+      icon_tap_action: *id011
+      state_content: current_temperature
+    - type: tile
+      entity: climate.thermo_3_thermostat
+      name: Studio
+      icon: mdi:desk
+      color: primary
+      grid_options:
+        columns: 6
+      tap_action: &id012
+        action: navigate
+        navigation_path: /casa-famiglia/office
+      icon_tap_action: *id012
+      state_content: current_temperature
+    - type: tile
+      entity: climate.thermo_8_thermostat
+      name: Camera matrimoniale
+      icon: mdi:bed-king
+      color: primary
+      grid_options:
+        columns: 6
+      tap_action: &id013
+        action: navigate
+        navigation_path: /casa-famiglia/camera_da_letto
+      icon_tap_action: *id013
+      state_content: current_temperature
+    - type: tile
+      entity: climate.thermo_4_thermostat
+      name: Bagno grande
+      icon: mdi:bathtub
+      color: primary
+      grid_options:
+        columns: 6
+      tap_action: &id014
+        action: navigate
+        navigation_path: /casa-famiglia/bathroom
+      icon_tap_action: *id014
+      state_content: current_temperature
+    - type: tile
+      entity: climate.thermo_5_thermostat
+      name: Corridoio
+      icon: mdi:walk
+      color: primary
+      grid_options:
+        columns: 6
+      tap_action: &id015
+        action: navigate
+        navigation_path: /casa-famiglia/hallway
+      icon_tap_action: *id015
+      state_content: current_temperature
+- title: Clima
+  path: clima
+  type: sections
+  max_columns: 3
+  sections:
+  - type: grid
+    cards:
+    - type: heading
+      heading: Ritmo della casa
+      heading_style: title
+    - type: tile
+      entity: input_datetime.household_bedtime
+      name: Buonanotte abituale
+    - type: tile
+      entity: input_datetime.household_wakeup
+      name: Risveglio abituale
+    - type: markdown
+      content: 'Gli orari servono ai promemoria. Le routine partono dai pulsanti, anche fuori orario.
+
+
+        Il riscaldamento resta regolato dai termostati: temperature e anticipo del pavimento saranno configurati
+        dopo le misure.'
+  - type: grid
+    cards:
+    - type: heading
+      heading: Camere
+      heading_style: title
+    - type: tile
+      entity: climate.thermo_7_thermostat
+      name: Camera Francesco
+      features:
+      - type: target-temperature
+    - type: tile
+      entity: climate.thermo_8_thermostat
+      name: Camera matrimoniale
+      features:
+      - type: target-temperature
+    - type: tile
+      entity: input_boolean.guest_bedroom_in_use
+      name: Camera Francesco in uso
+  - type: grid
+    cards:
+    - type: heading
+      heading: Altre zone
+      heading_style: title
+    - type: tile
+      entity: climate.thermo_4_thermostat
+      name: Bagno grande
+      features:
+      - type: target-temperature
+    - type: tile
+      entity: climate.thermo_2_thermostat
+      name: Ingresso
+      features:
+      - type: target-temperature
+    - type: tile
+      entity: climate.thermo_3_thermostat
+      name: Studio
+      features:
+      - type: target-temperature
+    - type: tile
+      entity: climate.thermo_thermostat
+      name: Bagno piccolo
+      features:
+      - type: target-temperature
+    - type: tile
+      entity: climate.thermo_5_thermostat
+      name: Corridoio
+      features:
+      - type: target-temperature
+    - type: tile
+      entity: climate.thermostat_6_thermostat
+      name: Sala da pranzo
+      features:
+      - type: target-temperature
+- title: Sicurezza
+  path: sicurezza
+  type: sections
+  max_columns: 3
+  sections:
+  - type: grid
+    cards:
+    - type: heading
+      heading: Privacy e videocamere
+      heading_style: title
+    - type: tile
+      entity: sensor.household_camera_status
+      name: Stato videocamere
+    - type: tile
+      entity: binary_sensor.household_cameras_operating
+      name: Video su tutte e tre
+      grid_options:
+        columns: 12
+      icon: mdi:cctv
+    - type: markdown
+      content: '**Privacy attiva:** spegnimento fisico verificato su tutte e tre le videocamere.
+
+
+        **Video attivo:** tutte e tre inviano immagini e hanno la registrazione abilitata. L’allarme intrusione
+        deve ancora essere configurato.'
+  - type: grid
+    cards:
+    - type: heading
+      heading: Presenza e modalità
+      heading_style: title
+    - type: tile
+      entity: sensor.household_mode
+      name: Modalità della casa
+      grid_options:
+        columns: 12
+    - type: tile
+      entity: input_boolean.household_guests
+      name: Ospiti restano in casa
+      grid_options:
+        columns: 12
+    - type: tile
+      entity: script.household_arriving
+      name: Rientro
+      grid_options:
+        columns: 6
+      icon: mdi:home-import-outline
+      hide_state: true
+      tap_action:
+        action: perform-action
+        perform_action: script.turn_on
+        target:
+          entity_id: script.household_arriving
+      icon_tap_action:
+        action: perform-action
+        perform_action: script.turn_on
+        target:
+          entity_id: script.household_arriving
+    - type: tile
+      entity: script.household_leaving
+      name: Usciamo
+      grid_options:
+        columns: 6
+      icon: mdi:home-export-outline
+      hide_state: true
+      tap_action:
+        action: perform-action
+        perform_action: script.turn_on
+        target:
+          entity_id: script.household_leaving
+        confirmation:
+          text: Stanno uscendo tutti? Usciamo attiva le videocamere. Se qualcuno rimane, usa Annulla.
+      icon_tap_action:
+        action: perform-action
+        perform_action: script.turn_on
+        target:
+          entity_id: script.household_leaving
+        confirmation:
+          text: Stanno uscendo tutti? Usciamo attiva le videocamere. Se qualcuno rimane, usa Annulla.
+  - type: grid
+    cards:
+    - type: heading
+      heading: Controllo videocamere
+      heading_style: title
+    - type: entities
+      show_header_toggle: false
+      entities:
+      - entity: sensor.camera_1_camera_fps
+        name: Soggiorno · immagini al secondo
+      - entity: sensor.camera_2_camera_fps
+        name: Ingresso · immagini al secondo
+      - entity: sensor.camera_3_camera_fps
+        name: Corridoio · immagini al secondo
+  - type: grid
+    cards:
+    - type: heading
+      heading: Porta e finestre
+      heading_style: title
+    - type: markdown
+      content: '{% set windows = [(''Cucina'', ''binary_sensor.kitchen_window_open'', ''binary_sensor.kitchen_window_tilted''),
+        (''Sala da pranzo'', ''binary_sensor.window_sensor_1_window_1_open'', ''binary_sensor.window_sensor_1_window_1_tilted''),
+        (''Soggiorno'', ''binary_sensor.window_sensor_1_window_2_open'', ''binary_sensor.window_sensor_1_window_2_tilted''),
+        (''Camera Francesco sinistra'', ''binary_sensor.window_sensor_2_window_1_open'', ''binary_sensor.window_sensor_2_window_1_tilted''),
+        (''Camera Francesco destra'', ''binary_sensor.window_sensor_2_window_2_open'', ''binary_sensor.window_sensor_2_window_2_tilted''),
+        (''Studio'', ''binary_sensor.window_sensor_3_open'', ''binary_sensor.window_sensor_3_tilted''), (''Bagno
+        grande'', ''binary_sensor.window_sensor_4_window_1_open'', ''binary_sensor.window_sensor_4_window_1_tilted''),
+        (''Camera matrimoniale'', ''binary_sensor.window_sensor_4_window_2_open'', ''binary_sensor.window_sensor_4_window_2_tilted'')]
+        %}
+
+        {% for name,a,b in windows %}
+
+        {% if is_state(a,''on'') %}• **{{ name }}:** aperta
+
+        {% elif is_state(b,''on'') %}• **{{ name }}:** a ribalta
+
+        {% elif not has_value(a) or not has_value(b) %}• **{{ name }}:** da verificare
+
+        {% endif %}{% endfor %}
+
+        {% if is_state(''binary_sensor.front_door_door'',''on'') %}• **Porta d’ingresso:** aperta{% elif not
+        has_value(''binary_sensor.front_door_door'') %}• **Porta d’ingresso:** da verificare{% endif %}
+
+        {% if is_state(''sensor.household_open_windows'',''0'') and is_state(''binary_sensor.front_door_door'',''off'')
+        %}Porta e finestre chiuse.{% endif %}'
+  - type: grid
+    cards:
+    - type: heading
+      heading: Visione videocamere
+      heading_style: title
+    - type: conditional
+      conditions:
+      - entity: binary_sensor.household_cameras_expected
+        state: 'on'
+      - entity: binary_sensor.household_camera_privacy_verified
+        state: 'off'
+      card:
+        type: vertical-stack
+        cards:
+        - type: picture-entity
+          entity: camera.cam_soggiorno
+          name: Soggiorno
+          camera_view: auto
+          show_state: false
+        - type: picture-entity
+          entity: camera.camera_2
+          name: Ingresso
+          camera_view: auto
+          show_state: false
+        - type: picture-entity
+          entity: camera.camera_3
+          name: Corridoio
+          camera_view: auto
+          show_state: false
+- title: Ingresso
+  path: entrance
+  icon: mdi:door
+  subview: true
+  type: sections
+  max_columns: 3
+  sections:
+  - type: grid
+    cards:
+    - type: heading
+      heading: Luci
+      heading_style: title
+    - type: tile
+      entity: light.guardaroba
+    - type: tile
+      entity: light.faretti_3
+  - type: grid
+    cards:
+    - type: heading
+      heading: Temperatura
+      heading_style: title
+    - type: tile
+      entity: climate.thermo_2_thermostat
+      name: Termostato
+      features:
+      - type: target-temperature
+  - type: grid
+    cards:
+    - type: heading
+      heading: Presenza e aperture
+      heading_style: title
+    - type: tile
+      entity: binary_sensor.front_door_door
+- title: Soggiorno
+  path: soggiorno
+  icon: mdi:sofa
+  subview: true
+  type: sections
+  max_columns: 3
+  sections:
+  - type: grid
+    cards:
+    - type: heading
+      heading: Luci
+      heading_style: title
+    - type: tile
+      entity: light.piano
+    - type: tile
+      entity: light.balcone_3
+    - type: tile
+      entity: light.faretti2
+    - type: tile
+      entity: light.faretti1
+    - type: tile
+      entity: light.shellyplusrgbwpm_30c92257192c
+      features:
+      - type: light-brightness
+  - type: grid
+    cards:
+    - type: heading
+      heading: Tapparelle
+      heading_style: title
+    - type: tile
+      entity: cover.shellyplus2pm_30c922774de4
+      features:
+      - type: cover-open-close
+      - type: cover-position
+  - type: grid
+    cards:
+    - type: heading
+      heading: Presenza e aperture
+      heading_style: title
+    - type: tile
+      entity: sensor.household_window_living
+      name: Finestra soggiorno
+- title: Sala da pranzo
+  path: dining
+  icon: mdi:table-chair
+  subview: true
+  type: sections
+  max_columns: 3
+  sections:
+  - type: grid
+    cards:
+    - type: heading
+      heading: Luci
+      heading_style: title
+    - type: tile
+      entity: light.lampade
+    - type: tile
+      entity: light.faretti_2
+    - type: tile
+      entity: light.faretti_1
+    - type: tile
+      entity: light.presa_lume
+  - type: grid
+    cards:
+    - type: heading
+      heading: Tapparelle
+      heading_style: title
+    - type: tile
+      entity: cover.shellyplus2pm_c4d8d5561ffc
+      features:
+      - type: cover-open-close
+      - type: cover-position
+  - type: grid
+    cards:
+    - type: heading
+      heading: Temperatura
+      heading_style: title
+    - type: tile
+      entity: climate.thermostat_6_thermostat
+      name: Termostato
+      features:
+      - type: target-temperature
+  - type: grid
+    cards:
+    - type: heading
+      heading: Presenza e aperture
+      heading_style: title
+    - type: tile
+      entity: sensor.household_window_dining
+      name: Finestra sala da pranzo
+- title: Cucina
+  path: cucina
+  icon: mdi:stove
+  subview: true
+  type: sections
+  max_columns: 3
+  sections:
+  - type: grid
+    cards:
+    - type: heading
+      heading: Luci
+      heading_style: title
+    - type: tile
+      entity: light.led
+    - type: tile
+      entity: light.pensili
+    - type: tile
+      entity: light.faretti_6
+    - type: tile
+      entity: light.balcone_4
+    - type: tile
+      entity: light.isola
+  - type: grid
+    cards:
+    - type: heading
+      heading: Tapparelle
+      heading_style: title
+    - type: tile
+      entity: cover.shellyplus2pm_78ee4ccf104c
+      features:
+      - type: cover-open-close
+      - type: cover-position
+  - type: grid
+    cards:
+    - type: heading
+      heading: Presenza e aperture
+      heading_style: title
+    - type: tile
+      entity: binary_sensor.presence_sensor_4_presence_ld2420
+      name: Presenza
+    - type: tile
+      entity: sensor.household_window_kitchen
+      name: Finestra cucina
+- title: Bagno piccolo
+  path: restroom
+  icon: mdi:shower
+  subview: true
+  type: sections
+  max_columns: 3
+  sections:
+  - type: grid
+    cards:
+    - type: heading
+      heading: Luci
+      heading_style: title
+    - type: tile
+      entity: light.luce_specchio_2
+    - type: tile
+      entity: light.faretti_8
+    - type: tile
+      entity: light.doccia_2
+  - type: grid
+    cards:
+    - type: heading
+      heading: Temperatura
+      heading_style: title
+    - type: tile
+      entity: climate.thermo_thermostat
+      name: Termostato
+      features:
+      - type: target-temperature
+- title: Camera Francesco
+  path: room
+  icon: mdi:bed
+  subview: true
+  type: sections
+  max_columns: 3
+  sections:
+  - type: grid
+    cards:
+    - type: heading
+      heading: Luci
+      heading_style: title
+    - type: tile
+      entity: light.faretti_4
+    - type: tile
+      entity: light.porta
+    - type: tile
+      entity: light.faretti_9
+  - type: grid
+    cards:
+    - type: heading
+      heading: Tapparelle
+      heading_style: title
+    - type: tile
+      entity: cover.shellyplus2pm_8813bfd4933c
+      features:
+      - type: cover-open-close
+      - type: cover-position
+    - type: tile
+      entity: cover.shellyplus2pm_2cbcbb2d92d8
+      features:
+      - type: cover-open-close
+      - type: cover-position
+  - type: grid
+    cards:
+    - type: heading
+      heading: Temperatura
+      heading_style: title
+    - type: tile
+      entity: climate.thermo_7_thermostat
+      name: Termostato
+      features:
+      - type: target-temperature
+  - type: grid
+    cards:
+    - type: heading
+      heading: Presenza e aperture
+      heading_style: title
+    - type: tile
+      entity: binary_sensor.presence_sensor_2_presence_ld2420
+      name: Presenza
+    - type: tile
+      entity: sensor.household_window_guest_left
+      name: Finestra sinistra
+    - type: tile
+      entity: sensor.household_window_guest_right
+      name: Finestra destra
+- title: Studio
+  path: office
+  icon: mdi:desk
+  subview: true
+  type: sections
+  max_columns: 3
+  sections:
+  - type: grid
+    cards:
+    - type: heading
+      heading: Luci
+      heading_style: title
+    - type: tile
+      entity: light.faretti_7
+    - type: tile
+      entity: light.lampade_2
+      name: Riflettori
+    - type: tile
+      entity: light.lume_libreria
+    - type: tile
+      entity: light.shellyplusrgbwpm_30c92258a17c
+      features:
+      - type: light-brightness
+  - type: grid
+    cards:
+    - type: heading
+      heading: Tapparelle
+      heading_style: title
+    - type: tile
+      entity: cover.shellyplus2pm_8813bfd0a3b8
+      features:
+      - type: cover-open-close
+      - type: cover-position
+  - type: grid
+    cards:
+    - type: heading
+      heading: Temperatura
+      heading_style: title
+    - type: tile
+      entity: climate.thermo_3_thermostat
+      name: Termostato
+      features:
+      - type: target-temperature
+  - type: grid
+    cards:
+    - type: heading
+      heading: Presenza e aperture
+      heading_style: title
+    - type: tile
+      entity: binary_sensor.presence_sensor_1_presence_ld2420
+      name: Presenza
+    - type: tile
+      entity: sensor.household_window_office
+      name: Finestra studio
+- title: Camera matrimoniale
+  path: camera_da_letto
+  icon: mdi:bed-king
+  subview: true
+  type: sections
+  max_columns: 3
+  sections:
+  - type: grid
+    cards:
+    - type: heading
+      heading: Luci
+      heading_style: title
+    - type: tile
+      entity: light.led_2
+    - type: tile
+      entity: light.balcone
+    - type: tile
+      entity: light.shellydimmer2_24d7ebe4585d
+      features:
+      - type: light-brightness
+    - type: tile
+      entity: light.shellydimmer2_24d7ebe55395
+      features:
+      - type: light-brightness
+    - type: tile
+      entity: light.strip_led
+      features:
+      - type: light-brightness
+  - type: grid
+    cards:
+    - type: heading
+      heading: Tapparelle
+      heading_style: title
+    - type: tile
+      entity: cover.shellyplus2pm_8813bfd0b9ec
+      features:
+      - type: cover-open-close
+      - type: cover-position
+  - type: grid
+    cards:
+    - type: heading
+      heading: Temperatura
+      heading_style: title
+    - type: tile
+      entity: climate.thermo_8_thermostat
+      name: Termostato
+      features:
+      - type: target-temperature
+  - type: grid
+    cards:
+    - type: heading
+      heading: Presenza e aperture
+      heading_style: title
+    - type: tile
+      entity: binary_sensor.presence_sensor_3_presence_ld2420
+      name: Presenza
+    - type: tile
+      entity: sensor.household_window_master
+      name: Finestra camera matrimoniale
+- title: Bagno grande
+  path: bathroom
+  icon: mdi:bathtub
+  subview: true
+  type: sections
+  max_columns: 3
+  sections:
+  - type: grid
+    cards:
+    - type: heading
+      heading: Luci
+      heading_style: title
+    - type: tile
+      entity: light.faretti
+    - type: tile
+      entity: light.luce_specchio
+    - type: tile
+      entity: light.specchio
+    - type: tile
+      entity: light.vasca
+      features:
+      - type: light-brightness
+  - type: grid
+    cards:
+    - type: heading
+      heading: Temperatura
+      heading_style: title
+    - type: tile
+      entity: climate.thermo_4_thermostat
+      name: Termostato
+      features:
+      - type: target-temperature
+  - type: grid
+    cards:
+    - type: heading
+      heading: Presenza e aperture
+      heading_style: title
+    - type: tile
+      entity: sensor.household_window_bathroom
+      name: Finestra bagno grande
+- title: Corridoio
+  path: hallway
+  icon: mdi:walk
+  subview: true
+  type: sections
+  max_columns: 3
+  sections:
+  - type: grid
+    cards:
+    - type: heading
+      heading: Luci
+      heading_style: title
+    - type: tile
+      entity: light.faretti_5
+  - type: grid
+    cards:
+    - type: heading
+      heading: Temperatura
+      heading_style: title
+    - type: tile
+      entity: climate.thermo_5_thermostat
+      name: Termostato
+      features:
+      - type: target-temperature

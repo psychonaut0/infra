@@ -1,0 +1,77 @@
+title: Routine casa
+views:
+- title: Routine
+  path: routine
+  icon: mdi:tune
+  type: sections
+  max_columns: 2
+  sections:
+  - type: grid
+    cards:
+    - type: heading
+      heading: Orari flessibili
+      heading_style: title
+    - type: tile
+      entity: input_datetime.household_bedtime
+    - type: tile
+      entity: input_datetime.household_wakeup
+    - type: tile
+      entity: input_boolean.household_evening_reminder
+    - type: tile
+      entity: input_boolean.household_morning_reminder
+      name: Promemoria buongiorno
+      grid_options:
+        columns: 12
+    - type: markdown
+      content: I promemoria compaiono in Home Assistant. Gli orari non avviano le routine e non cambiano videocamere
+        o tapparelle. Gli avvisi sui telefoni saranno collegati quando identificheremo i dispositivi della
+        famiglia.
+  - type: grid
+    cards:
+    - type: heading
+      heading: Tapparelle di notte
+      heading_style: title
+    - type: tile
+      entity: input_boolean.household_shutters_enabled
+    - type: tile
+      entity: input_number.night_shutter_office
+      name: Studio
+    - type: tile
+      entity: input_number.night_shutter_master
+      name: Camera matrimoniale
+    - type: tile
+      entity: input_number.night_shutter_guest_left
+      name: Camera Francesco sinistra
+    - type: tile
+      entity: input_number.night_shutter_guest_right
+      name: Camera Francesco destra
+    - type: tile
+      entity: input_number.night_shutter_kitchen
+      name: Cucina
+    - type: markdown
+      content: '0% = chiusa, 100% = aperta. Partenza concordata: 15% per tutte e cinque. Ogni posizione resta
+        modificabile. La routine controlla il raggiungimento della posizione.'
+  - type: grid
+    cards:
+    - type: heading
+      heading: Tapparelle al mattino
+      heading_style: title
+    - type: tile
+      entity: input_boolean.household_morning_shutters
+    - type: tile
+      entity: input_number.morning_shutter_position
+    - type: markdown
+      content: Buongiorno apre studio, cucina e camera matrimoniale alla posizione impostata. Le due tapparelle
+        della camera Francesco restano indipendenti per rispettare chi dorme ancora.
+  - type: grid
+    cards:
+    - type: heading
+      heading: Presenza
+      heading_style: title
+    - type: tile
+      entity: input_select.household_presence
+    - type: tile
+      entity: input_boolean.household_guests
+    - type: markdown
+      content: Il rilevamento automatico dei tre telefoni sarà completato separatamente. Per ora usa Rientro,
+        Usciamo o il selettore presenza. Una presenza da verificare non cambia l’alimentazione delle videocamere.

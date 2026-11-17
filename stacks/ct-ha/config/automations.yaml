@@ -1,0 +1,106 @@
+- id: household_camera_policy
+  alias: Casa · applica privacy videocamere
+  mode: restart
+  triggers:
+  - trigger: state
+    entity_id:
+    - input_select.household_presence
+    - input_boolean.household_night
+    - input_boolean.household_guests
+  - trigger: state
+    entity_id: sensor.camera_power
+    to: ok
+  - trigger: homeassistant
+    event: start
+  - trigger: time_pattern
+    minutes: /5
+  actions:
+  - delay: 00:00:02
+  - condition: state
+    entity_id: script.household_run_routine
+    state: 'off'
+  - action: script.household_apply_camera_policy
+- id: household_evening_reminder
+  alias: Casa · promemoria buonanotte
+  mode: single
+  triggers:
+  - trigger: time
+    at: input_datetime.household_bedtime
+  conditions:
+  - condition: state
+    entity_id: input_boolean.household_evening_reminder
+    state: 'on'
+  - condition: state
+    entity_id: input_select.household_presence
+    state: In casa
+  - condition: state
+    entity_id: input_boolean.household_night
+    state: 'off'
+  actions:
+  - action: persistent_notification.create
+    data:
+      notification_id: household_bedtime
+      title: È ora della buonanotte?
+      message: Quando sono tutti a letto, usa Buonanotte dalla pagina Casa. Se siete ancora svegli non serve
+        fare nulla.
+- id: household_morning_reminder
+  alias: Casa · promemoria buongiorno
+  mode: single
+  triggers:
+  - trigger: time
+    at: input_datetime.household_wakeup
+  conditions:
+  - condition: state
+    entity_id: input_boolean.household_morning_reminder
+    state: 'on'
+  - condition: state
+    entity_id: input_boolean.household_night
+    state: 'on'
+  - condition: state
+    entity_id: input_select.household_presence
+    state: In casa
+  actions:
+  - action: persistent_notification.create
+    data:
+      notification_id: household_wakeup
+      title: Buongiorno
+      message: Quando ti alzi, usa Buongiorno dalla pagina Casa. L’orario da solo non muove tapparelle e non
+        cambia la privacy.
+- id: household_interrupted_routine
+  alias: Casa · segnala routine interrotta
+  mode: restart
+  triggers:
+  - trigger: homeassistant
+    event: start
+  - trigger: state
+    entity_id: script.household_run_routine
+    to: 'off'
+    for: 00:00:02
+  conditions:
+  - condition: state
+    entity_id: input_select.household_routine_status
+    state: In corso
+  - condition: state
+    entity_id: script.household_run_routine
+    state: 'off'
+  actions:
+  - action: input_text.set_value
+    target:
+      entity_id: input_text.household_routine_step
+    data:
+      value: Routine interrotta
+  - action: input_text.set_value
+    target:
+      entity_id: input_text.household_routine_result
+    data:
+      value: Esecuzione interrotta prima della verifica finale. Ripeti la routine desiderata.
+  - action: input_select.select_option
+    target:
+      entity_id: input_select.household_routine_status
+    data:
+      option: Interrotta
+  - action: input_datetime.set_datetime
+    target:
+      entity_id: input_datetime.household_routine_finished
+    data:
+      timestamp: '{{ as_timestamp(now()) }}'
