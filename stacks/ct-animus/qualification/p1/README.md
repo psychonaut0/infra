@@ -204,7 +204,10 @@ as the web UI does, redeems codes with PKCE and verifies the ID token signature,
 and reports only components, page counts, outcomes and booleans.
 `test_harness.py` checks the isolation offline.
 
-Run 2026-11-18 (receipts private, outside the repository):
+Run 2026-11-18 at commit `da99ae5` (clean tree; blueprint sha256 `d560cd50…48ef`,
+rollback sha256 `dd06188c…7689`, all recorded in `00-up.json`; receipts private,
+outside the repository). A full rerun at that commit gave the same results as
+the earlier campaign:
 
 - **Blueprint apply.** Previous → new → new again → rollback → rollback → new,
   all valid and applied. After each new apply the normal flow is exactly entry (0),
