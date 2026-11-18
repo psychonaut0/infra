@@ -41,6 +41,20 @@ auth_env() {
     "AUTHENTIK_DISABLE_UPDATE_CHECK=true" "AUTHENTIK_DISABLE_STARTUP_ANALYTICS=true" > "$STATE/auth.env"
 }
 
+provenance() {
+  # Exact inputs of this run: commit, clean tree, and the mounted blueprint files.
+  python3 - "$REPO" "$STACK" "$AUTH_IMAGE_ID" <<'PY'
+import hashlib, json, subprocess, sys
+repo, stack, image = sys.argv[1:4]
+git = lambda *args: subprocess.run(["git", "-C", repo, *args], capture_output=True, text=True, check=True).stdout.strip()
+digest = lambda path: hashlib.sha256(open(path, "rb").read()).hexdigest()
+print(json.dumps({"up": True, "commit": git("rev-parse", "HEAD"),
+                  "tree_clean": git("status", "--porcelain", "--", stack) == "", "auth_image_id": image,
+                  "blueprint_sha256": digest(stack + "/blueprints/alkion-lan.yaml"),
+                  "rollback_sha256": digest(stack + "/rollback/alkion-lan-20261118-rollback.yaml")}, sort_keys=True))
+PY
+}
+
 seed() {
   docker exec -e T4_PHASE="$1" "$(name)-worker" ak shell -c "exec(open('/t4/seed.py').read())" 2>/dev/null \
     | sed -n 's/^T4RESULT //p'
@@ -69,7 +83,7 @@ case "${1:-}" in
     docker run -d --name "$n-worker" "${common[@]}" -v "$STATE:/state" "$AUTH_IMAGE" worker >/dev/null
     docker run -d --name "$n-server" --network-alias auth-server "${common[@]}" "$AUTH_IMAGE" server >/dev/null
     for _ in $(seq 120); do
-      [[ "$(seed ready)" == '{"ready": true}' ]] && docker exec "$n-server" ak healthcheck >/dev/null 2>&1 && { echo '{"up": true}'; exit 0; }
+      [[ "$(seed ready)" == '{"ready": true}' ]] && docker exec "$n-server" ak healthcheck >/dev/null 2>&1 && { provenance; exit 0; }
       sleep 5
     done
     echo '{"up": false}'; exit 1 ;;

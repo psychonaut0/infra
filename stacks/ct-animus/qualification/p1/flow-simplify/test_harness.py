@@ -28,6 +28,13 @@ class HarnessTests(unittest.TestCase):
         self.assertEqual(writable, ['$STATE:/state'])
         self.assertIn('stat -c %a "$STATE")" == 700', script)
 
+    def test_up_receipt_records_provenance(self):
+        script = (ROOT / 'run.sh').read_text()
+        self.assertIn('{ provenance; exit 0; }', script)
+        for field in ('"commit": git("rev-parse", "HEAD")', '"tree_clean"', '"blueprint_sha256"',
+                      '"rollback_sha256"', '"auth_image_id"'):
+            self.assertIn(field, script)
+
     def test_actor_reports_no_secrets_and_talks_only_to_the_fixture(self):
         source = (ROOT / 'actor.py').read_text()
         self.assertIn('http.client.HTTPConnection("auth-server", 9000', source)
