@@ -44,6 +44,64 @@ entries:
     id: prompt-continue
     identifiers: {name: animus-lan-continue}
     attrs: {field_key: p1_continue, label: Continue, type: checkbox, required: true, order: 0}
+  # One checkbox per validator Prompt, each saying in plain words what its policy
+  # checks. The shared animus-lan-continue field above stays for enrollment/repair.
+  - model: authentik_stages_prompt.prompt
+    id: prompt-normal-entry
+    identifiers: {name: animus-lan-check-normal-entry}
+    attrs:
+      field_key: p1_continue
+      label: Start a new sign-in. From now you have 5 minutes to enter your password and authenticator code.
+      type: checkbox
+      required: true
+      placeholder: ''
+      initial_value: ''
+      sub_text: ''
+      order: 0
+      placeholder_expression: false
+      initial_value_expression: false
+  - model: authentik_stages_prompt.prompt
+    id: prompt-normal-final
+    identifiers: {name: animus-lan-check-normal-final}
+    attrs:
+      field_key: p1_continue
+      label: Check that this account used its password and authenticator code within the last 5 minutes.
+      type: checkbox
+      required: true
+      placeholder: ''
+      initial_value: ''
+      sub_text: ''
+      order: 0
+      placeholder_expression: false
+      initial_value_expression: false
+  - model: authentik_stages_prompt.prompt
+    id: prompt-authorization-entry
+    identifiers: {name: animus-lan-check-authorization-entry}
+    attrs:
+      field_key: p1_continue
+      label: Check that you signed in to Alkion with password and authenticator code within the last 5 minutes.
+      type: checkbox
+      required: true
+      placeholder: ''
+      initial_value: ''
+      sub_text: ''
+      order: 0
+      placeholder_expression: false
+      initial_value_expression: false
+  - model: authentik_stages_prompt.prompt
+    id: prompt-authorization-final
+    identifiers: {name: animus-lan-check-authorization-final}
+    attrs:
+      field_key: p1_continue
+      label: Check that Alkion's request and your sign-in are unchanged and still under 5 minutes old.
+      type: checkbox
+      required: true
+      placeholder: ''
+      initial_value: ''
+      sub_text: ''
+      order: 0
+      placeholder_expression: false
+      initial_value_expression: false
   - model: authentik_stages_identification.identificationstage
     id: identification
     identifiers: {name: animus-lan-identification}
@@ -52,6 +110,26 @@ entries:
     id: password
     identifiers: {name: animus-lan-password}
     attrs: {backends: [authentik.core.auth.InbuiltBackend], configure_flow: null}
+  # Normal flow only: username and password on one page. The embedded password
+  # stage is the one above, so the inbuilt backend still records auth_method
+  # "password". The shared identification stage above (enrollment, repair) is unchanged.
+  - model: authentik_stages_identification.identificationstage
+    id: normal-identification
+    identifiers: {name: animus-lan-normal-identification}
+    attrs:
+      user_fields: [username]
+      password_stage: !KeyOf password
+      captcha_stage: null
+      webauthn_stage: null
+      case_insensitive_matching: true
+      show_matched_user: false
+      pretend_user_exists: true
+      enable_remember_me: false
+      enrollment_flow: null
+      recovery_flow: null
+      passwordless_flow: null
+      sources: []
+      show_source_labels: false
   - model: authentik_stages_authenticator_validate.authenticatorvalidatestage
     id: totp-validation
     identifiers: {name: animus-lan-totp-validation}
@@ -78,7 +156,11 @@ entries:
   - model: authentik_stages_consent.consentstage
     id: consent
     identifiers: {name: animus-lan-consent}
-    attrs: {mode: always_require}
+    # Remembered per user and application (one client), so it is asked once. It
+    # hosts no validator: the authorization entry and final Prompts run either way.
+    # consent_expire_in is unused in permanent mode; it is pinned so the row is
+    # fully declared. Remembered consent survives a rollback (see the README).
+    attrs: {mode: permanent, consent_expire_in: 'weeks=4'}
   - model: authentik_policies_expression.expressionpolicy
     id: entry-policy
     identifiers: {name: animus-lan-entry}
@@ -131,8 +213,11 @@ entries:
             import multiprocessing
             import re
             import time
+            import hashlib
+            import json
+            from urllib.parse import parse_qs, urlsplit
             from authentik.events.signals import get_login_event
-            from authentik.flows.views.executor import SESSION_KEY_PLAN
+            from authentik.flows.views.executor import SESSION_KEY_GET, SESSION_KEY_PLAN
             process = multiprocessing.current_process()
             if type(process).__name__ != "_MainProcess" or process.daemon:
                 return False
@@ -170,9 +255,22 @@ entries:
             for device in args["mfa_devices"]:
                 if type(device).__name__ != "TOTPDevice" or not device.confirmed or device.user_id != user.pk:
                     return False
+            # Label (never proof or time): a hash of the normalised alkion-lan authorize
+            # request that started this ceremony (client, callback, S256 challenge), so
+            # prompt=login continues exactly that request (application policy).
+            bound = None
+            target = http.session.get(SESSION_KEY_GET, {}).get("next")
+            if isinstance(target, str):
+                parts = urlsplit(target)
+                query = parse_qs(parts.query)
+                fields = [query.get(key, []) for key in ("client_id", "redirect_uri", "code_challenge", "code_challenge_method")]
+                if (not parts.scheme and not parts.netloc and parts.path == "/application/o/authorize/"
+                        and all(len(values) == 1 for values in fields) and fields[0][0] == "alkion-lan"
+                        and fields[3][0] == "S256" and re.fullmatch(r"[A-Za-z0-9_-]{43}", fields[2][0])):
+                    bound = hashlib.sha256(json.dumps([values[0] for values in fields]).encode()).hexdigest()
             marker = {"hub_policy_id": state["policy"], "hub_factor_time": started,
                       "hub_policy_flow": state["flow"], "hub_policy_execution": state["nonce"],
-                      "hub_policy_subject": user.pk}
+                      "hub_policy_subject": user.pk, "hub_policy_request": bound}
             if any(key in args and args[key] != value for key, value in marker.items()):
                 return False
             args.update(marker)
@@ -255,11 +353,36 @@ entries:
             except Exception:
                 return None
         try:
+            import hashlib
+            import json
+            import multiprocessing
+            from urllib.parse import parse_qs
             from authentik.events.signals import get_login_event
+            from authentik.providers.oauth2.views.authorize import SESSION_KEY_LAST_LOGIN_UID
             http = request.http_request
             if http.path != "/application/o/authorize/" or not http.user.is_authenticated or http.user.pk != request.user.pk:
                 return False
-            return event_proof(get_login_event(http), request.user, request.obj.provider, True) is not None
+            event = get_login_event(http)
+            proof = event_proof(event, request.user, request.obj.provider, True)
+            process = multiprocessing.current_process()
+            if (http.method != "GET" or "login" not in http.GET.get("prompt", "").split() or event is None
+                    or type(process).__name__ != "_MainProcess" or process.daemon):
+                return proof is not None
+            # prompt=login: continue only the ceremony the final normal validator bound to
+            # this exact request (same normalised hash). Any other session (stale, another
+            # account, another flow) goes back to the normal flow: with the last-login marker
+            # equal to the current login, the authorize view re-authenticates before it plans
+            # any authorization (authorize.py:552-560), so True on that branch mints nothing.
+            query = parse_qs(http.META.get("QUERY_STRING", ""))
+            fields = [query.get(key, []) for key in ("client_id", "redirect_uri", "code_challenge", "code_challenge_method")]
+            bound = event.context.get("auth_method_args", {}).get("hub_policy_request")
+            current = (hashlib.sha256(json.dumps([values[0] for values in fields]).encode()).hexdigest()
+                       if all(len(values) == 1 for values in fields) and fields[0][0] == "alkion-lan" else None)
+            if proof is not None and isinstance(bound, str) and current == bound:
+                http.session[SESSION_KEY_LAST_LOGIN_UID] = "animus-lan-continue:" + str(event.pk)
+            else:
+                http.session[SESSION_KEY_LAST_LOGIN_UID] = str(event.pk)
+            return True
         except Exception:
             return False
   - model: authentik_policies_expression.expressionpolicy
@@ -489,19 +612,19 @@ entries:
   - model: authentik_stages_prompt.promptstage
     id: normal-entry
     identifiers: {name: animus-lan-normal-entry}
-    attrs: {fields: [!KeyOf prompt-continue], validation_policies: [!KeyOf entry-policy]}
+    attrs: {fields: [!KeyOf prompt-normal-entry], validation_policies: [!KeyOf entry-policy]}
   - model: authentik_stages_prompt.promptstage
     id: normal-final
     identifiers: {name: animus-lan-normal-final}
-    attrs: {fields: [!KeyOf prompt-continue], validation_policies: [!KeyOf final-policy]}
+    attrs: {fields: [!KeyOf prompt-normal-final], validation_policies: [!KeyOf final-policy]}
   - model: authentik_stages_prompt.promptstage
     id: authorization-entry
     identifiers: {name: animus-lan-authorization-entry}
-    attrs: {fields: [!KeyOf prompt-continue], validation_policies: [!KeyOf authorization-entry-policy]}
+    attrs: {fields: [!KeyOf prompt-authorization-entry], validation_policies: [!KeyOf authorization-entry-policy]}
   - model: authentik_stages_prompt.promptstage
     id: authorization-final
     identifiers: {name: animus-lan-authorization-final}
-    attrs: {fields: [!KeyOf prompt-continue], validation_policies: [!KeyOf authorization-final-policy]}
+    attrs: {fields: [!KeyOf prompt-authorization-final], validation_policies: [!KeyOf authorization-final-policy]}
   - model: authentik_stages_prompt.promptstage
     id: bootstrap-entry
     identifiers: {name: animus-lan-bootstrap-entry}
@@ -573,11 +696,23 @@ entries:
   - model: authentik_flows.flowstagebinding
     identifiers: {target: !KeyOf normal-flow, stage: !KeyOf normal-entry, order: 0}
     attrs: {evaluate_on_plan: true, re_evaluate_policies: false, invalid_response_action: retry}
+  # A re-apply never deletes entries by itself: the two bindings replaced by the
+  # combined page are removed explicitly, before the replacement is bound. Each
+  # removal runs only while its binding exists: in 2026.8.5 an absent binding entry
+  # with no matching row makes the importer delete an unsaved placeholder and fail
+  # (blueprints/v1/importer.py:444-447), so without the guard every re-apply errors.
   - model: authentik_flows.flowstagebinding
+    state: absent
+    conditions:
+      - !Find [authentik_flows.flowstagebinding, [target, !KeyOf normal-flow], [stage, !KeyOf identification], [order, 10]]
     identifiers: {target: !KeyOf normal-flow, stage: !KeyOf identification, order: 10}
-    attrs: {evaluate_on_plan: true, re_evaluate_policies: false, invalid_response_action: retry}
   - model: authentik_flows.flowstagebinding
+    state: absent
+    conditions:
+      - !Find [authentik_flows.flowstagebinding, [target, !KeyOf normal-flow], [stage, !KeyOf password], [order, 20]]
     identifiers: {target: !KeyOf normal-flow, stage: !KeyOf password, order: 20}
+  - model: authentik_flows.flowstagebinding
+    identifiers: {target: !KeyOf normal-flow, stage: !KeyOf normal-identification, order: 10}
     attrs: {evaluate_on_plan: true, re_evaluate_policies: false, invalid_response_action: retry}
   - model: authentik_flows.flowstagebinding
     identifiers: {target: !KeyOf normal-flow, stage: !KeyOf totp-validation, order: 30}

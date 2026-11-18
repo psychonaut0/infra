@@ -109,3 +109,163 @@ Checkpoint 2 still requires actual browser request inventory, reviewed public
 allowlist/default denial, controlled independent repair and complete credential
 revocation. Scratch experiment results authorize no live provider change, owner
 custody, grants or personal-data opening.
+
+## Normal-flow simplification (2026-11-18)
+
+Subject: the deployed `../../blueprints/alkion-lan.yaml`, not `candidate.yaml`
+(which stays unchanged). Changes: username+password on one page through a
+dedicated `animus-lan-normal-identification` stage embedding the existing
+password stage; consent `permanent`; one plain-word checkbox per validator Prompt;
+guarded `state: absent` removal of the replaced bindings; the `prompt=login`
+binding to a hash of the normalised authorize request; reviewed rollback `../../rollback/alkion-lan-20261118-rollback.yaml`.
+
+### Source verification (version/2026.8.5, commit 4ec0d19b)
+
+The loaded backport image `a662172c` matches the tag in every module cited here
+except the two backported `authenticator_validate` files (checked by hash).
+Paths are under `authentik/` or `web/src/` at that tag.
+
+- **Same `auth_method`.** The combined page checks the password with the same
+  `authenticate()` and the password stage's backends
+  (`stages/identification/stage.py:231-256`, `stages/password/stage.py:39-71`).
+  `InbuiltBackend` sets `auth_method="password"` and empty args by `setdefault`
+  whichever stage calls it (`core/auth.py:38-45,56-66`); TOTP then appends
+  `mfa_devices` without changing the method (backport `authenticator_validate/stage.py:149-157`).
+  The final validator therefore sees the same method and arguments, and adds the
+  same `hub_policy_*` marker.
+- **Timing and order.** Bindings are planned by `order` (`flows/planner.py:340`);
+  the executor serves `bindings[0]` and pops it on success (`planner.py:97-122`,
+  `flows/views/executor.py:421-432`). The entry Prompt stays at order 0, so
+  `hub_factor_time` is still set before either factor; every validator still reads
+  only its own `plan.bindings[0]`. No policy names the replaced stages.
+- **Why explicit removal.** Bindings are unique only per (flow, stage, order)
+  (`flows/models.py:299-304`), so the old order-10 stage would stay planned next to
+  the new one. An absent binding entry whose row is already gone makes the
+  importer delete an unsaved placeholder and raise (`blueprints/v1/importer.py:444-447`,
+  reproduced at runtime: every re-apply failed). Each removal is therefore guarded
+  by an existence `conditions` entry (`blueprints/v1/common.py:176-178,369-413`).
+- **Combined-page differences.** An unknown user always fails on that page
+  (`identification/stage.py:210-213`). The password stage's
+  `failed_attempts_before_cancel` restart (`password/stage.py:165-175`) does not
+  apply; failed attempts still fire `login_failed` (`password/stage.py:65-71`). That
+  counter only restarts the flow and never locked anyone out.
+- **Consent.** In `permanent` mode a stored consent makes the stage call
+  `stage_ok()` on GET without a page (`stages/consent/stage.py:81-130`). It is the
+  order-10 stage between the order-0 and order-20 validator Prompts, which run
+  unconditionally either way. `permanent` rather than `expiring`: A7 asks for
+  consent once, and an expiry would only add a page every few weeks without
+  touching either validator. Any plan with a non-fulfillment stage needs the flow
+  executor (`flows/planner.py:129-146`, `providers/oauth2/views/authorize.py:594-606`),
+  so remembered consent cannot make authorization silent.
+- **prompt=none.** Only an anonymous request is refused early
+  (`authorize.py:455-464`); an authenticated one runs the same authorization flow.
+- **prompt=login in stock 2026.8.5.** Application policies run in
+  `PolicyAccessView.dispatch` before the authorize view's `get()`
+  (`policies/views.py:62-84`), and `get()` re-authenticates only while its
+  last-login marker is absent or equal to the current login (`authorize.py:552-560`).
+  The marker is never cleared, and an anonymous first request goes to login without
+  setting it (`policies/views.py:78-79`). Authentik never stores Django's user key
+  in session data (`core/sessions.py:118-136`), so `login()` keeps the session
+  (key cycled) even when the account changes; the stored `next` and marker survive.
+- **Limits of the `prompt=login` binding.**
+  - The `SESSION_KEY_LAST_LOGIN_UID` marker is global to the session, so a
+    leftover `animus-lan-continue:` value suppresses `prompt=login` for any other
+    OAuth2 provider used in the same session (today there is only one).
+  - The marker survives a rollback, which restores the stock behaviour, including
+    the wrong-account no-op for another user's live session.
+  - The re-authentication branch returns True and relies on the order of
+    operations inside Authentik's authorize view (`authorize.py:525-560`). The
+    authorization entry and final validators remain the backstop, and any
+    Authentik upgrade must re-qualify this branch before deploy.
+  - The label is read from the executor's stored query on the final POST. A
+    client that drops `query` there loses it and pays a second ceremony; T7
+    checks one ceremony per Connect on the phone.
+- **Hidden-field candidate: not adoptable.** The server returns the Prompt
+  challenge on every GET and advances only on a valid POST
+  (`flows/stage.py:96-153`, `stages/prompt/stage.py:120-164,273-277`); a hidden
+  field just takes its server default (`stages/prompt/models.py:303-306`). The UI
+  renders hidden fields as `<input type="hidden">` inside a form with a Continue
+  button, and submits only on that form's submit event
+  (`web/src/flow/stages/prompt/PromptStage.ts:212-220,324-342`,
+  `web/src/flow/stages/base.ts:113-141`). Nothing auto-submits a Prompt; only the
+  autosubmit stage does (`web/src/flow/stages/autosubmit/AutosubmitStage.ts:29-36`).
+  A hidden-only validator Prompt is still a page with one click, so it saves nothing.
+
+### Isolated synthetic run
+
+`flow-simplify/run.sh campaign` (with `T4_STATE` a private 0700 directory, then
+`run.sh down`) starts the privately loaded backport image (ID checked) and the
+pinned PostgreSQL on one `--internal` Docker network: no published port, no
+egress, no socket, no shared volume, no real credential. `seed.py` applies
+blueprints through Authentik's own importer with the owner-commissioning instance
+context: the previous blueprint, the new one twice, the rollback twice, the new one
+again. It then creates ten synthetic users. `actor.py` drives the flow-executor API
+as the web UI does, redeems codes with PKCE and verifies the ID token signature,
+and reports only components, page counts, outcomes and booleans.
+`test_harness.py` checks the isolation offline.
+
+Run 2026-11-18 at commit `da99ae5` (clean tree; blueprint sha256 `d560cd50…48ef`,
+rollback sha256 `dd06188c…7689`, all recorded in `00-up.json`; receipts private,
+outside the repository). A full rerun at that commit gave the same results as
+the earlier campaign:
+
+- **Blueprint apply.** Previous → new → new again → rollback → rollback → new,
+  all valid and applied. After each new apply the normal flow is exactly entry (0),
+  combined page (10), TOTP (30), final (40), login (50), with no order-20 binding.
+  Enrollment, repair, the shared identification stage and the authorization flow
+  match the previous blueprint's runtime inventory. Without the existence guards
+  the second apply failed (importer exception), which is why they exist.
+- **Page counts.** Pages are challenges the user answers. Every code was redeemed
+  with PKCE. Each ID token passed RS256 signature, issuer and audience checks,
+  carried `hub_authentication_policy` and an integer `hub_factor_time` no later
+  than `auth_time`, came with a refresh token, and named the user who signed in.
+
+  | Connect | Previous blueprint | New blueprint |
+  | --- | --- | --- |
+  | No session, no prompt | 8 incl. consent, 1 ceremony | 6, 1 ceremony |
+  | No session, `prompt=login`, first Connect | 13 incl. consent, 2 ceremonies | 7 incl. consent, 1 ceremony |
+  | No session, `prompt=login`, later Connect | — | 6, 1 ceremony |
+  | Same user's live session, `prompt=login` (twice) | — | 6, 1 ceremony / 6, 1 ceremony |
+  | Another user's live session, `prompt=login` | — | 6, 1 ceremony |
+  | Same user's session older than 300 s, `prompt=login` | — | 6, 1 ceremony |
+  | Another user's session older than 300 s, `prompt=login` | — | 7 incl. consent, 1 ceremony |
+  | Login from another flow, `prompt=login` | — | 6, 1 ceremony |
+  | Same user's live session, no prompt | — | 2, 0 ceremonies |
+
+  Before the `prompt=login` binding (exploratory run, same image and new
+  blueprint) stock handling gave: no session, 11 pages over two ceremonies; same
+  user's live session, 2 pages and no ceremony (marker already set, so the request
+  was ignored); another user's live session, 2 pages and no ceremony, so the code
+  went to the other, already signed-in account; a session older than 300 s
+  (either account) or a login from another flow, "Permission denied". The
+  binding closes all four.
+- **A8 negatives, all without a code.**
+  - A user without TOTP is denied at the TOTP stage; a wrong TOTP is refused.
+  - A ceremony paused more than 300 s after both factors is refused at the final
+    check. A same-user session older than 300 s without `prompt` is denied.
+  - Superuser and outside-group accounts are refused at the final check, also
+    when `prompt=login` sends their live session back to sign in. An inactive
+    account is refused on the combined page.
+  - Unknown client: 400. Unregistered or near-miss redirect: "Redirect URI Error".
+    Plain or missing PKCE: denied, also with `prompt=login`.
+  - A session parked after TOTP and replayed after login restarts at the entry
+    check. A login from the default authentication flow is denied without `prompt`.
+  - `prompt=none` with no session gets a 400 error page (the native callback
+    scheme cannot carry `login_required`); with a live session it stops at the
+    authorization entry check.
+  - A second authorization within 300 s with remembered consent also stops at the
+    authorization entry check: no silent code.
+- **Consent and rollback.** The first Connect per account shows consent (7 pages),
+  later ones do not (6). After the rollback every Connect is back to 8 pages with
+  the consent page, although the 5 stored consents remain. After re-applying the
+  new blueprint the stored consent is honoured again (6 pages): remembered consent
+  survives a rollback.
+- **Labels.** Each of the four plain-word labels appeared at its own position in
+  every run.
+
+Not runtime-qualified here: real browser and phone rendering (combined page,
+labels, Continue buttons), the Custom Tab cookie jar, the CT117 edge, the
+BlueprintInstance watcher path on CT117 (the harness calls the same importer
+directly), and restored/redirected flow-token plan contexts (unchanged
+expressions; unit tests only). CT117 re-apply, the read-only SQL binding check and
+the phone rerun stay with T6/T7.

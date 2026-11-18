@@ -9,15 +9,23 @@ blueprint importer remain runtime checks.
 """
 from contextlib import contextmanager
 from datetime import datetime, timezone
+import hashlib
+import json
 from pathlib import Path
 from types import ModuleType, SimpleNamespace as NS
+from urllib.parse import urlencode
 import unittest
 from unittest.mock import patch
 from uuid import UUID
 
 import yaml
 
-BLUEPRINT = Path(__file__).resolve().parent / 'blueprints' / 'alkion-lan.yaml'
+STACK = Path(__file__).resolve().parent
+BLUEPRINT = STACK / 'blueprints' / 'alkion-lan.yaml'
+ROLLBACK = STACK / 'rollback' / 'alkion-lan-20261118-rollback.yaml'
+# sha256 of blueprints/alkion-lan.yaml before the 2026-11-18 simplification
+# (at bcd1a2e, last changed in add47cb); the rollback must reproduce it exactly.
+PREVIOUS_SHA256 = '5d30b62e75ebe714f1ec11258bf813d28849593a8020f25c3c3b6eaf0f06429d'
 NATIVE = 'dev.animusstudio.alkion.dev:/oauth2redirect'
 LOOPBACK = 'http://127.0.0.1:43819/callback'
 FLOW = '1' * 32
@@ -50,6 +58,20 @@ for _tag in ('!KeyOf', '!Find', '!Context', '!AtIndex', '!If', '!Condition'):
 DOCUMENT = yaml.load(BLUEPRINT.read_text(), Loader=Loader)
 ENTRIES = DOCUMENT['entries']
 BY_ID = {entry['id']: entry for entry in ENTRIES if 'id' in entry}
+ROLLBACK_DOCUMENT = yaml.load(ROLLBACK.read_text(), Loader=Loader)
+
+
+def raw_entries(text):
+    """Exact source text of each blueprint entry, trailing comments/blank lines dropped."""
+    root = yaml.compose(text, Loader=Loader)
+    entries = next(value for key, value in root.value if key.value == 'entries')
+    result = []
+    for node in entries.value:
+        lines = text[node.start_mark.index:node.end_mark.index].splitlines()
+        while lines and (not lines[-1].strip() or lines[-1].strip().startswith('#')):
+            lines.pop()
+        result.append('\n'.join(lines))
+    return result
 
 
 def resolve(value, context):
@@ -78,13 +100,21 @@ def expression(entry_id, **globals_):
     return namespace['evaluate']
 
 
+LAST_LOGIN = 'authentik/providers/oauth2/last_login_uid'
+SESSION_GET = 'authentik/flows/get'
+
+
 @contextmanager
 def stock_imports():
     signals = ModuleType('authentik.events.signals')
     signals.get_login_event = lambda obj: getattr(obj, 'event', None)
     executor = ModuleType('authentik.flows.views.executor')
     executor.SESSION_KEY_PLAN = SESSION_KEY
-    with patch.dict('sys.modules', {'authentik.events.signals': signals, 'authentik.flows.views.executor': executor}):
+    executor.SESSION_KEY_GET = SESSION_GET
+    authorize_view = ModuleType('authentik.providers.oauth2.views.authorize')
+    authorize_view.SESSION_KEY_LAST_LOGIN_UID = LAST_LOGIN
+    with patch.dict('sys.modules', {'authentik.events.signals': signals, 'authentik.flows.views.executor': executor,
+                                    'authentik.providers.oauth2.views.authorize': authorize_view}):
         yield
 
 
@@ -192,7 +222,8 @@ class ClientAndAuthorizationTests(unittest.TestCase):
         with stock_imports(), patch('time.time', return_value=1200):
             for client_id, expected in (('alkion-lan', True), ('other-client', False)):
                 subject, event, provider = qualified(client_id)
-                request = NS(http_request=NS(user=subject, event=event, path='/application/o/authorize/'),
+                request = NS(http_request=NS(user=subject, event=event, path='/application/o/authorize/',
+                                             method='GET', GET={}, session={}),
                              user=subject, obj=NS(provider=provider))
                 self.assertIs(expression('application-policy')(request), expected)
 
@@ -225,7 +256,9 @@ class IssuanceSwitchTests(unittest.TestCase):
             self.assertEqual('state' in entry, entry['identifiers']['policy'].value == 'issuance-closed-policy')
         self.assertEqual(BY_ID['application']['attrs']['policy_engine_mode'], 'all')
         switched = [e for e in ENTRIES if 'state' in e or 'conditions' in e]
-        self.assertEqual(len(switched), 1)
+        self.assertEqual([e['model'] for e in switched], ['authentik_flows.flowstagebinding'] * 2
+                         + ['authentik_policies.policybinding'])
+        self.assertTrue(all(e.get('state') == 'absent' for e in ENTRIES if 'conditions' in e))
 
     def test_enrollment_closed_no_recovery_and_no_seeds(self):
         models = {e['model'] for e in ENTRIES}
@@ -240,6 +273,290 @@ class IssuanceSwitchTests(unittest.TestCase):
         self.assertEqual(BY_ID['enrollment-flow']['attrs']['designation'], 'stage_configuration')
         for flow in ('normal-flow', 'enrollment-flow', 'repair-flow', 'authorization-flow'):
             self.assertNotIn('conditions', BY_ID[flow])
+
+
+
+def bindings(document, flow):
+    return [(e['identifiers']['order'], e['identifiers']['stage'], e.get('state', 'present'), e.get('attrs'))
+            for e in document['entries'] if e['model'] == 'authentik_flows.flowstagebinding'
+            and e['identifiers']['target'] == Tag('!KeyOf', flow)]
+
+
+UNCONDITIONAL = {'evaluate_on_plan': True, 're_evaluate_policies': False, 'invalid_response_action': 'retry'}
+SHARED = ('prompt-continue', 'identification', 'password', 'enrollment-flow', 'repair-flow', 'bootstrap-entry',
+          'bootstrap', 'repair', 'bootstrap-entry-policy', 'bootstrap-policy', 'repair-policy', 'totp-setup',
+          'static-setup', 'static-validation', 'logout', 'bootstrap-group', 'repair-group')
+LABELS = {
+    'prompt-normal-entry': 'Start a new sign-in. From now you have 5 minutes to enter your password and authenticator code.',
+    'prompt-normal-final': 'Check that this account used its password and authenticator code within the last 5 minutes.',
+    'prompt-authorization-entry': 'Check that you signed in to Alkion with password and authenticator code within the last 5 minutes.',
+    'prompt-authorization-final': "Check that Alkion's request and your sign-in are unchanged and still under 5 minutes old.",
+}
+
+
+class FlowSimplificationTests(unittest.TestCase):
+    """2026-11-18: username+password on one page, remembered consent, plain labels."""
+
+    def test_normal_flow_binds_combined_page_and_removes_old_bindings(self):
+        guards = [e.get('conditions') for e in ENTRIES if e.get('state') == 'absent']
+        self.assertEqual(guards, [
+            [Tag('!Find', ['authentik_flows.flowstagebinding', ['target', Tag('!KeyOf', 'normal-flow')],
+                           ['stage', Tag('!KeyOf', stage)], ['order', order]])]
+            for stage, order in (('identification', 10), ('password', 20))])
+        self.assertEqual(bindings(DOCUMENT, 'normal-flow'), [
+            (0, Tag('!KeyOf', 'normal-entry'), 'present', UNCONDITIONAL),
+            (10, Tag('!KeyOf', 'identification'), 'absent', None),
+            (20, Tag('!KeyOf', 'password'), 'absent', None),
+            (10, Tag('!KeyOf', 'normal-identification'), 'present', UNCONDITIONAL),
+            (30, Tag('!KeyOf', 'totp-validation'), 'present', UNCONDITIONAL),
+            (40, Tag('!KeyOf', 'normal-final'), 'present', UNCONDITIONAL),
+            (50, Tag('!KeyOf', 'login'), 'present', UNCONDITIONAL)])
+        # The absent entries come before the replacement, which comes after its stage.
+        ids = [e.get('id') for e in ENTRIES]
+        self.assertLess(ids.index('password'), ids.index('normal-identification'))
+        self.assertLess(ids.index('normal-identification'), ids.index('totp-validation'))
+
+    def test_combined_identification_stage_is_fully_declared(self):
+        self.assertEqual(BY_ID['normal-identification'], {
+            'model': 'authentik_stages_identification.identificationstage', 'id': 'normal-identification',
+            'identifiers': {'name': 'animus-lan-normal-identification'},
+            'attrs': {'user_fields': ['username'], 'password_stage': Tag('!KeyOf', 'password'),
+                      'captcha_stage': None, 'webauthn_stage': None, 'case_insensitive_matching': True,
+                      'show_matched_user': False, 'pretend_user_exists': True, 'enable_remember_me': False,
+                      'enrollment_flow': None, 'recovery_flow': None, 'passwordless_flow': None,
+                      'sources': [], 'show_source_labels': False}})
+        self.assertEqual(BY_ID['password']['attrs']['backends'], ['authentik.core.auth.InbuiltBackend'])
+
+    def test_shared_stages_enrollment_and_repair_are_byte_for_byte_unchanged(self):
+        forward = dict(zip((e.get('id') for e in ENTRIES), raw_entries(BLUEPRINT.read_text())))
+        previous = dict(zip((e.get('id') for e in ROLLBACK_DOCUMENT['entries']), raw_entries(ROLLBACK.read_text())))
+        for entry_id in SHARED:
+            with self.subTest(entry=entry_id):
+                self.assertEqual(forward[entry_id], previous[entry_id])
+        for flow in ('enrollment-flow', 'repair-flow'):
+            with self.subTest(flow=flow):
+                self.assertEqual(bindings(DOCUMENT, flow), bindings(ROLLBACK_DOCUMENT, flow))
+                forward_raw = [r for e, r in zip(ENTRIES, raw_entries(BLUEPRINT.read_text()))
+                               if e['model'] == 'authentik_flows.flowstagebinding'
+                               and e['identifiers']['target'] == Tag('!KeyOf', flow)]
+                previous_raw = [r for e, r in zip(ROLLBACK_DOCUMENT['entries'], raw_entries(ROLLBACK.read_text()))
+                                if e['model'] == 'authentik_flows.flowstagebinding'
+                                and e['identifiers']['target'] == Tag('!KeyOf', flow)]
+                self.assertEqual(forward_raw, previous_raw)
+                self.assertTrue(all(stage != Tag('!KeyOf', 'normal-identification')
+                                    for _, stage, _, _ in bindings(DOCUMENT, flow)))
+
+    def test_consent_is_remembered_permanently(self):
+        self.assertEqual(BY_ID['consent']['attrs'], {'mode': 'permanent', 'consent_expire_in': 'weeks=4'})
+        self.assertEqual([(o, s) for o, s, _, _ in bindings(DOCUMENT, 'authorization-flow')], [
+            (0, Tag('!KeyOf', 'authorization-entry')), (10, Tag('!KeyOf', 'consent')),
+            (20, Tag('!KeyOf', 'authorization-final'))])
+
+    def test_validator_prompts_have_their_own_plain_checkbox(self):
+        stages = {'normal-entry': ('prompt-normal-entry', 'entry-policy'),
+                  'normal-final': ('prompt-normal-final', 'final-policy'),
+                  'authorization-entry': ('prompt-authorization-entry', 'authorization-entry-policy'),
+                  'authorization-final': ('prompt-authorization-final', 'authorization-final-policy')}
+        for stage, (prompt, policy) in stages.items():
+            with self.subTest(stage=stage):
+                self.assertEqual(BY_ID[stage]['attrs'], {'fields': [Tag('!KeyOf', prompt)],
+                                                         'validation_policies': [Tag('!KeyOf', policy)]})
+                self.assertEqual(BY_ID[prompt]['attrs'], {
+                    'field_key': 'p1_continue', 'label': LABELS[prompt], 'type': 'checkbox', 'required': True,
+                    'placeholder': '', 'initial_value': '', 'sub_text': '', 'order': 0,
+                    'placeholder_expression': False, 'initial_value_expression': False})
+        self.assertEqual(len(set(LABELS.values())), 4)
+        for stage in ('bootstrap-entry', 'bootstrap', 'repair'):
+            self.assertEqual(BY_ID[stage]['attrs']['fields'], [Tag('!KeyOf', 'prompt-continue')])
+
+    def test_policies_do_not_depend_on_the_replaced_stages(self):
+        for entry in ENTRIES:
+            source = entry.get('attrs', {}).get('expression') if isinstance(entry.get('attrs'), dict) else None
+            if source:
+                with self.subTest(policy=entry.get('id')):
+                    for needle in ('animus-lan-identification', 'animus-lan-password', 'len(plan.bindings)',
+                                   'bindings[1]', 'animus-lan-normal-identification'):
+                        self.assertNotIn(needle, source)
+        # Entry/final validators still address only their own binding.
+        self.assertIn('binding = plan.bindings[0]', BY_ID['entry-policy']['attrs']['expression'])
+        self.assertIn('context.get("auth_method") != "password"', BY_ID['final-policy']['attrs']['expression'])
+
+
+ADDED = """  # Objects added by the simplification. !Find (not !KeyOf): absent entries never
+  # become references. Each removal runs only while its object exists; in 2026.8.5
+"""
+
+
+class RollbackTests(unittest.TestCase):
+    def test_rollback_is_the_previous_blueprint_plus_explicit_removals(self):
+        text = ROLLBACK.read_text()
+        self.assertTrue(text.startswith('# ROLLBACK of the 2026-11-18 normal-flow simplification.'))
+        body = text[text.index('# Application issuance is CLOSED by default.'):]
+        start = body.index(ADDED)
+        end = body.index('    identifiers: {target: !KeyOf enrollment-flow', start) - len('  - model: authentik_flows.flowstagebinding\n')
+        self.assertEqual(hashlib.sha256((body[:start] + body[end:]).encode()).hexdigest(), PREVIOUS_SHA256)
+        removed = yaml.load('entries:\n' + body[start:end], Loader=Loader)['entries']
+        stage = Tag('!Find', ['authentik_stages_identification.identificationstage',
+                              ['name', 'animus-lan-normal-identification']])
+        self.assertEqual(removed, [
+            {'model': 'authentik_flows.flowstagebinding', 'state': 'absent',
+             'conditions': [Tag('!Find', ['authentik_flows.flowstagebinding', ['target', Tag('!KeyOf', 'normal-flow')],
+                                          ['stage__name', 'animus-lan-normal-identification'], ['order', 10]])],
+             'identifiers': {'target': Tag('!KeyOf', 'normal-flow'), 'stage': stage, 'order': 10}},
+            {'model': 'authentik_stages_identification.identificationstage', 'state': 'absent',
+             'conditions': [stage], 'identifiers': {'name': 'animus-lan-normal-identification'}},
+            *({'model': 'authentik_stages_prompt.prompt', 'state': 'absent',
+               'conditions': [Tag('!Find', ['authentik_stages_prompt.prompt', ['name', BY_ID[prompt]['identifiers']['name']]])],
+               'identifiers': {'name': BY_ID[prompt]['identifiers']['name']}} for prompt in LABELS)])
+
+    def test_rollback_restores_previous_attributes_explicitly(self):
+        by_id = {e['id']: e for e in ROLLBACK_DOCUMENT['entries'] if 'id' in e}
+        self.assertEqual(by_id['consent']['attrs'], {'mode': 'always_require'})
+        self.assertEqual([(o, s, state) for o, s, state, _ in bindings(ROLLBACK_DOCUMENT, 'normal-flow')], [
+            (0, Tag('!KeyOf', 'normal-entry'), 'present'), (10, Tag('!KeyOf', 'identification'), 'present'),
+            (20, Tag('!KeyOf', 'password'), 'present'), (30, Tag('!KeyOf', 'totp-validation'), 'present'),
+            (40, Tag('!KeyOf', 'normal-final'), 'present'), (50, Tag('!KeyOf', 'login'), 'present'),
+            (10, Tag('!Find', ['authentik_stages_identification.identificationstage',
+                               ['name', 'animus-lan-normal-identification']]), 'absent')])
+        for stage in ('normal-entry', 'normal-final', 'authorization-entry', 'authorization-final'):
+            self.assertEqual(by_id[stage]['attrs']['fields'], [Tag('!KeyOf', 'prompt-continue')])
+        self.assertNotIn('normal-identification', by_id)
+        self.assertEqual(ROLLBACK_DOCUMENT['metadata'], DOCUMENT['metadata'])
+        self.assertEqual(ROLLBACK_DOCUMENT['context'], DOCUMENT['context'])
+        self.assertIn('Remembered consent', ROLLBACK.read_text().split('version: 1')[0])
+
+    def test_rollback_is_outside_the_mounted_blueprint_directory(self):
+        self.assertEqual({path.name for path in (STACK / 'blueprints').iterdir()}, {'alkion-lan.yaml'})
+        self.assertNotEqual(ROLLBACK.parent, BLUEPRINT.parent)
+
+
+class TOTPDevice:
+    def __init__(self, user_id=7, confirmed=True):
+        self.user_id, self.confirmed = user_id, confirmed
+
+
+def final_request(next_url):
+    binding = NS(stage=NS(name='animus-lan-normal-final'), order=40, target_id=UUID(FLOW))
+    context = {'hub_p1_execution': {'policy': POLICY, 'flow': FLOW, 'nonce': 'a' * 32, 'factor_time': 1000,
+                                    'initial_session_user': None, 'initial_login_event': None},
+               'pending_user': user(), 'auth_method': 'password', 'auth_method_args': {'mfa_devices': [TOTPDevice()]}}
+    plan = NS(flow_pk=FLOW, bindings=[binding], context=context)
+    session = {SESSION_KEY: plan} | ({SESSION_GET: {'next': next_url}} if next_url is not None else {})
+    http = NS(session=session, user=user(None, is_authenticated=False), event=None)
+    return NS(http_request=http, user=http.user, context={}, obj=None), plan
+
+
+REQUEST = {'client_id': 'alkion-lan', 'redirect_uri': NATIVE, 'code_challenge': CHALLENGE, 'code_challenge_method': 'S256'}
+
+
+def request_hash(fields):
+    return hashlib.sha256(json.dumps([fields[k] for k in ('client_id', 'redirect_uri', 'code_challenge',
+                                                         'code_challenge_method')]).encode()).hexdigest()
+
+
+def authorize_url(prefix='/application/o/authorize/', **changes):
+    query = {k: v for k, v in (REQUEST | {'response_type': 'code', 'prompt': 'login'} | changes).items() if v is not None}
+    return prefix + '?' + urlencode(query)
+
+
+def app_request(prompt=None, now=1200, method='GET', bound=None, **changes):
+    subject, event, provider = qualified()
+    event.context['auth_method_args']['hub_policy_request'] = request_hash(REQUEST) if bound is None else bound
+    query = {k: v for k, v in (REQUEST | {'response_type': 'code'} | changes).items() if v is not None}
+    query |= {'prompt': prompt} if prompt is not None else {}
+    http = NS(user=subject, event=event, path='/application/o/authorize/', method=method, GET=query,
+              META={'QUERY_STRING': urlencode(query)}, session={})
+    return NS(http_request=http, user=subject, obj=NS(provider=provider)), now
+
+
+class PromptLoginTests(unittest.TestCase):
+    """prompt=login re-authenticates every Connect once and then continues that request."""
+
+    AUTHORIZE = authorize_url()
+
+    def test_final_binds_the_ceremony_to_its_normalised_authorize_request(self):
+        for redirect in (NATIVE, LOOPBACK):
+            request, plan = final_request(authorize_url(redirect_uri=redirect, state='x', scope='openid profile'))
+            with stock_imports(), patch('time.time', return_value=1100):
+                self.assertIs(expression('final-policy')(request), True)
+            self.assertEqual(plan.context['auth_method_args']['hub_policy_request'],
+                             request_hash(REQUEST | {'redirect_uri': redirect}))
+            self.assertNotIn('redirect', plan.context)
+            self.assertEqual(plan.context['auth_method_args']['hub_factor_time'], 1000)
+
+    def test_final_never_binds_another_target(self):
+        duplicate = self.AUTHORIZE + '&code_challenge=' + CHALLENGE
+        for target in (None, 'http://evil.example' + self.AUTHORIZE, '//evil.example' + self.AUTHORIZE,
+                       authorize_url('/application/o/token/'), '/application/o/authorize/', duplicate,
+                       authorize_url(client_id='other-client'), authorize_url(code_challenge_method='plain'),
+                       authorize_url(code_challenge='A' * 42), authorize_url(redirect_uri=None),
+                       authorize_url(client_id=None), authorize_url(code_challenge_method=None)):
+            with self.subTest(target=target):
+                request, plan = final_request(target)
+                with stock_imports(), patch('time.time', return_value=1100):
+                    self.assertIs(expression('final-policy')(request), True)
+                self.assertIsNone(plan.context['auth_method_args']['hub_policy_request'])
+                self.assertNotIn('redirect', plan.context)
+
+    def test_final_still_requires_the_fresh_ceremony(self):
+        request, plan = final_request(self.AUTHORIZE)
+        with stock_imports(), patch('time.time', return_value=1300.5):
+            self.assertFalse(expression('final-policy')(request))
+        self.assertNotIn('redirect', plan.context)
+        self.assertNotIn('hub_policy_request', plan.context['auth_method_args'])
+
+    def test_without_prompt_login_access_is_unchanged(self):
+        for kwargs, expected in (({}, True), ({'now': 1400}, False), ({'bound': 'other'}, True),
+                                 ({'prompt': 'none'}, True), ({'prompt': 'login', 'method': 'POST', 'now': 1400}, False)):
+            with self.subTest(**kwargs):
+                request, now = app_request(**kwargs)
+                with stock_imports(), patch('time.time', return_value=now):
+                    self.assertIs(expression('application-policy')(request), expected)
+                self.assertNotIn(LAST_LOGIN, request.http_request.session)
+
+    def test_prompt_login_continues_only_the_bound_fresh_ceremony(self):
+        request, now = app_request(prompt='login')
+        with stock_imports(), patch('time.time', return_value=now):
+            self.assertIs(expression('application-policy')(request), True)
+        self.assertEqual(request.http_request.session[LAST_LOGIN], 'animus-lan-continue:event-a')
+
+    def test_prompt_login_sends_every_other_session_to_reauthentication(self):
+        cases = ({'now': 1400}, {'code_challenge': 'B' * 43}, {'bound': 'not-this-request'},
+                 {'client_id': 'other-client'}, {'redirect_uri': LOOPBACK}, {'code_challenge_method': 'plain'},
+                 {'code_challenge': None}, {'redirect_uri': None})
+        for kwargs in cases:
+            with self.subTest(**kwargs):
+                request, now = app_request(prompt='login', **kwargs)
+                with stock_imports(), patch('time.time', return_value=now):
+                    self.assertIs(expression('application-policy')(request), True)
+                # Equal to the current login: the authorize view re-authenticates first.
+                self.assertEqual(request.http_request.session[LAST_LOGIN], 'event-a')
+        request, now = app_request(prompt='consent login')
+        request.user.is_superuser = True
+        with stock_imports(), patch('time.time', return_value=now):
+            self.assertIs(expression('application-policy')(request), True)
+        self.assertEqual(request.http_request.session[LAST_LOGIN], 'event-a')
+        # A duplicated parameter never matches the single-valued hash.
+        request, now = app_request(prompt='login')
+        request.http_request.META['QUERY_STRING'] += '&client_id=alkion-lan'
+        with stock_imports(), patch('time.time', return_value=now):
+            self.assertIs(expression('application-policy')(request), True)
+        self.assertEqual(request.http_request.session[LAST_LOGIN], 'event-a')
+
+    def test_prompt_login_fails_closed_without_event_or_in_a_policy_subprocess(self):
+        request, now = app_request(prompt='login')
+        request.http_request.event = None
+        with stock_imports(), patch('time.time', return_value=now):
+            self.assertFalse(expression('application-policy')(request))
+        request, now = app_request(prompt='login', now=1400)
+        with stock_imports(), patch('time.time', return_value=now), \
+                patch('multiprocessing.current_process', return_value=NS(daemon=False)):
+            self.assertFalse(expression('application-policy')(request))
+        self.assertNotIn(LAST_LOGIN, request.http_request.session)
+        request, now = app_request(prompt='login', now=1400)
+        request.http_request.path = '/api/v3/core/applications/'
+        with stock_imports(), patch('time.time', return_value=now):
+            self.assertFalse(expression('application-policy')(request))
 
 
 if __name__ == '__main__':

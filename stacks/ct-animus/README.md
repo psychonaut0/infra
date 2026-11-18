@@ -308,6 +308,48 @@ revoke all credentials or invalidate every old partial plan: the reviewed
 full-hold/drain/operator envelope and its actual qualification remain required.
 The global default administrator authentication flow is unchanged.
 
+Since 2026-11-18 the normal flow shows username and password on one page: its own
+`animus-lan-normal-identification` stage embeds the existing inbuilt password
+stage, so the login still records the `password` method the validators require.
+The shared identification and password stages, enrollment and repair are
+unchanged. Consent is remembered permanently per user and application, so it
+appears on an account's first authorization only; the authorization entry and
+final validator Prompts run on every authorization and are not affected by a
+skipped consent page. Each validator Prompt has its own checkbox whose label says
+what it checks. The replaced normal-flow bindings are removed by `state: absent`
+entries guarded by an existence condition, because in 2026.8.5 an unguarded absent
+binding with no matching row makes every later apply fail.
+
+With OIDC `prompt=login`, every Connect costs exactly one fresh ceremony. Stock
+2026.8.5 does not give that: application policies run before the authorize view
+handles `prompt`, so a stale or foreign session was denied, and its last-login
+marker made a later `prompt=login` either a second ceremony or a no-op. The final
+normal validator therefore records a hash of the normalised authorization request
+that started the ceremony (`alkion-lan` client, callback, S256 challenge; a label,
+never proof or time). The application policy continues only that exact request;
+any other session (stale, another account, another flow, ineligible) is sent back
+to the normal flow instead of being denied.
+Without `prompt=login` access is unchanged. Clients must not add a small
+`max_age`: re-authentication would repeat. Page counts, prompt
+handling and the deny checks are recorded in the
+[P1 qualification README](qualification/p1/README.md#normal-flow-simplification-2026-11-18).
+
+Rollback is the reviewed `rollback/alkion-lan-20261118-rollback.yaml`, kept outside
+the mounted directory so the worker never discovers it. Copy it over
+`blueprints/alkion-lan.yaml` on the CT (same blueprint instance and context),
+Apply, and check the flow-stage bindings by read-only SQL: normal flow back to
+entry, identification, password, TOTP, final, login, and no
+`animus-lan-normal-identification` stage. It restores the previous attributes
+explicitly, including the previous final and application policies (so `prompt=login`
+behaves as stock again), and removes the added stage, binding and four checkbox fields. It does
+not delete remembered consent: `always_require` ignores those UserConsent rows,
+but they survive and would be honoured again by a later remembered mode, so delete
+them in the admin interface first if that matters.
+
+Run `python3 check-config.py` and `python3 check-config.py --inspect-image` on the
+CT itself during every redeploy, including this one: they need
+`/etc/animus-control`, so a workstation can only run `--self-test`.
+
 The internal trusted login-event key is `hub_policy_id`; only the signed public
 claim remains `hub_authentication_policy`, with `hub_factor_time`. Original-grant
 subject/event/authentication-time association must hold; refresh retains the
