@@ -428,5 +428,108 @@ class RollbackTests(unittest.TestCase):
         self.assertNotEqual(ROLLBACK.parent, BLUEPRINT.parent)
 
 
+class TOTPDevice:
+    def __init__(self, user_id=7, confirmed=True):
+        self.user_id, self.confirmed = user_id, confirmed
+
+
+def final_request(next_url):
+    binding = NS(stage=NS(name='animus-lan-normal-final'), order=40, target_id=UUID(FLOW))
+    context = {'hub_p1_execution': {'policy': POLICY, 'flow': FLOW, 'nonce': 'a' * 32, 'factor_time': 1000,
+                                    'initial_session_user': None, 'initial_login_event': None},
+               'pending_user': user(), 'auth_method': 'password', 'auth_method_args': {'mfa_devices': [TOTPDevice()]}}
+    plan = NS(flow_pk=FLOW, bindings=[binding], context=context)
+    session = {SESSION_KEY: plan} | ({SESSION_GET: {'next': next_url}} if next_url is not None else {})
+    http = NS(session=session, user=user(None, is_authenticated=False), event=None)
+    return NS(http_request=http, user=http.user, context={}, obj=None), plan
+
+
+def app_request(prompt=None, challenge=CHALLENGE, bound=CHALLENGE, now=1200, method='GET'):
+    subject, event, provider = qualified()
+    event.context['auth_method_args']['hub_policy_request'] = bound
+    query = {'code_challenge': challenge} | ({'prompt': prompt} if prompt is not None else {})
+    http = NS(user=subject, event=event, path='/application/o/authorize/', method=method, GET=query, session={})
+    return NS(http_request=http, user=subject, obj=NS(provider=provider)), now
+
+
+class PromptLoginTests(unittest.TestCase):
+    """prompt=login re-authenticates every Connect once and then continues that request."""
+
+    AUTHORIZE = '/application/o/authorize/?client_id=alkion-lan&code_challenge=' + CHALLENGE + '&prompt=login'
+
+    def test_final_binds_the_ceremony_to_its_authorize_request(self):
+        request, plan = final_request(self.AUTHORIZE)
+        with stock_imports(), patch('time.time', return_value=1100):
+            self.assertIs(expression('final-policy')(request), True)
+        self.assertEqual(plan.context['auth_method_args']['hub_policy_request'], CHALLENGE)
+        self.assertEqual(plan.context['redirect'], self.AUTHORIZE)
+        self.assertEqual(plan.context['auth_method_args']['hub_factor_time'], 1000)
+
+    def test_final_never_binds_another_target(self):
+        for target in (None, 'http://evil.example/application/o/authorize/?code_challenge=' + CHALLENGE,
+                       '//evil.example/application/o/authorize/?code_challenge=' + CHALLENGE,
+                       '/application/o/token/?code_challenge=' + CHALLENGE, '/application/o/authorize/',
+                       '/application/o/authorize/?code_challenge=' + 'A' * 42,
+                       '/application/o/authorize/?code_challenge=' + CHALLENGE + '&code_challenge=' + CHALLENGE):
+            with self.subTest(target=target):
+                request, plan = final_request(target)
+                with stock_imports(), patch('time.time', return_value=1100):
+                    self.assertIs(expression('final-policy')(request), True)
+                self.assertIsNone(plan.context['auth_method_args']['hub_policy_request'])
+                self.assertNotIn('redirect', plan.context)
+
+    def test_final_still_requires_the_fresh_ceremony(self):
+        request, plan = final_request(self.AUTHORIZE)
+        with stock_imports(), patch('time.time', return_value=1300.5):
+            self.assertFalse(expression('final-policy')(request))
+        self.assertNotIn('redirect', plan.context)
+        self.assertNotIn('hub_policy_request', plan.context['auth_method_args'])
+
+    def test_without_prompt_login_access_is_unchanged(self):
+        for kwargs, expected in (({}, True), ({'now': 1400}, False), ({'bound': None}, True),
+                                 ({'prompt': 'none'}, True), ({'prompt': 'login', 'method': 'POST', 'now': 1400}, False)):
+            with self.subTest(**kwargs):
+                request, now = app_request(**kwargs)
+                with stock_imports(), patch('time.time', return_value=now):
+                    self.assertIs(expression('application-policy')(request), expected)
+                self.assertNotIn(LAST_LOGIN, request.http_request.session)
+
+    def test_prompt_login_continues_only_the_bound_fresh_ceremony(self):
+        request, now = app_request(prompt='login')
+        with stock_imports(), patch('time.time', return_value=now):
+            self.assertIs(expression('application-policy')(request), True)
+        self.assertEqual(request.http_request.session[LAST_LOGIN], 'animus-lan-continue:event-a')
+
+    def test_prompt_login_sends_every_other_session_to_reauthentication(self):
+        cases = ({'now': 1400}, {'challenge': 'B' * 43}, {'bound': None}, {'challenge': None})
+        for kwargs in cases:
+            with self.subTest(**kwargs):
+                request, now = app_request(prompt='login', **kwargs)
+                with stock_imports(), patch('time.time', return_value=now):
+                    self.assertIs(expression('application-policy')(request), True)
+                # Equal to the current login: the authorize view re-authenticates first.
+                self.assertEqual(request.http_request.session[LAST_LOGIN], 'event-a')
+        request, now = app_request(prompt='consent login')
+        request.user.is_superuser = True
+        with stock_imports(), patch('time.time', return_value=now):
+            self.assertIs(expression('application-policy')(request), True)
+        self.assertEqual(request.http_request.session[LAST_LOGIN], 'event-a')
+
+    def test_prompt_login_fails_closed_without_event_or_in_a_policy_subprocess(self):
+        request, now = app_request(prompt='login')
+        request.http_request.event = None
+        with stock_imports(), patch('time.time', return_value=now):
+            self.assertFalse(expression('application-policy')(request))
+        request, now = app_request(prompt='login', now=1400)
+        with stock_imports(), patch('time.time', return_value=now), \
+                patch('multiprocessing.current_process', return_value=NS(daemon=False)):
+            self.assertFalse(expression('application-policy')(request))
+        self.assertNotIn(LAST_LOGIN, request.http_request.session)
+        request, now = app_request(prompt='login', now=1400)
+        request.http_request.path = '/api/v3/core/applications/'
+        with stock_imports(), patch('time.time', return_value=now):
+            self.assertFalse(expression('application-policy')(request))
+
+
 if __name__ == '__main__':
     unittest.main(verbosity=1)

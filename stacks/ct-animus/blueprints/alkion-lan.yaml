@@ -213,8 +213,9 @@ entries:
             import multiprocessing
             import re
             import time
+            from urllib.parse import parse_qs, urlsplit
             from authentik.events.signals import get_login_event
-            from authentik.flows.views.executor import SESSION_KEY_PLAN
+            from authentik.flows.views.executor import SESSION_KEY_GET, SESSION_KEY_PLAN
             process = multiprocessing.current_process()
             if type(process).__name__ != "_MainProcess" or process.daemon:
                 return False
@@ -252,12 +253,26 @@ entries:
             for device in args["mfa_devices"]:
                 if type(device).__name__ != "TOTPDevice" or not device.confirmed or device.user_id != user.pk:
                     return False
+            # Label (never proof or time): the PKCE challenge of the authorize request that
+            # started this ceremony, so prompt=login continues exactly that request. The
+            # plan redirect returns there even when User Login replaces another account's
+            # session, which drops the session's next URL.
+            bound = None
+            target = http.session.get(SESSION_KEY_GET, {}).get("next")
+            if isinstance(target, str):
+                parts = urlsplit(target)
+                challenges = parse_qs(parts.query).get("code_challenge", [])
+                if (not parts.scheme and not parts.netloc and parts.path == "/application/o/authorize/"
+                        and len(challenges) == 1 and re.fullmatch(r"[A-Za-z0-9_-]{43}", challenges[0])):
+                    bound = challenges[0]
             marker = {"hub_policy_id": state["policy"], "hub_factor_time": started,
                       "hub_policy_flow": state["flow"], "hub_policy_execution": state["nonce"],
-                      "hub_policy_subject": user.pk}
+                      "hub_policy_subject": user.pk, "hub_policy_request": bound}
             if any(key in args and args[key] != value for key, value in marker.items()):
                 return False
             args.update(marker)
+            if bound is not None:
+                context["redirect"] = target
             http.session[SESSION_KEY_PLAN] = plan
             return True
         except Exception:
@@ -337,11 +352,30 @@ entries:
             except Exception:
                 return None
         try:
+            import multiprocessing
             from authentik.events.signals import get_login_event
+            from authentik.providers.oauth2.views.authorize import SESSION_KEY_LAST_LOGIN_UID
             http = request.http_request
             if http.path != "/application/o/authorize/" or not http.user.is_authenticated or http.user.pk != request.user.pk:
                 return False
-            return event_proof(get_login_event(http), request.user, request.obj.provider, True) is not None
+            event = get_login_event(http)
+            proof = event_proof(event, request.user, request.obj.provider, True)
+            process = multiprocessing.current_process()
+            if (http.method != "GET" or "login" not in http.GET.get("prompt", "").split() or event is None
+                    or type(process).__name__ != "_MainProcess" or process.daemon):
+                return proof is not None
+            # prompt=login: continue only the ceremony the final normal validator bound to
+            # this request's PKCE challenge. Any other session (stale, another account,
+            # another flow) goes back to the normal flow: with the last-login marker equal
+            # to the current login, the authorize view re-authenticates before it plans
+            # any authorization (authorize.py:552-560), so True on that branch mints nothing.
+            bound = event.context.get("auth_method_args", {}).get("hub_policy_request")
+            challenge = http.GET.get("code_challenge")
+            if proof is not None and isinstance(challenge, str) and bound == challenge:
+                http.session[SESSION_KEY_LAST_LOGIN_UID] = "animus-lan-continue:" + str(event.pk)
+            else:
+                http.session[SESSION_KEY_LAST_LOGIN_UID] = str(event.pk)
+            return True
         except Exception:
             return False
   - model: authentik_policies_expression.expressionpolicy
