@@ -323,8 +323,7 @@ binding with no matching row makes every later apply fail. With OIDC `prompt=log
 handles `prompt`, so a stale or foreign session was denied, and its last-login
 marker made a later `prompt=login` either a second ceremony or a no-op. The final
 normal validator therefore records the PKCE challenge of the authorization request
-that started the ceremony (a label, never proof or time) and returns there even
-when User Login replaces another account's session. The application policy
+that started the ceremony (a label, never proof or time). The application policy
 continues only that request; any other session (stale, another account, another
 flow, ineligible) is sent back to the normal flow instead of being denied.
 Without `prompt=login` access is unchanged. Clients must not add a small

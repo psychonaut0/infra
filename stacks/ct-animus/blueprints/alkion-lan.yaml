@@ -254,9 +254,7 @@ entries:
                 if type(device).__name__ != "TOTPDevice" or not device.confirmed or device.user_id != user.pk:
                     return False
             # Label (never proof or time): the PKCE challenge of the authorize request that
-            # started this ceremony, so prompt=login continues exactly that request. The
-            # plan redirect returns there even when User Login replaces another account's
-            # session, which drops the session's next URL.
+            # started this ceremony, so prompt=login continues exactly that request.
             bound = None
             target = http.session.get(SESSION_KEY_GET, {}).get("next")
             if isinstance(target, str):
@@ -271,8 +269,6 @@ entries:
             if any(key in args and args[key] != value for key, value in marker.items()):
                 return False
             args.update(marker)
-            if bound is not None:
-                context["redirect"] = target
             http.session[SESSION_KEY_PLAN] = plan
             return True
         except Exception:

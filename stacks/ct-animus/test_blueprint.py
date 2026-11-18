@@ -22,7 +22,7 @@ STACK = Path(__file__).resolve().parent
 BLUEPRINT = STACK / 'blueprints' / 'alkion-lan.yaml'
 ROLLBACK = STACK / 'rollback' / 'alkion-lan-20261118-rollback.yaml'
 # sha256 of blueprints/alkion-lan.yaml before the 2026-11-18 simplification
-# (origin/master 3fb79c1); the rollback must reproduce it exactly.
+# (at bcd1a2e, last changed in add47cb); the rollback must reproduce it exactly.
 PREVIOUS_SHA256 = '5d30b62e75ebe714f1ec11258bf813d28849593a8020f25c3c3b6eaf0f06429d'
 NATIVE = 'dev.animusstudio.alkion.dev:/oauth2redirect'
 LOOPBACK = 'http://127.0.0.1:43819/callback'
@@ -462,7 +462,7 @@ class PromptLoginTests(unittest.TestCase):
         with stock_imports(), patch('time.time', return_value=1100):
             self.assertIs(expression('final-policy')(request), True)
         self.assertEqual(plan.context['auth_method_args']['hub_policy_request'], CHALLENGE)
-        self.assertEqual(plan.context['redirect'], self.AUTHORIZE)
+        self.assertNotIn('redirect', plan.context)
         self.assertEqual(plan.context['auth_method_args']['hub_factor_time'], 1000)
 
     def test_final_never_binds_another_target(self):
