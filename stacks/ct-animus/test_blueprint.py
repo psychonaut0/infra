@@ -10,8 +10,10 @@ blueprint importer remain runtime checks.
 from contextlib import contextmanager
 from datetime import datetime, timezone
 import hashlib
+import json
 from pathlib import Path
 from types import ModuleType, SimpleNamespace as NS
+from urllib.parse import urlencode
 import unittest
 from unittest.mock import patch
 from uuid import UUID
@@ -444,33 +446,51 @@ def final_request(next_url):
     return NS(http_request=http, user=http.user, context={}, obj=None), plan
 
 
-def app_request(prompt=None, challenge=CHALLENGE, bound=CHALLENGE, now=1200, method='GET'):
+REQUEST = {'client_id': 'alkion-lan', 'redirect_uri': NATIVE, 'code_challenge': CHALLENGE, 'code_challenge_method': 'S256'}
+
+
+def request_hash(fields):
+    return hashlib.sha256(json.dumps([fields[k] for k in ('client_id', 'redirect_uri', 'code_challenge',
+                                                         'code_challenge_method')]).encode()).hexdigest()
+
+
+def authorize_url(prefix='/application/o/authorize/', **changes):
+    query = {k: v for k, v in (REQUEST | {'response_type': 'code', 'prompt': 'login'} | changes).items() if v is not None}
+    return prefix + '?' + urlencode(query)
+
+
+def app_request(prompt=None, now=1200, method='GET', bound=None, **changes):
     subject, event, provider = qualified()
-    event.context['auth_method_args']['hub_policy_request'] = bound
-    query = {'code_challenge': challenge} | ({'prompt': prompt} if prompt is not None else {})
-    http = NS(user=subject, event=event, path='/application/o/authorize/', method=method, GET=query, session={})
+    event.context['auth_method_args']['hub_policy_request'] = request_hash(REQUEST) if bound is None else bound
+    query = {k: v for k, v in (REQUEST | {'response_type': 'code'} | changes).items() if v is not None}
+    query |= {'prompt': prompt} if prompt is not None else {}
+    http = NS(user=subject, event=event, path='/application/o/authorize/', method=method, GET=query,
+              META={'QUERY_STRING': urlencode(query)}, session={})
     return NS(http_request=http, user=subject, obj=NS(provider=provider)), now
 
 
 class PromptLoginTests(unittest.TestCase):
     """prompt=login re-authenticates every Connect once and then continues that request."""
 
-    AUTHORIZE = '/application/o/authorize/?client_id=alkion-lan&code_challenge=' + CHALLENGE + '&prompt=login'
+    AUTHORIZE = authorize_url()
 
-    def test_final_binds_the_ceremony_to_its_authorize_request(self):
-        request, plan = final_request(self.AUTHORIZE)
-        with stock_imports(), patch('time.time', return_value=1100):
-            self.assertIs(expression('final-policy')(request), True)
-        self.assertEqual(plan.context['auth_method_args']['hub_policy_request'], CHALLENGE)
-        self.assertNotIn('redirect', plan.context)
-        self.assertEqual(plan.context['auth_method_args']['hub_factor_time'], 1000)
+    def test_final_binds_the_ceremony_to_its_normalised_authorize_request(self):
+        for redirect in (NATIVE, LOOPBACK):
+            request, plan = final_request(authorize_url(redirect_uri=redirect, state='x', scope='openid profile'))
+            with stock_imports(), patch('time.time', return_value=1100):
+                self.assertIs(expression('final-policy')(request), True)
+            self.assertEqual(plan.context['auth_method_args']['hub_policy_request'],
+                             request_hash(REQUEST | {'redirect_uri': redirect}))
+            self.assertNotIn('redirect', plan.context)
+            self.assertEqual(plan.context['auth_method_args']['hub_factor_time'], 1000)
 
     def test_final_never_binds_another_target(self):
-        for target in (None, 'http://evil.example/application/o/authorize/?code_challenge=' + CHALLENGE,
-                       '//evil.example/application/o/authorize/?code_challenge=' + CHALLENGE,
-                       '/application/o/token/?code_challenge=' + CHALLENGE, '/application/o/authorize/',
-                       '/application/o/authorize/?code_challenge=' + 'A' * 42,
-                       '/application/o/authorize/?code_challenge=' + CHALLENGE + '&code_challenge=' + CHALLENGE):
+        duplicate = self.AUTHORIZE + '&code_challenge=' + CHALLENGE
+        for target in (None, 'http://evil.example' + self.AUTHORIZE, '//evil.example' + self.AUTHORIZE,
+                       authorize_url('/application/o/token/'), '/application/o/authorize/', duplicate,
+                       authorize_url(client_id='other-client'), authorize_url(code_challenge_method='plain'),
+                       authorize_url(code_challenge='A' * 42), authorize_url(redirect_uri=None),
+                       authorize_url(client_id=None), authorize_url(code_challenge_method=None)):
             with self.subTest(target=target):
                 request, plan = final_request(target)
                 with stock_imports(), patch('time.time', return_value=1100):
@@ -486,7 +506,7 @@ class PromptLoginTests(unittest.TestCase):
         self.assertNotIn('hub_policy_request', plan.context['auth_method_args'])
 
     def test_without_prompt_login_access_is_unchanged(self):
-        for kwargs, expected in (({}, True), ({'now': 1400}, False), ({'bound': None}, True),
+        for kwargs, expected in (({}, True), ({'now': 1400}, False), ({'bound': 'other'}, True),
                                  ({'prompt': 'none'}, True), ({'prompt': 'login', 'method': 'POST', 'now': 1400}, False)):
             with self.subTest(**kwargs):
                 request, now = app_request(**kwargs)
@@ -501,7 +521,9 @@ class PromptLoginTests(unittest.TestCase):
         self.assertEqual(request.http_request.session[LAST_LOGIN], 'animus-lan-continue:event-a')
 
     def test_prompt_login_sends_every_other_session_to_reauthentication(self):
-        cases = ({'now': 1400}, {'challenge': 'B' * 43}, {'bound': None}, {'challenge': None})
+        cases = ({'now': 1400}, {'code_challenge': 'B' * 43}, {'bound': 'not-this-request'},
+                 {'client_id': 'other-client'}, {'redirect_uri': LOOPBACK}, {'code_challenge_method': 'plain'},
+                 {'code_challenge': None}, {'redirect_uri': None})
         for kwargs in cases:
             with self.subTest(**kwargs):
                 request, now = app_request(prompt='login', **kwargs)
@@ -511,6 +533,12 @@ class PromptLoginTests(unittest.TestCase):
                 self.assertEqual(request.http_request.session[LAST_LOGIN], 'event-a')
         request, now = app_request(prompt='consent login')
         request.user.is_superuser = True
+        with stock_imports(), patch('time.time', return_value=now):
+            self.assertIs(expression('application-policy')(request), True)
+        self.assertEqual(request.http_request.session[LAST_LOGIN], 'event-a')
+        # A duplicated parameter never matches the single-valued hash.
+        request, now = app_request(prompt='login')
+        request.http_request.META['QUERY_STRING'] += '&client_id=alkion-lan'
         with stock_imports(), patch('time.time', return_value=now):
             self.assertIs(expression('application-policy')(request), True)
         self.assertEqual(request.http_request.session[LAST_LOGIN], 'event-a')

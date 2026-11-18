@@ -117,7 +117,7 @@ Subject: the deployed `../../blueprints/alkion-lan.yaml`, not `candidate.yaml`
 dedicated `animus-lan-normal-identification` stage embedding the existing
 password stage; consent `permanent`; one plain-word checkbox per validator Prompt;
 guarded `state: absent` removal of the replaced bindings; the `prompt=login`
-request binding; reviewed rollback `../../rollback/alkion-lan-20261118-rollback.yaml`.
+binding to a hash of the normalised authorize request; reviewed rollback `../../rollback/alkion-lan-20261118-rollback.yaml`.
 
 ### Source verification (version/2026.8.5, commit 4ec0d19b)
 
@@ -167,6 +167,19 @@ Paths are under `authentik/` or `web/src/` at that tag.
   setting it (`policies/views.py:78-79`). Authentik never stores Django's user key
   in session data (`core/sessions.py:118-136`), so `login()` keeps the session
   (key cycled) even when the account changes; the stored `next` and marker survive.
+- **Limits of the `prompt=login` binding.**
+  - The `SESSION_KEY_LAST_LOGIN_UID` marker is global to the session, so a
+    leftover `animus-lan-continue:` value suppresses `prompt=login` for any other
+    OAuth2 provider used in the same session (today there is only one).
+  - The marker survives a rollback, which restores the stock behaviour, including
+    the wrong-account no-op for another user's live session.
+  - The re-authentication branch returns True and relies on the order of
+    operations inside Authentik's authorize view (`authorize.py:525-560`). The
+    authorization entry and final validators remain the backstop, and any
+    Authentik upgrade must re-qualify this branch before deploy.
+  - The label is read from the executor's stored query on the final POST. A
+    client that drops `query` there loses it and pays a second ceremony; T7
+    checks one ceremony per Connect on the phone.
 - **Hidden-field candidate: not adoptable.** The server returns the Prompt
   challenge on every GET and advances only on a valid POST
   (`flows/stage.py:96-153`, `stages/prompt/stage.py:120-164,273-277`); a hidden

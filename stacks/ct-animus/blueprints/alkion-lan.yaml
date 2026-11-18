@@ -213,6 +213,8 @@ entries:
             import multiprocessing
             import re
             import time
+            import hashlib
+            import json
             from urllib.parse import parse_qs, urlsplit
             from authentik.events.signals import get_login_event
             from authentik.flows.views.executor import SESSION_KEY_GET, SESSION_KEY_PLAN
@@ -253,16 +255,19 @@ entries:
             for device in args["mfa_devices"]:
                 if type(device).__name__ != "TOTPDevice" or not device.confirmed or device.user_id != user.pk:
                     return False
-            # Label (never proof or time): the PKCE challenge of the authorize request that
-            # started this ceremony, so prompt=login continues exactly that request.
+            # Label (never proof or time): a hash of the normalised alkion-lan authorize
+            # request that started this ceremony (client, callback, S256 challenge), so
+            # prompt=login continues exactly that request (application policy).
             bound = None
             target = http.session.get(SESSION_KEY_GET, {}).get("next")
             if isinstance(target, str):
                 parts = urlsplit(target)
-                challenges = parse_qs(parts.query).get("code_challenge", [])
+                query = parse_qs(parts.query)
+                fields = [query.get(key, []) for key in ("client_id", "redirect_uri", "code_challenge", "code_challenge_method")]
                 if (not parts.scheme and not parts.netloc and parts.path == "/application/o/authorize/"
-                        and len(challenges) == 1 and re.fullmatch(r"[A-Za-z0-9_-]{43}", challenges[0])):
-                    bound = challenges[0]
+                        and all(len(values) == 1 for values in fields) and fields[0][0] == "alkion-lan"
+                        and fields[3][0] == "S256" and re.fullmatch(r"[A-Za-z0-9_-]{43}", fields[2][0])):
+                    bound = hashlib.sha256(json.dumps([values[0] for values in fields]).encode()).hexdigest()
             marker = {"hub_policy_id": state["policy"], "hub_factor_time": started,
                       "hub_policy_flow": state["flow"], "hub_policy_execution": state["nonce"],
                       "hub_policy_subject": user.pk, "hub_policy_request": bound}
@@ -348,7 +353,10 @@ entries:
             except Exception:
                 return None
         try:
+            import hashlib
+            import json
             import multiprocessing
+            from urllib.parse import parse_qs
             from authentik.events.signals import get_login_event
             from authentik.providers.oauth2.views.authorize import SESSION_KEY_LAST_LOGIN_UID
             http = request.http_request
@@ -361,13 +369,16 @@ entries:
                     or type(process).__name__ != "_MainProcess" or process.daemon):
                 return proof is not None
             # prompt=login: continue only the ceremony the final normal validator bound to
-            # this request's PKCE challenge. Any other session (stale, another account,
-            # another flow) goes back to the normal flow: with the last-login marker equal
-            # to the current login, the authorize view re-authenticates before it plans
+            # this exact request (same normalised hash). Any other session (stale, another
+            # account, another flow) goes back to the normal flow: with the last-login marker
+            # equal to the current login, the authorize view re-authenticates before it plans
             # any authorization (authorize.py:552-560), so True on that branch mints nothing.
+            query = parse_qs(http.META.get("QUERY_STRING", ""))
+            fields = [query.get(key, []) for key in ("client_id", "redirect_uri", "code_challenge", "code_challenge_method")]
             bound = event.context.get("auth_method_args", {}).get("hub_policy_request")
-            challenge = http.GET.get("code_challenge")
-            if proof is not None and isinstance(challenge, str) and bound == challenge:
+            current = (hashlib.sha256(json.dumps([values[0] for values in fields]).encode()).hexdigest()
+                       if all(len(values) == 1 for values in fields) and fields[0][0] == "alkion-lan" else None)
+            if proof is not None and isinstance(bound, str) and current == bound:
                 http.session[SESSION_KEY_LAST_LOGIN_UID] = "animus-lan-continue:" + str(event.pk)
             else:
                 http.session[SESSION_KEY_LAST_LOGIN_UID] = str(event.pk)
