@@ -44,6 +44,64 @@ entries:
     id: prompt-continue
     identifiers: {name: animus-lan-continue}
     attrs: {field_key: p1_continue, label: Continue, type: checkbox, required: true, order: 0}
+  # One checkbox per validator Prompt, each saying in plain words what its policy
+  # checks. The shared animus-lan-continue field above stays for enrollment/repair.
+  - model: authentik_stages_prompt.prompt
+    id: prompt-normal-entry
+    identifiers: {name: animus-lan-check-normal-entry}
+    attrs:
+      field_key: p1_continue
+      label: Start a new sign-in. From now you have 5 minutes to enter your password and authenticator code.
+      type: checkbox
+      required: true
+      placeholder: ''
+      initial_value: ''
+      sub_text: ''
+      order: 0
+      placeholder_expression: false
+      initial_value_expression: false
+  - model: authentik_stages_prompt.prompt
+    id: prompt-normal-final
+    identifiers: {name: animus-lan-check-normal-final}
+    attrs:
+      field_key: p1_continue
+      label: Check that this account used its password and authenticator code within the last 5 minutes.
+      type: checkbox
+      required: true
+      placeholder: ''
+      initial_value: ''
+      sub_text: ''
+      order: 0
+      placeholder_expression: false
+      initial_value_expression: false
+  - model: authentik_stages_prompt.prompt
+    id: prompt-authorization-entry
+    identifiers: {name: animus-lan-check-authorization-entry}
+    attrs:
+      field_key: p1_continue
+      label: Check that you signed in to Alkion with password and authenticator code within the last 5 minutes.
+      type: checkbox
+      required: true
+      placeholder: ''
+      initial_value: ''
+      sub_text: ''
+      order: 0
+      placeholder_expression: false
+      initial_value_expression: false
+  - model: authentik_stages_prompt.prompt
+    id: prompt-authorization-final
+    identifiers: {name: animus-lan-check-authorization-final}
+    attrs:
+      field_key: p1_continue
+      label: Check that Alkion's request and your sign-in are unchanged and still under 5 minutes old.
+      type: checkbox
+      required: true
+      placeholder: ''
+      initial_value: ''
+      sub_text: ''
+      order: 0
+      placeholder_expression: false
+      initial_value_expression: false
   - model: authentik_stages_identification.identificationstage
     id: identification
     identifiers: {name: animus-lan-identification}
@@ -52,6 +110,26 @@ entries:
     id: password
     identifiers: {name: animus-lan-password}
     attrs: {backends: [authentik.core.auth.InbuiltBackend], configure_flow: null}
+  # Normal flow only: username and password on one page. The embedded password
+  # stage is the one above, so the inbuilt backend still records auth_method
+  # "password". The shared identification stage above (enrollment, repair) is unchanged.
+  - model: authentik_stages_identification.identificationstage
+    id: normal-identification
+    identifiers: {name: animus-lan-normal-identification}
+    attrs:
+      user_fields: [username]
+      password_stage: !KeyOf password
+      captcha_stage: null
+      webauthn_stage: null
+      case_insensitive_matching: true
+      show_matched_user: false
+      pretend_user_exists: true
+      enable_remember_me: false
+      enrollment_flow: null
+      recovery_flow: null
+      passwordless_flow: null
+      sources: []
+      show_source_labels: false
   - model: authentik_stages_authenticator_validate.authenticatorvalidatestage
     id: totp-validation
     identifiers: {name: animus-lan-totp-validation}
@@ -78,7 +156,11 @@ entries:
   - model: authentik_stages_consent.consentstage
     id: consent
     identifiers: {name: animus-lan-consent}
-    attrs: {mode: always_require}
+    # Remembered per user and application (one client), so it is asked once. It
+    # hosts no validator: the authorization entry and final Prompts run either way.
+    # consent_expire_in is unused in permanent mode; it is pinned so the row is
+    # fully declared. Remembered consent survives a rollback (see the README).
+    attrs: {mode: permanent, consent_expire_in: 'weeks=4'}
   - model: authentik_policies_expression.expressionpolicy
     id: entry-policy
     identifiers: {name: animus-lan-entry}
@@ -489,19 +571,19 @@ entries:
   - model: authentik_stages_prompt.promptstage
     id: normal-entry
     identifiers: {name: animus-lan-normal-entry}
-    attrs: {fields: [!KeyOf prompt-continue], validation_policies: [!KeyOf entry-policy]}
+    attrs: {fields: [!KeyOf prompt-normal-entry], validation_policies: [!KeyOf entry-policy]}
   - model: authentik_stages_prompt.promptstage
     id: normal-final
     identifiers: {name: animus-lan-normal-final}
-    attrs: {fields: [!KeyOf prompt-continue], validation_policies: [!KeyOf final-policy]}
+    attrs: {fields: [!KeyOf prompt-normal-final], validation_policies: [!KeyOf final-policy]}
   - model: authentik_stages_prompt.promptstage
     id: authorization-entry
     identifiers: {name: animus-lan-authorization-entry}
-    attrs: {fields: [!KeyOf prompt-continue], validation_policies: [!KeyOf authorization-entry-policy]}
+    attrs: {fields: [!KeyOf prompt-authorization-entry], validation_policies: [!KeyOf authorization-entry-policy]}
   - model: authentik_stages_prompt.promptstage
     id: authorization-final
     identifiers: {name: animus-lan-authorization-final}
-    attrs: {fields: [!KeyOf prompt-continue], validation_policies: [!KeyOf authorization-final-policy]}
+    attrs: {fields: [!KeyOf prompt-authorization-final], validation_policies: [!KeyOf authorization-final-policy]}
   - model: authentik_stages_prompt.promptstage
     id: bootstrap-entry
     identifiers: {name: animus-lan-bootstrap-entry}
@@ -573,11 +655,23 @@ entries:
   - model: authentik_flows.flowstagebinding
     identifiers: {target: !KeyOf normal-flow, stage: !KeyOf normal-entry, order: 0}
     attrs: {evaluate_on_plan: true, re_evaluate_policies: false, invalid_response_action: retry}
+  # A re-apply never deletes entries by itself: the two bindings replaced by the
+  # combined page are removed explicitly, before the replacement is bound. Each
+  # removal runs only while its binding exists: in 2026.8.5 an absent binding entry
+  # with no matching row makes the importer delete an unsaved placeholder and fail
+  # (blueprints/v1/importer.py:444-447), so without the guard every re-apply errors.
   - model: authentik_flows.flowstagebinding
+    state: absent
+    conditions:
+      - !Find [authentik_flows.flowstagebinding, [target, !KeyOf normal-flow], [stage, !KeyOf identification], [order, 10]]
     identifiers: {target: !KeyOf normal-flow, stage: !KeyOf identification, order: 10}
-    attrs: {evaluate_on_plan: true, re_evaluate_policies: false, invalid_response_action: retry}
   - model: authentik_flows.flowstagebinding
+    state: absent
+    conditions:
+      - !Find [authentik_flows.flowstagebinding, [target, !KeyOf normal-flow], [stage, !KeyOf password], [order, 20]]
     identifiers: {target: !KeyOf normal-flow, stage: !KeyOf password, order: 20}
+  - model: authentik_flows.flowstagebinding
+    identifiers: {target: !KeyOf normal-flow, stage: !KeyOf normal-identification, order: 10}
     attrs: {evaluate_on_plan: true, re_evaluate_policies: false, invalid_response_action: retry}
   - model: authentik_flows.flowstagebinding
     identifiers: {target: !KeyOf normal-flow, stage: !KeyOf totp-validation, order: 30}
