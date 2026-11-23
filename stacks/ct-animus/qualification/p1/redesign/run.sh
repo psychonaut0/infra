@@ -155,7 +155,7 @@ case "${1:-}" in
     rm -f "$STATE/signal/go"
     "$0" actor "$set_name" > "$STATE/parked.json" &
     pid=$!
-    sleep 25
+    sleep 90  # long enough to reach the parking point, including one TOTP time step
     "$@" > "$STATE/parked-action.json"
     touch "$STATE/signal/go"
     wait "$pid"
@@ -188,11 +188,14 @@ case "${1:-}" in
     wait
     # User switching: point the brand at the Alkion flow (a misconfiguration the drift
     # check must flag), run the switch, restore and check again.
-    "$0" seed brand:switch > "$out/31-seed-brand-switch.json"
-    "$0" drift forward > "$out/32-drift-brand-switch.json"
-    "$0" actor user-switch > "$out/33-user-switch.json"
-    "$0" seed brand:restore > "$out/34-seed-brand-restore.json"
-    "$0" drift forward > "$out/35-drift-brand-restored.json"
+    "$0" seed brand:switch-add > "$out/31-seed-brand-switch-add.json"
+    "$0" drift forward > "$out/32-drift-brand-switch-add.json"
+    "$0" actor user-switch-add > "$out/33-user-switch-add.json"
+    "$0" seed brand:switch-target > "$out/34-seed-brand-switch-target.json"
+    "$0" drift forward > "$out/35-drift-brand-switch-target.json"
+    "$0" actor user-switch-target > "$out/36-user-switch-target.json"
+    "$0" seed brand:restore > "$out/37-seed-brand-restore.json"
+    "$0" drift forward > "$out/38-drift-brand-restored.json"
     n=40
     for fault in inject:animus-lan-entry-gate inject:animus-lan-login-gate inject:animus-lan-denied-notice \
                  inject:animus-lan-application inject:animus-lan-pkce negate:animus-lan-login-gate \

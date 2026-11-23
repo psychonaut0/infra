@@ -43,7 +43,7 @@ USERS = {
     "p1r-forge": ELIGIBLE, "p1r-replay": ELIGIBLE, "p1g-burst": ELIGIBLE, "p1g-refresh": ELIGIBLE,
     "p1g-redir": ELIGIBLE, "p1g-deact": ELIGIBLE, "p1g-switch-a": ELIGIBLE, "p1g-switch-b": ELIGIBLE,
     "p1g-res-a": ELIGIBLE, "p1g-res-nogroup": (False, False, True, True), "p1g-across-a": ELIGIBLE,
-    "p1g-across-b": ELIGIBLE,
+    "p1g-across-b": ELIGIBLE, "p1g-across-c": ELIGIBLE, "p1g-across-d": ELIGIBLE,
 }
 NORMAL = "animus-lan-normal"
 
