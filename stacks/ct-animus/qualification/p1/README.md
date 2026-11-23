@@ -269,3 +269,99 @@ BlueprintInstance watcher path on CT117 (the harness calls the same importer
 directly), and restored/redirected flow-token plan contexts (unchanged
 expressions; unit tests only). CT117 re-apply, the read-only SQL binding check and
 the phone rerun stay with T6/T7.
+
+## P1 sign-in redesign (2026-11-23)
+
+Subject: the deployed `../../blueprints/alkion-lan.yaml` (Animus spec and plan
+`docs/specs|plans/2026-11-23-p1-signin-redesign.md`, decisions 1–3 and 5–8), its
+rollback `../../rollback/alkion-lan-20261123-rollback.yaml` and the read-only drift
+check `../../ops/check-alkion-lan-drift`. The 2026-11-18 section above describes the
+state this replaces; its rollback is superseded.
+
+### Mechanism and why it is fail-closed
+
+- **Gates on the granting stages.** The entry gate sits on the username+password
+  binding, the login gate on the User Login binding. Both bindings are
+  `evaluate_on_plan: false`, `re_evaluate_policies: true`, engine mode `all`, so
+  `ReevaluateMarker` (`flows/markers.py`) runs the gate uncached in the request that is
+  about to serve the stage, and a false result, a `PolicyException`
+  (`failure_result: false`) or any exception caught inside the gate (`return False`)
+  removes the stage (`flows/planner.py:96-115`). Without the identification stage
+  there is no pending user, so TOTP and User Login cannot run; without User Login there
+  is no session and no `hub_policy_*` marker. Gate, PKCE and application bindings are
+  pinned `enabled: true`, `negate: false`, `failure_result: false`, `timeout: 30`.
+- **Entry gate.** First request: refuses restored, redirected, user-switch and
+  already-authenticated (`auth_method`) plans and a plan that is not the session's;
+  records `hub_p1_execution` (start time, nonce, session user, login event). Later
+  requests accept only the same untouched envelope and never renew the time.
+- **Login gate.** Today's final check (300 s, same subject and session, active,
+  non-superuser, normal group, password method, the user's own confirmed TOTP
+  devices, no `user_switch_*` key) in the request that logs in. Its success path
+  alone writes the marker, now with `hub_policy_gate: animus-lan-login-gate`.
+- **Authorization without stages.** With only the in-memory fulfilment stage, the
+  authorize view issues the code in the request whose application policies passed
+  (`flows/planner.py:129-176`, `providers/oauth2/views/authorize.py:594-606`). The
+  application policy requires a fresh proof written by the login gate and bound to
+  this exact request; it refuses `prompt` values other than `login`, non-query
+  response modes, `request`/`request_uri`, non-GET and policy subprocesses. Single
+  use: `cache.add("animus-lan/claimed-login/<event>", ..., 900)` is the last step of
+  the success path; `django_postgres_cache` implements `add` as an INSERT on the
+  cache table's primary key, so exactly one concurrent caller wins, and the 900 s TTL
+  outlives the 300 s freshness window plus skew. A refused claim denies without
+  re-authentication.
+- **Notice.** A re-evaluated Deny stage after login with OD2's text, shown unless
+  this ceremony's own qualified login happened. It is explanation only: if its policy
+  raises, the notice is removed; an eligible user still completes and an ineligible
+  user, whose User Login is already gone, has no session and no code.
+- **Fail-closed entry order** (defence in depth; the importer applies the file in
+  one transaction): the granting bindings are first restated with their 2026-11-18
+  attributes, then their gates are bound (a gate evaluated at plan time always
+  refuses), then they switch to re-evaluation, then the notice is bound, and only then
+  are the validator Prompts and the authorization stages unbound. `test_blueprint.py`
+  checks every prefix.
+- **`hub_policy_gate`.** A plan started under the 2026-11-18 flow keeps its own
+  stages after the apply (plans live in the session); its final Prompt still writes a
+  marker. Requiring the gate key means such a ceremony ends without a code (measured:
+  case 125). The key is internal; the policy ID and the ID-token claims are unchanged.
+
+### Residual risks (decision 6)
+
+A stage whose policy bindings are all disabled or deleted runs
+(`PolicyEngine.empty_result`, `policies/engine.py`), and so does a stage binding with
+`re_evaluate_policies` off (below the API: its serializer refuses both evaluations
+off). An extra always-true binding under engine mode `any`, or the application switched
+to `any`, has the same effect. Superusers, a blueprint apply or an RBAC grant can make
+these changes. For a gate, an ineligible account gets a session but no code, because
+only the login gate writes the marker; for the application binding, any signed-in
+account gets a code. The campaign runs each case and records what it gives; the drift
+check flags every one (cases 70–109). The follow-up (OD3) is an API check of the proof
+claim on training requests.
+
+### Install path (decision 8, corrected)
+
+The worker mounts the whole `blueprints/` directory and applies every non-hidden
+`.yaml` there as its own instance (`blueprints/v1/tasks.py:121-143`, `153-185`); it is
+not limited to `alkion-lan.yaml`. Backups and rollbacks therefore live outside it.
+The rename itself is not a watched event (the watcher filters created/modified), but
+creating the hidden `.alkion-lan.yaml.new` is: it schedules a discovery, which in the
+isolated run found the renamed file and applied it within seconds, through the one
+existing instance and its context, exactly as the explicit Apply does (case 08). So no
+ceremony may be open from the moment the hidden file is written. A failed apply that
+deletes the instance would be rediscovered with an empty context, which closes
+issuance (`check_blueprint_v1_file`); the drift check reports the context.
+
+### Rollback chain
+
+`alkion-lan-20261123-rollback.yaml` = `c693d82` + guarded `state: absent` removal of the
+two gate bindings and the notice binding + engine mode reset to `any`; valid only from
+the redesigned state. The 2026-11-18 rollback is marked superseded: after the redesign
+it would reset the login binding while its gate stays bound, refusing every login.
+
+### Re-qualification triggers
+
+Re-run this campaign before any Authentik upgrade, and after any change to: the
+authorize view's order of policy check, `max_age`/`prompt=login` handling and
+fulfilment (`authorize.py:525-606`); `FlowPlan.requires_flow_executor`;
+`ReevaluateMarker` and plan re-evaluation; `PolicyEngine.empty_result` and binding
+evaluation; `SESSION_KEY_GET` and the stored `next`; `django_postgres_cache.add`;
+the blueprint watcher and discovery.
