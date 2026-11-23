@@ -1,0 +1,466 @@
+#!/usr/bin/env python3
+"""Read-only drift check of the alkion-lan Authentik configuration against its blueprint.
+
+Spec decision 6 (P1 sign-in redesign, 2026-11-23): a gate or application policy binding
+that is disabled or deleted, a re-evaluation flag turned off, an extra binding under engine
+mode "any", or the application switched to "any" does not deny; it silently removes a
+check. This script detects each of those, and the rest of the expected state, by comparing
+the live database with values DERIVED FROM THE BLUEPRINT FILE (never a hand-copied list):
+
+  - the exact flow-stage binding set of every flow the file declares, with
+    evaluate_on_plan, re_evaluate_policies, invalid_response_action and the engine mode;
+  - the exact policy-binding set and attributes (enabled, negate, failure_result, timeout,
+    order, no group/user/expiry) on those flows, their stage bindings and the application;
+  - the application's engine mode, its provider's client and flows;
+  - the sha256 of every expression policy and scope mapping the file declares;
+  - no brand flow pointing at a flow the file declares, and a brand authentication flow
+    always set (unset falls back to the first authentication flow by slug, an Alkion flow);
+  - exactly one blueprint instance for the file's path and no other under ct-animus/,
+    with context equal to the owner-commissioning profile, enabled and successful;
+  - sha512 of the file equal to the instance's last_applied_hash.
+
+Every query runs in one PostgreSQL session with default_transaction_read_only=on and
+inside BEGIN READ ONLY, through `docker exec` into the Auth database container as the
+authentik role over the local socket: no password is read or needed. Output names flows,
+stages, policies and attributes only; it never prints secrets, hashes or record values.
+Exit 0: no drift. Exit 1: drift (each difference listed). Exit 2: the check could not run.
+
+On CT117 (root): check-alkion-lan-drift --db-container "$(docker compose ps -q auth-postgres)"
+"""
+import argparse
+import hashlib
+import json
+from pathlib import Path
+import re
+import subprocess
+import sys
+
+ROOT = Path(__file__).resolve().parent.parent
+BLUEPRINT = ROOT / "blueprints" / "alkion-lan.yaml"
+INSTANCE_PATH = "ct-animus/alkion-lan.yaml"
+PROFILE = {"animus_issuance_profile": "owner-commissioning"}
+FSB_DEFAULTS = {"evaluate_on_plan": False, "re_evaluate_policies": True, "invalid_response_action": "retry",
+                "policy_engine_mode": "any"}
+PB_DEFAULTS = {"enabled": True, "negate": False, "failure_result": False, "timeout": 30}
+BRAND_FLOWS = ("flow_authentication", "flow_user_switch", "flow_invalidation", "flow_recovery", "flow_unenrollment",
+               "flow_user_settings", "flow_device_code", "flow_lockdown", "flow_request")
+TAGS = ("!KeyOf", "!Find", "!Context", "!AtIndex", "!If", "!Condition", "!Format", "!Env", "!Enumerate",
+        "!Value", "!Index", "!ParseJSON", "!File")
+SAFE = re.compile(r"[A-Za-z0-9_.:/ -]{1,200}")
+
+
+class DriftError(Exception):
+    """The check could not run; the message is generic and safe to print."""
+
+
+class Tag:
+    def __init__(self, name, value):
+        self.name, self.value = name, value
+
+    def __eq__(self, other):
+        return isinstance(other, Tag) and (self.name, self.value) == (other.name, other.value)
+
+    def __repr__(self):
+        return f"{self.name}{self.value!r}"
+
+
+# --- blueprint parsing ------------------------------------------------------------------
+
+# Runs inside the Auth image when the host has no PyYAML (--yaml-via): reads YAML on stdin,
+# writes JSON with every tag as {"!Tag": value}. It touches nothing else.
+YAML_TO_JSON = r"""
+import json, sys, yaml
+class L(yaml.SafeLoader): pass
+def tag(loader, suffix, node):
+    if isinstance(node, yaml.ScalarNode): value = loader.construct_scalar(node)
+    elif isinstance(node, yaml.SequenceNode): value = loader.construct_sequence(node, deep=True)
+    else: value = loader.construct_mapping(node, deep=True)
+    return {"!" + suffix: value}
+L.add_multi_constructor("!", tag)
+json.dump(yaml.load(sys.stdin.read(), Loader=L), sys.stdout)
+"""
+
+
+def from_json(value):
+    if isinstance(value, dict):
+        if len(value) == 1 and next(iter(value)).startswith("!"):
+            name, inner = next(iter(value.items()))
+            return Tag(name, from_json(inner))
+        return {key: from_json(item) for key, item in value.items()}
+    if isinstance(value, list):
+        return [from_json(item) for item in value]
+    return value
+
+
+def load_blueprint(text, yaml_via=None, runner=subprocess.run):
+    if yaml_via:
+        result = runner(["docker", "exec", "-i", yaml_via, "python", "-I", "-c", YAML_TO_JSON],
+                        input=text, capture_output=True, text=True)
+        if result.returncode != 0:
+            raise DriftError("blueprint could not be parsed in the given container")
+        return from_json(json.loads(result.stdout))
+    try:
+        import yaml
+    except ImportError:
+        raise DriftError("PyYAML is not installed here: install python3-yaml or pass --yaml-via AUTH_CONTAINER") from None
+
+    class Loader(yaml.SafeLoader):
+        pass
+
+    def construct(loader, node, name):
+        if isinstance(node, yaml.ScalarNode):
+            return Tag(name, loader.construct_scalar(node))
+        if isinstance(node, yaml.SequenceNode):
+            return Tag(name, loader.construct_sequence(node, deep=True))
+        return Tag(name, loader.construct_mapping(node, deep=True))
+
+    for name in TAGS:
+        Loader.add_constructor(name, lambda loader, node, name=name: construct(loader, node, name))
+    return yaml.load(text, Loader=Loader)
+
+
+def resolve(value, context):
+    """Authentik 2026.8.5 !Context / !AtIndex semantics (blueprints/v1/common.py), as used by
+    the issuance switch. Any other tag in a state is unsupported here."""
+    if not isinstance(value, Tag):
+        return value
+    if value.name == "!Context":
+        key, default = value.value if isinstance(value.value, list) else (value.value, None)
+        return context.get(key, default)
+    if value.name == "!AtIndex":
+        obj, attribute, default = (resolve(part, context) for part in value.value)
+        return obj[attribute] if attribute in obj else default
+    raise DriftError("unsupported tag in an entry state")
+
+
+def stored_hash(expression):
+    """sha256 of an expression as the importer stores it: its DRF CharField trims leading
+    and trailing whitespace (trim_whitespace=True), so a YAML block's final newline goes."""
+    return hashlib.sha256(expression.strip().encode()).hexdigest()
+
+
+def expected_state(document, instance_context=PROFILE):
+    """The configuration a successful apply of `document` with `instance_context` leaves."""
+    context = {**(document.get("context") or {}), **instance_context}
+    ids = {}
+    flows, stage_bindings, policy_bindings, applications, providers = {}, {}, {}, {}, {}
+    expressions, mappings = {}, {}
+
+    def ref(value, kind):
+        if isinstance(value, Tag) and value.name == "!KeyOf":
+            found = ids.get(value.value)
+            if not found or found[0] != kind:
+                raise DriftError("unresolvable reference in the blueprint")
+            return found[1]
+        if isinstance(value, Tag) and value.name == "!Find":
+            model, *query = value.value
+            pairs = {pair[0]: pair[1] for pair in query}
+            if kind == "fsb" and model == "authentik_flows.flowstagebinding":
+                return (ref(pairs["target"], "flow"),
+                        ref(pairs["stage"], "stage") if "stage" in pairs else pairs["stage__name"], pairs["order"])
+            if kind in ("stage", "policy") and set(pairs) == {"name"}:
+                return pairs["name"]
+            if kind == "flow" and set(pairs) == {"slug"}:
+                return pairs["slug"]
+        raise DriftError("unsupported reference in the blueprint")
+
+    def target(value):
+        if isinstance(value, Tag) and value.name == "!KeyOf" and ids.get(value.value, ("",))[0] in ("fsb", "app", "flow"):
+            kind, key = ids[value.value]
+            return (kind, key)
+        return ("fsb", ref(value, "fsb"))
+
+    for entry in document.get("entries", []):
+        model = entry["model"]
+        identifiers = entry.get("identifiers", {})
+        attrs = entry.get("attrs") or {}
+        present = resolve(entry.get("state", "present"), context) == "present"
+        if model == "authentik_flows.flow":
+            key = ("flow", identifiers["slug"])
+            if present:
+                flows[identifiers["slug"]] = True
+        elif model.startswith("authentik_stages_") and "name" in identifiers and model.split(".")[1].endswith("stage"):
+            key = ("stage", identifiers["name"])
+        elif model == "authentik_policies_expression.expressionpolicy":
+            key = ("policy", identifiers["name"])
+            if present:
+                expressions[identifiers["name"]] = stored_hash(attrs["expression"])
+        elif model == "authentik_providers_oauth2.scopemapping":
+            key = ("mapping", identifiers["managed"])
+            if present and "expression" in attrs:
+                mappings[identifiers["managed"]] = stored_hash(attrs["expression"])
+        elif model == "authentik_providers_oauth2.oauth2provider":
+            key = ("provider", identifiers["name"])
+            if present:
+                providers[identifiers["name"]] = {
+                    "client_id": attrs["client_id"],
+                    "authentication_flow": ref(attrs["authentication_flow"], "flow"),
+                    "authorization_flow": ref(attrs["authorization_flow"], "flow")}
+        elif model == "authentik_core.application":
+            key = ("app", identifiers["slug"])
+            if present:
+                previous = applications.get(identifiers["slug"], {"policy_engine_mode": "any"})
+                previous.update({k: attrs[k] for k in ("policy_engine_mode",) if k in attrs})
+                if "provider" in attrs:
+                    previous["provider"] = ref(attrs["provider"], "provider")
+                applications[identifiers["slug"]] = previous
+        elif model == "authentik_flows.flowstagebinding":
+            key = ("fsb", (ref(identifiers["target"], "flow"), ref(identifiers["stage"], "stage"), identifiers["order"]))
+            if present:
+                values = stage_bindings.get(key[1], dict(FSB_DEFAULTS))
+                values.update({k: attrs[k] for k in FSB_DEFAULTS if k in attrs})
+                stage_bindings[key[1]] = values
+            else:
+                stage_bindings.pop(key[1], None)
+                for pb in [pb for pb in policy_bindings if pb[0] == key]:
+                    del policy_bindings[pb]  # bindings cascade with their target
+        elif model == "authentik_policies.policybinding":
+            if "policy" not in identifiers:
+                raise DriftError("only policy bindings are supported")
+            pb = (target(identifiers["target"]), ref(identifiers["policy"], "policy"), identifiers["order"])
+            if present:
+                values = policy_bindings.get(pb, dict(PB_DEFAULTS))
+                values.update({k: attrs[k] for k in PB_DEFAULTS if k in attrs})
+                policy_bindings[pb] = values
+            else:
+                policy_bindings.pop(pb, None)
+            continue
+        else:
+            continue
+        if "id" in entry and isinstance(key, tuple):
+            ids[entry["id"]] = key
+    for (flow, _stage, _order) in stage_bindings:
+        if flow not in flows:
+            raise DriftError("stage binding to a flow the blueprint does not declare")
+    return {"flows": sorted(flows), "stage_bindings": stage_bindings, "policy_bindings": policy_bindings,
+            "applications": applications, "providers": providers, "expressions": expressions, "mappings": mappings}
+
+
+# --- live state -------------------------------------------------------------------------
+
+def literal(value):
+    if not isinstance(value, str) or not SAFE.fullmatch(value):
+        raise DriftError("unexpected identifier in the blueprint")
+    return "'" + value + "'"
+
+
+def query(expected):
+    flows = ", ".join(literal(slug) for slug in expected["flows"]) or "NULL"
+    apps = ", ".join(literal(slug) for slug in expected["applications"]) or "NULL"
+    policies = ", ".join(literal(name) for name in expected["expressions"]) or "NULL"
+    mappings = ", ".join(literal(name) for name in expected["mappings"]) or "NULL"
+    brand_columns = ", ".join(f"'{name}', (SELECT f.slug FROM authentik_flows_flow f WHERE f.flow_uuid = b.{name}_id)"
+                              for name in BRAND_FLOWS)
+    return f"""BEGIN READ ONLY;
+WITH fl AS (SELECT flow_uuid, slug, policybindingmodel_ptr_id AS pbm FROM authentik_flows_flow WHERE slug IN ({flows})),
+fsb AS (SELECT fl.slug AS flow, s.name AS stage, b."order", b.evaluate_on_plan, b.re_evaluate_policies,
+               b.invalid_response_action, m.policy_engine_mode, b.policybindingmodel_ptr_id AS pbm
+        FROM authentik_flows_flowstagebinding b JOIN fl ON fl.flow_uuid = b.target_id
+        JOIN authentik_flows_stage s ON s.stage_uuid = b.stage_id
+        JOIN authentik_policies_policybindingmodel m ON m.pbm_uuid = b.policybindingmodel_ptr_id),
+app AS (SELECT a.slug, a.provider_id, a.policybindingmodel_ptr_id AS pbm, m.policy_engine_mode
+        FROM authentik_core_application a JOIN authentik_policies_policybindingmodel m ON m.pbm_uuid = a.policybindingmodel_ptr_id
+        WHERE a.slug IN ({apps})),
+targets AS (SELECT pbm, 'fsb' AS kind, json_build_array(flow, stage, "order") AS key FROM fsb
+            UNION ALL SELECT pbm, 'app', to_json(slug) FROM app
+            UNION ALL SELECT pbm, 'flow', to_json(slug) FROM fl)
+SELECT json_build_object(
+  'read_only', current_setting('default_transaction_read_only'),
+  'transaction_read_only', current_setting('transaction_read_only'),
+  'flows', (SELECT coalesce(json_agg(slug ORDER BY slug), '[]') FROM fl),
+  'stage_bindings', (SELECT coalesce(json_agg(json_build_array(flow, stage, "order", evaluate_on_plan, re_evaluate_policies,
+                     invalid_response_action, policy_engine_mode) ORDER BY flow, "order", stage), '[]') FROM fsb),
+  'policy_bindings', (SELECT coalesce(json_agg(json_build_array(t.kind, t.key, p.name, pb."order", pb.enabled, pb.negate,
+                      pb.failure_result, pb.timeout, pb.group_id IS NOT NULL, pb.user_id IS NOT NULL, pb.expiring)
+                      ORDER BY t.kind, p.name, pb."order"), '[]')
+                      FROM authentik_policies_policybinding pb JOIN targets t ON t.pbm = pb.target_id
+                      LEFT JOIN authentik_policies_policy p ON p.policy_uuid = pb.policy_id),
+  'applications', (SELECT coalesce(json_agg(json_build_array(app.slug, app.policy_engine_mode, o.client_id,
+                   (SELECT slug FROM authentik_flows_flow WHERE flow_uuid = c.authentication_flow_id),
+                   (SELECT slug FROM authentik_flows_flow WHERE flow_uuid = c.authorization_flow_id), c.name)), '[]')
+                   FROM app LEFT JOIN authentik_core_provider c ON c.id = app.provider_id
+                   LEFT JOIN authentik_providers_oauth2_oauth2provider o ON o.provider_ptr_id = c.id),
+  'expressions', (SELECT coalesce(json_object_agg(p.name, encode(sha256(convert_to(e.expression, 'UTF8')), 'hex')), '{{}}')
+                  FROM authentik_policies_expression_expressionpolicy e JOIN authentik_policies_policy p
+                  ON p.policy_uuid = e.policy_ptr_id WHERE p.name IN ({policies})),
+  'mappings', (SELECT coalesce(json_object_agg(managed, encode(sha256(convert_to(expression, 'UTF8')), 'hex')), '{{}}')
+               FROM authentik_core_propertymapping WHERE managed IN ({mappings})),
+  'brands', (SELECT coalesce(json_agg(json_build_object({brand_columns})), '[]') FROM authentik_brands_brand b),
+  'instances', (SELECT coalesce(json_agg(json_build_array(path, context, enabled, status, last_applied_hash)), '[]')
+                FROM authentik_blueprints_blueprintinstance WHERE path = {literal(INSTANCE_PATH)} OR path LIKE 'ct-animus/%')
+);
+COMMIT;
+"""
+
+
+def observed_state(expected, container, user, database, runner=subprocess.run):
+    for value in (container, user, database):
+        if not re.fullmatch(r"[A-Za-z0-9_.-]{1,128}", value or ""):
+            raise DriftError("invalid container, role or database name")
+    result = runner(["docker", "exec", "-i", "-e", "PGOPTIONS=-c default_transaction_read_only=on", container,
+                     "psql", "-X", "-q", "-At", "-v", "ON_ERROR_STOP=1", "-U", user, "-d", database, "-f", "-"],
+                    input=query(expected), capture_output=True, text=True)
+    if result.returncode != 0:
+        raise DriftError("read-only database query failed")
+    lines = [line for line in result.stdout.splitlines() if line.strip()]
+    if len(lines) != 1:
+        raise DriftError("unexpected database query output")
+    return json.loads(lines[0])
+
+
+# --- comparison -------------------------------------------------------------------------
+
+def describe(key):
+    if key[0] == "fsb":
+        flow, stage, order = key[1]
+        return f"stage binding {flow}/{stage}@{order}"
+    return f"{'application' if key[0] == 'app' else 'flow'} {key[1]}"
+
+
+def compare(expected, observed, file_sha512, profile=PROFILE):
+    failures = []
+    if observed.get("read_only") != "on" or observed.get("transaction_read_only") != "on":
+        failures.append("database session was not read-only")
+    missing = sorted(set(expected["flows"]) - set(observed["flows"]))
+    failures += [f"flow {slug} missing" for slug in missing]
+
+    seen = {}
+    for flow, stage, order, on_plan, re_eval, invalid, mode in observed["stage_bindings"]:
+        seen.setdefault((flow, stage, order), []).append(
+            {"evaluate_on_plan": on_plan, "re_evaluate_policies": re_eval, "invalid_response_action": invalid,
+             "policy_engine_mode": mode})
+    for key in sorted(set(seen) | set(expected["stage_bindings"]), key=str):
+        name = describe(("fsb", key))
+        if key not in expected["stage_bindings"]:
+            failures.append(f"{name} is bound but not declared")
+            continue
+        if key not in seen:
+            failures.append(f"{name} is declared but not bound")
+            continue
+        if len(seen[key]) != 1:
+            failures.append(f"{name} is bound more than once")
+        for attribute, value in expected["stage_bindings"][key].items():
+            if seen[key][0][attribute] != value:
+                failures.append(f"{name}: {attribute} is {seen[key][0][attribute]!r}, expected {value!r}")
+
+    live = {}
+    for kind, key, policy, order, enabled, negate, failure, timeout, group, user, expiring in observed["policy_bindings"]:
+        target = (kind, tuple(key) if kind == "fsb" else key)
+        if policy is None or group or user:
+            failures.append(f"{describe(target)} has a group or user binding")
+            continue
+        live.setdefault((target, policy, order), []).append(
+            {"enabled": enabled, "negate": negate, "failure_result": failure, "timeout": timeout, "expiring": expiring})
+    wanted = {key: {**values, "expiring": False} for key, values in expected["policy_bindings"].items()}
+    for key in sorted(set(live) | set(wanted), key=str):
+        target, policy, order = key
+        name = f"{describe(target)}: policy binding {policy}@{order}"
+        if key not in wanted:
+            failures.append(f"{name} is bound but not declared")
+            continue
+        if key not in live:
+            failures.append(f"{name} is declared but not bound")
+            continue
+        if len(live[key]) != 1:
+            failures.append(f"{name} is bound more than once")
+        for attribute, value in wanted[key].items():
+            if live[key][0][attribute] != value:
+                failures.append(f"{name}: {attribute} is {live[key][0][attribute]!r}, expected {value!r}")
+
+    applications = {row[0]: row[1:] for row in observed["applications"]}
+    for slug, values in expected["applications"].items():
+        if slug not in applications:
+            failures.append(f"application {slug} missing")
+            continue
+        mode, client_id, authentication, authorization, provider = applications[slug]
+        if mode != values["policy_engine_mode"]:
+            failures.append(f"application {slug}: policy_engine_mode is {mode!r}, expected {values['policy_engine_mode']!r}")
+        wanted_provider = expected["providers"].get(values.get("provider"))
+        if wanted_provider is not None:
+            actual = {"client_id": client_id, "authentication_flow": authentication, "authorization_flow": authorization}
+            if provider != values["provider"]:
+                failures.append(f"application {slug}: provider is not the declared one")
+            for attribute, value in wanted_provider.items():
+                if actual[attribute] != value:
+                    failures.append(f"application {slug}: provider {attribute} is not the declared one")
+
+    for kind, wanted_hashes, actual_hashes in (("expression policy", expected["expressions"], observed["expressions"]),
+                                               ("scope mapping", expected["mappings"], observed["mappings"])):
+        for name, digest in sorted(wanted_hashes.items()):
+            if name not in actual_hashes:
+                failures.append(f"{kind} {name} missing")
+            elif actual_hashes[name] != digest:
+                failures.append(f"{kind} {name}: expression differs from the blueprint")
+
+    alkion = set(expected["flows"])
+    for index, row in enumerate(observed["brands"]):
+        for column in BRAND_FLOWS:
+            if row.get(column) in alkion:
+                failures.append(f"brand #{index}: {column} points at {row[column]}")
+        if row.get("flow_authentication") is None:
+            failures.append(f"brand #{index}: flow_authentication is unset (falls back to the first flow by slug)")
+
+    instances = observed["instances"]
+    own = [row for row in instances if row[0] == INSTANCE_PATH]
+    others = [row for row in instances if row[0] != INSTANCE_PATH]
+    if len(own) != 1:
+        failures.append(f"{len(own)} blueprint instances for {INSTANCE_PATH}, expected exactly 1")
+    if others:
+        failures.append(f"{len(others)} other blueprint instance(s) under ct-animus/")
+    if len(own) == 1:
+        _path, context, enabled, status, last_hash = own[0]
+        if context != profile:
+            failures.append("blueprint instance context is not the owner-commissioning profile")
+        if enabled is not True:
+            failures.append("blueprint instance is disabled")
+        if status != "successful":
+            failures.append(f"blueprint instance status is {status!r}, expected 'successful'")
+        if last_hash != file_sha512:
+            failures.append("blueprint file sha512 differs from the instance's last_applied_hash")
+    return failures
+
+
+def main(argv=None, runner=subprocess.run, out=sys.stdout):
+    parser = argparse.ArgumentParser(description="Read-only drift check of alkion-lan against its blueprint.")
+    parser.add_argument("--db-container", required=True, help="the Auth PostgreSQL container (name or ID)")
+    parser.add_argument("--blueprint", type=Path, default=BLUEPRINT, help="the file the instance should have applied")
+    parser.add_argument("--db-user", default="authentik")
+    parser.add_argument("--db-name", default="authentik")
+    parser.add_argument("--yaml-via", metavar="AUTH_CONTAINER", help="parse the YAML inside this Auth container")
+    parser.add_argument("--json", action="store_true", help="one JSON object instead of text")
+    args = parser.parse_args(argv)
+    try:
+        raw = args.blueprint.read_bytes()
+        expected = expected_state(load_blueprint(raw.decode("utf-8"), args.yaml_via, runner))
+        observed = observed_state(expected, args.db_container, args.db_user, args.db_name, runner)
+        failures = compare(expected, observed, hashlib.sha512(raw).hexdigest())
+    except DriftError as exc:
+        message = str(exc)
+        status = 2
+    except (OSError, UnicodeDecodeError, ValueError, KeyError, TypeError, IndexError):
+        message = "the check could not run (unreadable blueprint or unexpected data)"
+        status = 2
+    else:
+        status = 1 if failures else 0
+        message = None
+    checked = None if status == 2 else {
+        "stage_bindings": len(expected["stage_bindings"]), "policy_bindings": len(expected["policy_bindings"]),
+        "expressions": len(expected["expressions"]), "mappings": len(expected["mappings"]),
+        "brands": len(observed["brands"]), "instances": len(observed["instances"])}
+    if args.json:
+        out.write(json.dumps({"pass": status == 0, "failures": failures if status != 2 else [],
+                              "error": message, "checked": checked}, sort_keys=True) + "\n")
+    elif status == 2:
+        out.write(f"ERROR: {message}\n")
+    elif failures:
+        out.write(f"FAIL: {len(failures)} difference(s) from {args.blueprint.name}\n")
+        out.writelines(f"  - {failure}\n" for failure in failures)
+    else:
+        out.write(f"PASS: alkion-lan matches {args.blueprint.name} ({checked['stage_bindings']} stage bindings, "
+                  f"{checked['policy_bindings']} policy bindings, {checked['expressions']} expressions, "
+                  f"one successful instance with the owner-commissioning context)\n")
+    return status
+
+
+if __name__ == "__main__":
+    sys.exit(main())

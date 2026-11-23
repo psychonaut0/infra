@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
-# Isolated synthetic qualification of the 2026-11-23 P1 redesign spike candidate
-# (alkion-lan.candidate.yaml in this directory). Derived from ../flow-simplify/run.sh.
+# Isolated synthetic qualification of the 2026-11-23 P1 sign-in redesign: the deployed
+# blueprint (../../../blueprints/alkion-lan.yaml), its rollback
+# (../../../rollback/alkion-lan-20261123-rollback.yaml) and the read-only drift check
+# (../../../ops/check-alkion-lan-drift). Derived from ../flow-simplify/run.sh.
 #
 # Everything runs on one fresh --internal Docker network: no published port,
 # no egress, no shared volume, no Docker socket and no contact with any real
@@ -8,13 +10,18 @@
 # into the private state directory, which is the only writable host mount.
 #
 #   T4_STATE=/private/dir ./run.sh up
-#   T4_STATE=... ./run.sh seed base|users|forward|rollback|inventory|sessions|inject:NAME|negate:NAME|forge:VARIANT
-#   T4_STATE=... ./run.sh actor SET [SET ...]      # SETS: see actor.py SCENARIOS
+#   T4_STATE=... ./run.sh install base|forward|rollback   # hidden file + rename, as on CT117
+#   T4_STATE=... ./run.sh apply base|forward|rollback     # install, then the explicit Apply task
+#   T4_STATE=... ./run.sh seed PHASE                      # see seed.py
+#   T4_STATE=... ./run.sh drift base|forward|rollback     # the drift check against that file
+#   T4_STATE=... ./run.sh actor SET [SET ...]             # SETS: see actor.py SCENARIOS
+#   T4_STATE=... ./run.sh parked SET COMMAND...           # SET parks on /signal/go around COMMAND
 #   T4_STATE=... ./run.sh down
 #   T4_STATE=... ./run.sh campaign   # the full recorded sequence, results in $T4_STATE/results
 #
-# `up` copies the deployed blueprint (git c693d82, infra master) into the state
-# directory so the forward apply runs over the real deployed state, as on CT117.
+# The worker mounts $T4_STATE/bp read-only at /blueprints/ct-animus, the CT117 path, so
+# the instance, its context, the watcher and the explicit Apply are Authentik's own.
+# `up` copies the blueprint deployed before the redesign (git c693d82) as "base".
 set -euo pipefail
 set +x
 umask 077
@@ -28,8 +35,18 @@ PG_IMAGE=postgres:17.11-bookworm@sha256:839fbb5a4942a7758dd93e18b42ea5649807491a
 STATE=${T4_STATE:?private state directory required}
 [[ -d "$STATE" && ! -L "$STATE" && "$(stat -c %a "$STATE")" == 700 ]] || { echo "T4_STATE must be a private 0700 directory" >&2; exit 2; }
 LOG_DRIVER=$([[ "${T4_DEBUG_LOGS:-}" == 1 ]] && echo json-file || echo none)
+DRIFT="$STACK/ops/check-alkion-lan-drift"
 
 name() { cat "$STATE/nonce"; }
+
+source_file() {
+  case "$1" in
+    base) echo "$STATE/alkion-lan.base.yaml" ;;
+    forward) echo "$STACK/blueprints/alkion-lan.yaml" ;;
+    rollback) echo "$STACK/rollback/alkion-lan-20261123-rollback.yaml" ;;
+    *) echo "unknown blueprint $1" >&2; exit 2 ;;
+  esac
+}
 
 auth_env() {
   local pg_password secret
@@ -43,18 +60,18 @@ auth_env() {
 }
 
 provenance() {
-  # Exact inputs of this run: commit, clean tree, and the mounted blueprint files.
+  # Exact inputs of this run: commit, clean tree, and the blueprint, rollback, drift and harness files.
   python3 - "$REPO" "$STACK" "$AUTH_IMAGE_ID" <<'PY'
 import hashlib, json, subprocess, sys
 repo, stack, image = sys.argv[1:4]
 git = lambda *args: subprocess.run(["git", "-C", repo, *args], capture_output=True, text=True, check=True).stdout.strip()
-digest = lambda path: hashlib.sha256(open(path, "rb").read()).hexdigest()
+digest = lambda path: hashlib.sha256(open(stack + "/" + path, "rb").read()).hexdigest()
+files = {"blueprint_sha256": "blueprints/alkion-lan.yaml", "rollback_sha256": "rollback/alkion-lan-20261123-rollback.yaml",
+         "drift_sha256": "ops/check-alkion-lan-drift", "actor_sha256": "qualification/p1/redesign/actor.py",
+         "seed_sha256": "qualification/p1/redesign/seed.py", "run_sha256": "qualification/p1/redesign/run.sh"}
 print(json.dumps({"up": True, "commit": git("rev-parse", "HEAD"),
                   "tree_clean": git("status", "--porcelain", "--", stack) == "", "auth_image_id": image,
-                  "candidate_sha256": digest(stack + "/qualification/p1/redesign/alkion-lan.candidate.yaml"),
-                  "rollback_sha256": digest(stack + "/qualification/p1/redesign/alkion-lan.rollback.yaml"),
-                  "actor_sha256": digest(stack + "/qualification/p1/redesign/actor.py"),
-                  "seed_sha256": digest(stack + "/qualification/p1/redesign/seed.py")}, sort_keys=True))
+                  **{key: digest(path) for key, path in files.items()}}, sort_keys=True))
 PY
 }
 
@@ -63,17 +80,46 @@ seed() {
     | sed -n 's/^T4RESULT //p'
 }
 
+install_blueprint() {
+  # The CT117 install path (spec decision 8): a hidden file in the same directory with
+  # the live file's mode, checked as read by the worker, then renamed into place. The
+  # watcher sees created/modified events only, so the rename itself applies nothing.
+  local src bp live mode host worker
+  src=$(source_file "$1"); bp="$STATE/bp"; live="$bp/alkion-lan.yaml"
+  mode=644; [[ -f "$live" ]] && mode=$(stat -c %a "$live")
+  install -m "$mode" "$src" "$bp/.alkion-lan.yaml.new"
+  host=$(sha512sum < "$bp/.alkion-lan.yaml.new" | cut -d' ' -f1)
+  worker=$(docker exec "$(name)-worker" sha512sum /blueprints/ct-animus/.alkion-lan.yaml.new | cut -d' ' -f1)
+  mv -f "$bp/.alkion-lan.yaml.new" "$live"
+  printf '{"installed": "%s", "mode": "%s", "worker_reads_same_bytes": %s, "only_file": %s}\n' "$1" "$(stat -c %a "$live")" \
+    "$([[ "$host" == "$worker" ]] && echo true || echo false)" \
+    "$([[ "$(ls -A "$bp")" == alkion-lan.yaml ]] && echo true || echo false)"
+}
+
+drift() {
+  # Read-only drift check of the live instance against one blueprint file; one JSON line.
+  local file output status
+  file=$(source_file "$1")
+  set +e
+  output=$(python3 -I "$DRIFT" --db-container "$(name)-pg" --blueprint "$file" --json)
+  status=$?
+  set -e
+  python3 -c 'import json, sys; d = json.loads(sys.argv[1] or "{}"); d["exit"] = int(sys.argv[2]); d["against"] = sys.argv[3]; print(json.dumps(d, sort_keys=True))' \
+    "$output" "$status" "$1"
+}
+
 case "${1:-}" in
   up)
     [[ ! -e "$STATE/nonce" ]] || { echo "state already in use" >&2; exit 2; }
     [[ "$(docker image inspect --format '{{.Id}} {{.Config.User}}' "$AUTH_IMAGE")" == "$AUTH_IMAGE_ID 1000" ]] \
       || { echo "auth image identity mismatch" >&2; exit 2; }
     docker image inspect "$PG_IMAGE" >/dev/null
-    echo "p1r-$(python3 -c 'import secrets; print(secrets.token_hex(4))')" > "$STATE/nonce"
+    echo "p1g-$(python3 -c 'import secrets; print(secrets.token_hex(4))')" > "$STATE/nonce"
     python3 -c 'import secrets; print(secrets.token_hex(32))' > "$STATE/pg-password"
     python3 -c 'import secrets; print(secrets.token_urlsafe(64))' > "$STATE/secret-key"
     git -C "$REPO" show c693d82:stacks/ct-animus/blueprints/alkion-lan.yaml > "$STATE/alkion-lan.base.yaml"
     chmod 0644 "$STATE/alkion-lan.base.yaml"
+    mkdir -p -m 0755 "$STATE/bp" "$STATE/signal"
     auth_env
     n=$(name)
     docker network create --internal "$n" >/dev/null
@@ -83,26 +129,47 @@ case "${1:-}" in
     for _ in $(seq 60); do docker exec "$n-pg" pg_isready -U authentik -d authentik >/dev/null 2>&1 && break; sleep 2; done
     common=(--network "$n" --user 1000:1000 --log-driver "$LOG_DRIVER" --env-file "$STATE/auth.env" --shm-size 512m
             -v "$HERE:/t4:ro")
-    docker run -d --name "$n-worker" "${common[@]}" -v "$STATE:/state" "$AUTH_IMAGE" worker >/dev/null
+    docker run -d --name "$n-worker" "${common[@]}" -v "$STATE:/state" -v "$STATE/bp:/blueprints/ct-animus:ro" "$AUTH_IMAGE" worker >/dev/null
     docker run -d --name "$n-server" --network-alias auth-server "${common[@]}" "$AUTH_IMAGE" server >/dev/null
     for _ in $(seq 120); do
       [[ "$(seed ready)" == '{"ready": true}' ]] && docker exec "$n-server" ak healthcheck >/dev/null 2>&1 && { provenance; exit 0; }
       sleep 5
     done
     echo '{"up": false}'; exit 1 ;;
+  install) install_blueprint "${2:?blueprint}" ;;
+  apply) install_blueprint "${2:?blueprint}" > "$STATE/install.json"; seed apply | python3 -c \
+    'import json, sys; d = json.loads(sys.stdin.read() or "{}"); d["install"] = json.load(open(sys.argv[1])); print(json.dumps(d, sort_keys=True))' \
+    "$STATE/install.json"; rm -f "$STATE/install.json" ;;
   seed) seed "${2:?phase}" ;;
+  drift) drift "${2:?blueprint}" ;;
   actor)
     shift
-    inputs=(-v "$STATE/users.json:/state/users.json:ro")
+    inputs=(-v "$STATE/users.json:/state/users.json:ro" -v "$STATE/signal:/signal:ro")
     for f in forged-login forged-full; do if [[ -f "$STATE/$f" ]]; then inputs+=(-v "$STATE/$f:/state/$f:ro"); fi; done
     docker run --rm --network "$(name)" --user 1000:1000 --log-driver none --entrypoint python \
       -v "$HERE:/t4:ro" "${inputs[@]}" "$AUTH_IMAGE" -I /t4/actor.py "$@" \
       | sed -n 's/^T4ACTOR //p' ;;
+  parked)
+    # One actor set parks mid-ceremony until /signal/go exists; meanwhile one command runs.
+    set_name=${2:?set}; shift 2
+    rm -f "$STATE/signal/go"
+    "$0" actor "$set_name" > "$STATE/parked.json" &
+    pid=$!
+    sleep 25
+    "$@" > "$STATE/parked-action.json"
+    touch "$STATE/signal/go"
+    wait "$pid"
+    python3 -c 'import json, sys; print(json.dumps({"action": json.loads(open(sys.argv[1]).read() or "{}"), "actor": json.loads(open(sys.argv[2]).read() or "{}")}, sort_keys=True))' \
+      "$STATE/parked-action.json" "$STATE/parked.json"
+    rm -f "$STATE/parked.json" "$STATE/parked-action.json" "$STATE/signal/go" ;;
   campaign)
     out="$STATE/results"; mkdir -m 700 "$out"
     "$0" up > "$out/00-up.json"
     i=0
-    for step in "seed base" "seed users" "actor deployed" "seed forward" "seed forward" "seed inventory"; do
+    # The deployed state first, exactly as on CT117: instance discovered with an empty
+    # context, then the owner-commissioning context, then the drift baseline.
+    for step in "install base" "seed instance" "seed users" "actor deployed" "drift base" "seed inventory" \
+                "install forward" "seed rename-probe" "seed apply" "apply forward" "drift forward" "seed inventory"; do
       i=$((i + 1)); "$0" $step > "$out/$(printf %02d $i)-${step// /-}.json"
     done
     for set in slow-password slow-after-totp slow-on-page slow-stale slow-other-stale; do
@@ -113,7 +180,19 @@ case "${1:-}" in
     "$0" seed forge:login > "$out/23-forge-login.json"
     "$0" seed forge:full > "$out/24-forge-full.json"
     "$0" actor forged > "$out/25-actor-forged.json"
+    "$0" actor single-use > "$out/26-single-use.json"
+    "$0" actor refresh > "$out/27-refresh.json"
+    "$0" seed redirector > "$out/28-seed-redirector.json"
+    "$0" actor redirected > "$out/29-redirected.json"
+    "$0" parked deactivate-mid "$0" seed deactivate:p1g-deact > "$out/30-deactivated-mid-ceremony.json"
     wait
+    # User switching: point the brand at the Alkion flow (a misconfiguration the drift
+    # check must flag), run the switch, restore and check again.
+    "$0" seed brand:switch > "$out/31-seed-brand-switch.json"
+    "$0" drift forward > "$out/32-drift-brand-switch.json"
+    "$0" actor user-switch > "$out/33-user-switch.json"
+    "$0" seed brand:restore > "$out/34-seed-brand-restore.json"
+    "$0" drift forward > "$out/35-drift-brand-restored.json"
     n=40
     for fault in inject:animus-lan-entry-gate inject:animus-lan-login-gate inject:animus-lan-denied-notice \
                  inject:animus-lan-application inject:animus-lan-pkce negate:animus-lan-login-gate \
@@ -121,17 +200,34 @@ case "${1:-}" in
       tag=${fault//:/-}
       "$0" seed "$fault" > "$out/$n-seed-$tag.json"
       "$0" actor "fault-${fault%%:*}-${fault#*:animus-lan-}" > "$out/$((n + 1))-actor-$tag.json"
-      "$0" seed forward > "$out/$((n + 2))-restore-$tag.json"
-      n=$((n + 3))
+      "$0" drift forward > "$out/$((n + 2))-drift-$tag.json"
+      "$0" seed apply > "$out/$((n + 3))-restore-$tag.json"
+      n=$((n + 4))
     done
-    "$0" actor restored > "$out/70-actor-restored.json"
-    "$0" seed sessions > "$out/71-sessions.json"
-    "$0" seed rollback > "$out/80-seed-rollback.json"
-    "$0" seed rollback > "$out/81-seed-rollback-again.json"
-    "$0" actor rollback > "$out/82-actor-rollback.json"
-    "$0" seed forward > "$out/83-seed-reforward.json"
-    "$0" actor reforward > "$out/84-actor-reforward.json"
-    "$0" seed inventory > "$out/85-inventory.json"
+    # Recorded residual cases (spec decision 6): each must be flagged by the drift check.
+    n=70
+    for residual in entry-disabled login-disabled login-deleted login-reeval-off login-any-extra \
+                    application-disabled application-deleted application-any; do
+      "$0" seed "residual:$residual" > "$out/$n-seed-residual-$residual.json"
+      "$0" actor "residual-$residual" > "$out/$((n + 1))-actor-residual-$residual.json"
+      "$0" drift forward > "$out/$((n + 2))-drift-residual-$residual.json"
+      "$0" seed "unresidual:$residual" > "$out/$((n + 3))-restore-residual-$residual.json"
+      "$0" drift forward > "$out/$((n + 4))-drift-restored-$residual.json"
+      n=$((n + 5))
+    done
+    "$0" actor restored > "$out/110-actor-restored.json"
+    "$0" seed sessions > "$out/111-sessions.json"
+    # Rollback chain (B5), with a ceremony open across each apply.
+    "$0" parked across-rollback "$0" apply rollback > "$out/120-across-rollback.json"
+    "$0" apply rollback > "$out/121-apply-rollback-again.json"
+    "$0" drift rollback > "$out/122-drift-rollback.json"
+    "$0" seed inventory > "$out/123-inventory-rollback.json"
+    "$0" actor rollback > "$out/124-actor-rollback.json"
+    "$0" parked across-apply "$0" apply forward > "$out/125-across-apply.json"
+    "$0" apply forward > "$out/126-apply-forward-again.json"
+    "$0" drift forward > "$out/127-drift-reforward.json"
+    "$0" actor reforward > "$out/128-actor-reforward.json"
+    "$0" seed inventory > "$out/129-inventory-reforward.json"
     echo '{"campaign": "done"}' ;;
   down)
     n=$(name)
@@ -139,5 +235,5 @@ case "${1:-}" in
     docker network rm "$n" >/dev/null 2>&1 || true
     rm -f "$STATE/nonce" "$STATE/pg-password" "$STATE/secret-key" "$STATE/auth.env" "$STATE/pg.env" "$STATE/users.json" "$STATE/forged-login" "$STATE/forged-full"
     echo '{"down": true}' ;;
-  *) echo "usage: T4_STATE=dir $0 up|seed PHASE|actor SET...|down" >&2; exit 2 ;;
+  *) echo "usage: T4_STATE=dir $0 up|install|apply|seed|drift|actor|parked|campaign|down" >&2; exit 2 ;;
 esac
