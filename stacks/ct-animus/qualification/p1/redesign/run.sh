@@ -119,7 +119,7 @@ case "${1:-}" in
     python3 -c 'import secrets; print(secrets.token_urlsafe(64))' > "$STATE/secret-key"
     git -C "$REPO" show c693d82:stacks/ct-animus/blueprints/alkion-lan.yaml > "$STATE/alkion-lan.base.yaml"
     chmod 0644 "$STATE/alkion-lan.base.yaml"
-    mkdir -p -m 0755 "$STATE/bp" "$STATE/signal"
+    install -d -m 0755 "$STATE/bp" "$STATE/signal"
     auth_env
     n=$(name)
     docker network create --internal "$n" >/dev/null

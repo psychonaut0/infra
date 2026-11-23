@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
-"""Offline structural checks of the P1 redesign spike candidate; starts nothing.
+"""Offline structural checks of the deployed P1 redesign blueprint and its rollback; starts nothing.
 
 The runtime evidence is the isolated campaign (run.sh); these checks pin the shape
 the campaign qualified so an edit cannot silently reintroduce a fail-open binding.
+The exact binding set, entry order and rollback chain are pinned in ../../../test_blueprint.py.
 """
 from pathlib import Path
 import subprocess
@@ -11,8 +12,9 @@ import unittest
 import yaml
 
 HERE = Path(__file__).resolve().parent
-CANDIDATE = HERE / 'alkion-lan.candidate.yaml'
-ROLLBACK = HERE / 'alkion-lan.rollback.yaml'
+STACK = HERE.parents[2]
+CANDIDATE = STACK / 'blueprints' / 'alkion-lan.yaml'
+ROLLBACK = STACK / 'rollback' / 'alkion-lan-20261123-rollback.yaml'
 
 
 class Tag:
@@ -62,7 +64,7 @@ class CandidateShape(unittest.TestCase):
                                            (50, 'login'), (60, 'normal-denied')])
         for key in ((10, 'normal-identification'), (50, 'login'), (60, 'normal-denied')):
             self.assertEqual(present[key]['attrs'], {'evaluate_on_plan': False, 're_evaluate_policies': True,
-                                                     'invalid_response_action': 'retry'})
+                                                     'invalid_response_action': 'retry', 'policy_engine_mode': 'all'})
         self.assertEqual(present[30, 'totp-validation']['attrs']['re_evaluate_policies'], False)
 
     def test_removed_bindings_are_guarded(self):
@@ -102,21 +104,24 @@ class CandidateShape(unittest.TestCase):
         for needle in ('0 <= time.time() - started <= 300', 'user.is_superuser', 'not user.is_active',
                        'ak_is_group_member(user, name="animus-lan-normal")', 'context.get("auth_method") != "password"',
                        'type(device).__name__ != "TOTPDevice"', 'device.user_id != user.pk',
-                       'principal != state["initial_session_user"]', 'args.update(marker)'):
+                       'principal != state["initial_session_user"]', 'args.update(marker)',
+                       '"hub_policy_gate": "animus-lan-login-gate"'):
             self.assertIn(needle, expression)
 
     def test_notice_is_never_the_only_denial(self):
-        # The notice only explains; on its own error it is skipped and the flow ends
-        # without a session because the login gate already removed User Login.
+        # The notice only explains; on its own error it is removed. An eligible user then
+        # completes; an ineligible one has no session because the login gate removed User Login.
         expression = POLICIES['animus-lan-denied-notice']['attrs']['expression']
-        self.assertTrue(expression.rstrip().endswith('except Exception:\n    return True'))
+        self.assertTrue(expression.rstrip().endswith('except Exception:\n    return False'))
 
     def test_application_policy_is_the_last_check_before_the_code(self):
         expression = POLICIES['animus-lan-application']['attrs']['expression']
         for needle in ('any(value != "login" for value in prompts[0].split())',
                        'query.get("response_mode", ["query"]) != ["query"]',
-                       'current == bound and consumed != str(event.pk)',
-                       'http.session["animus-lan/consumed-login"] = str(event.pk)',
+                       'and current == bound',
+                       'args.get("hub_policy_gate") == "animus-lan-login-gate"',
+                       'if not cache.add("animus-lan/claimed-login/" + str(event.pk), "claimed", 900):',
+                       '"request" in query or "request_uri" in query',
                        'http.method != "GET"'):
             self.assertIn(needle, expression)
         self.assertTrue(expression.rstrip().endswith('except Exception:\n    return False'))
@@ -124,7 +129,7 @@ class CandidateShape(unittest.TestCase):
                and e['identifiers']['target'] == Tag('!KeyOf', 'application')]
         self.assertEqual(len(app), 3)
         for binding in app:
-            self.assertEqual(binding['attrs'], {'negate': False, 'failure_result': False})
+            self.assertEqual(binding['attrs'], {'negate': False, 'failure_result': False, 'enabled': True, 'timeout': 30})
 
     def test_replaced_prompt_objects_stay_for_the_rollback(self):
         for stage in ('normal-entry', 'normal-final', 'authorization-entry', 'authorization-final', 'consent'):
@@ -138,7 +143,7 @@ class CandidateShape(unittest.TestCase):
         removed = [line for line in deployed.splitlines() if line not in rollback.splitlines()]
         self.assertEqual(removed, [])
         for line in added:
-            self.assertTrue(line.startswith('#') or line.strip().startswith(('- model:', 'state: absent', 'conditions:', '- !Find', 'identifiers:', 'id: rb-')), line)
+            self.assertTrue(line.startswith('#') or line.strip().startswith(('- model:', 'state: absent', 'conditions:', '- !Find', 'identifiers:', 'id: rb-', 'attrs: {policy_engine_mode: any}')), line)
 
 
 if __name__ == '__main__':

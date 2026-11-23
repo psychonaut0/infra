@@ -26,13 +26,17 @@ class HarnessTests(unittest.TestCase):
         # Only the private state directory is mounted writable.
         writable = [m for m in re.findall(r'-v "([^"]+:[^"]+)"', script) if not m.endswith(':ro')]
         self.assertEqual(writable, ['$STATE:/state'])
+        # The worker sees the installed blueprint where CT117's worker does, read-only.
+        self.assertIn('-v "$STATE/bp:/blueprints/ct-animus:ro"', script)
+        # The drift check only reads: it never gets a writable mount or a password.
+        self.assertIn('python3 -I "$DRIFT" --db-container "$(name)-pg"', script)
         self.assertIn('stat -c %a "$STATE")" == 700', script)
 
     def test_up_receipt_records_provenance(self):
         script = (ROOT / 'run.sh').read_text()
         self.assertIn('{ provenance; exit 0; }', script)
-        for field in ('"commit": git("rev-parse", "HEAD")', '"tree_clean"', '"candidate_sha256"',
-                      '"rollback_sha256"', '"auth_image_id"'):
+        for field in ('"commit": git("rev-parse", "HEAD")', '"tree_clean"', '"blueprint_sha256"',
+                      '"rollback_sha256"', '"drift_sha256"', '"auth_image_id"'):
             self.assertIn(field, script)
 
     def test_actor_reports_no_secrets_and_talks_only_to_the_fixture(self):
