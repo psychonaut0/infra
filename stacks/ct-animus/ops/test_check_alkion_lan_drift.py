@@ -177,16 +177,46 @@ class Comparison(unittest.TestCase):
 
 
 class Command(unittest.TestCase):
-    def run_main(self, observed, extra=()):
+    def run_main(self, observed, extra=(), pins=(SHA512,)):
         calls = []
 
         def runner(argv, **kwargs):
             calls.append((argv, kwargs.get('input', '')))
             return subprocess.CompletedProcess(argv, 0, json.dumps(observed) + '\n', '')
         out = io.StringIO()
-        status = drift.main(['--db-container', 'ct-animus-auth-postgres-1', '--blueprint', str(BLUEPRINT), *extra],
-                            runner=runner, out=out)
+        pinned = [arg for pin in pins for arg in ('--expect-sha512', pin)]
+        status = drift.main(['--db-container', 'ct-animus-auth-postgres-1', '--blueprint', str(BLUEPRINT), *pinned,
+                             *extra], runner=runner, out=out)
         return status, out.getvalue(), calls
+
+    def test_pinned_reviewed_file_passes(self):
+        rollback = hashlib.sha512(ROLLBACK.read_bytes()).hexdigest()
+        for pins in ((SHA512,), (rollback, SHA512.upper())):
+            with self.subTest(pins=len(pins)):
+                status, text, _ = self.run_main(live(), pins=pins)
+                self.assertEqual(status, 0)
+                self.assertIn('pinned file', text)
+
+    def test_unpinned_file_fails_even_when_applied(self):
+        # An edited file the worker applied: the live state matches the file itself, so
+        # only the pin tells it apart from the reviewed one.
+        rollback = hashlib.sha512(ROLLBACK.read_bytes()).hexdigest()
+        status, text, _ = self.run_main(live(), pins=(rollback,))
+        self.assertEqual(status, 1)
+        self.assertEqual(text.splitlines(), ['FAIL: 1 difference(s) from alkion-lan.yaml',
+                                             '  - blueprint file sha512 is not one of the pinned reviewed values'])
+        status, text, _ = self.run_main(live(), extra=['--json'], pins=(rollback,))
+        self.assertEqual((status, json.loads(text)['failures']),
+                         (1, ['blueprint file sha512 is not one of the pinned reviewed values']))
+        self.assertNotIn(SHA512, text)
+
+    def test_a_pin_is_mandatory_and_well_formed(self):
+        for pins, message in (((), 'ERROR: no reviewed sha512 pinned'), (('abc',), 'ERROR: --expect-sha512 takes')):
+            with self.subTest(pins=pins):
+                status, text, calls = self.run_main(live(), pins=pins)
+                self.assertEqual(status, 2)
+                self.assertTrue(text.startswith(message), text)
+                self.assertEqual(calls, [])
 
     def test_pass_and_fail_exit_codes(self):
         status, text, calls = self.run_main(live())
@@ -217,14 +247,16 @@ class Command(unittest.TestCase):
         def failing(argv, **kwargs):
             return subprocess.CompletedProcess(argv, 1, '', 'psql: FATAL: details that must not be printed')
         out = io.StringIO()
-        status = drift.main(['--db-container', 'c', '--blueprint', str(BLUEPRINT)], runner=failing, out=out)
+        pin = ['--expect-sha512', SHA512]
+        status = drift.main(['--db-container', 'c', '--blueprint', str(BLUEPRINT), *pin], runner=failing, out=out)
         self.assertEqual(status, 2)
         self.assertEqual(out.getvalue(), 'ERROR: read-only database query failed\n')
         out = io.StringIO()
-        self.assertEqual(drift.main(['--db-container', 'c; rm -rf /', '--blueprint', str(BLUEPRINT)],
+        self.assertEqual(drift.main(['--db-container', 'c; rm -rf /', '--blueprint', str(BLUEPRINT), *pin],
                                     runner=failing, out=out), 2)
         out = io.StringIO()
-        self.assertEqual(drift.main(['--db-container', 'c', '--blueprint', '/nonexistent'], runner=failing, out=out), 2)
+        self.assertEqual(drift.main(['--db-container', 'c', '--blueprint', '/nonexistent', *pin], runner=failing,
+                                    out=out), 2)
 
 
 if __name__ == '__main__':

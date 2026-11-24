@@ -17,7 +17,11 @@ the live database with values DERIVED FROM THE BLUEPRINT FILE (never a hand-copi
     always set (unset falls back to the first authentication flow by slug, an Alkion flow);
   - exactly one blueprint instance for the file's path and no other under ct-animus/,
     with context equal to the owner-commissioning profile, enabled and successful;
-  - sha512 of the file equal to the instance's last_applied_hash.
+  - sha512 of the file equal to the instance's last_applied_hash;
+  - sha512 of the file equal to one of the reviewed values pinned with --expect-sha512
+    (mandatory). The expectation is derived from the file, and the worker applies any
+    edit to the live file on its own, so without the pin an edited and applied blueprint
+    would match itself and PASS.
 
 Every query runs in one PostgreSQL session with default_transaction_read_only=on and
 inside BEGIN READ ONLY, through `docker exec` into the Auth database container as the
@@ -25,7 +29,10 @@ authentik role over the local socket: no password is read or needed. Output name
 stages, policies and attributes only; it never prints secrets, hashes or record values.
 Exit 0: no drift. Exit 1: drift (each difference listed). Exit 2: the check could not run.
 
-On CT117 (root): check-alkion-lan-drift --db-container "$(docker compose ps -q auth-postgres)"
+On CT117 (root), from the stack directory, with the reviewed values from the
+qualification README (forward and rollback, so the check stays meaningful after a rollback):
+  ops/check-alkion-lan-drift --db-container "$(docker compose ps -q auth-postgres)" \
+      --expect-sha512 FORWARD_SHA512 --expect-sha512 ROLLBACK_SHA512
 """
 import argparse
 import hashlib
@@ -428,12 +435,23 @@ def main(argv=None, runner=subprocess.run, out=sys.stdout):
     parser.add_argument("--db-name", default="authentik")
     parser.add_argument("--yaml-via", metavar="AUTH_CONTAINER", help="parse the YAML inside this Auth container")
     parser.add_argument("--json", action="store_true", help="one JSON object instead of text")
+    parser.add_argument("--expect-sha512", action="append", default=[], metavar="HEX",
+                        help="sha512 of a reviewed blueprint file (repeatable, at least one required); "
+                             "the given file must match one of them")
     args = parser.parse_args(argv)
     try:
+        pins = {value.lower() for value in args.expect_sha512}
+        if not pins:
+            raise DriftError("no reviewed sha512 pinned: pass --expect-sha512 (see the qualification README)")
+        if any(not re.fullmatch(r"[0-9a-f]{128}", value) for value in pins):
+            raise DriftError("--expect-sha512 takes a 128-character hexadecimal sha512")
         raw = args.blueprint.read_bytes()
         expected = expected_state(load_blueprint(raw.decode("utf-8"), args.yaml_via, runner))
         observed = observed_state(expected, args.db_container, args.db_user, args.db_name, runner)
-        failures = compare(expected, observed, hashlib.sha512(raw).hexdigest())
+        digest = hashlib.sha512(raw).hexdigest()
+        failures = compare(expected, observed, digest)
+        if digest not in pins:
+            failures.insert(0, "blueprint file sha512 is not one of the pinned reviewed values")
     except DriftError as exc:
         message = str(exc)
         status = 2
@@ -458,7 +476,7 @@ def main(argv=None, runner=subprocess.run, out=sys.stdout):
     else:
         out.write(f"PASS: alkion-lan matches {args.blueprint.name} ({checked['stage_bindings']} stage bindings, "
                   f"{checked['policy_bindings']} policy bindings, {checked['expressions']} expressions, "
-                  f"one successful instance with the owner-commissioning context)\n")
+                  f"one successful instance with the owner-commissioning context, pinned file)\n")
     return status
 
 
