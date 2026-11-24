@@ -291,60 +291,109 @@ Confirm self-enrollment is unavailable before any ordinary-user commissioning.
 
 ## LAN provider and API startup
 
-The worker mounts only `blueprints/alkion-lan.yaml` read-only. The provider
+The worker mounts the whole `blueprints/` directory read-only at
+`/blueprints/ct-animus` and applies every `.yaml` file in it as its own blueprint
+instance (hidden files excepted), so only `alkion-lan.yaml` may ever live there;
+`check-config.py` enforces that. The provider
 configuration preserves the existing provider/application name, client ID/slug
 `alkion-lan`, per-provider issuer, UUID subject, ten-minute access tokens and
 existing RSA signing-certificate reference. It registers exactly two strict
 callbacks: `dev.animusstudio.alkion.dev:/oauth2redirect` and
 `http://127.0.0.1:43819/callback` (see the profile below).
 
-Application-specific `animus-lan-*` flows require password plus TOTP through
-mandatory entry/final Prompt validators. Missing TOTP denies; submitted fields
-never supply proof/time. Separate controlled enrollment and repair declare
-non-admin eligibility groups without seeding memberships. Repair requires the same account password plus
-one unused recovery code, validates replacement TOTP/ten new codes and logs out;
-it creates no normal-login proof. Provider controls alone do not retire factors,
-revoke all credentials or invalidate every old partial plan: the reviewed
-full-hold/drain/operator envelope and its actual qualification remain required.
-The global default administrator authentication flow is unchanged.
+Application-specific `animus-lan-*` flows require password plus TOTP. Missing TOTP
+denies; submitted fields never supply proof/time. Separate controlled enrollment and
+repair declare non-admin eligibility groups without seeding memberships. Repair
+requires the same account password plus one unused recovery code, validates
+replacement TOTP/ten new codes and logs out; it creates no normal-login proof.
+Provider controls alone do not retire factors, revoke all credentials or invalidate
+every old partial plan: the reviewed full-hold/drain/operator envelope and its
+actual qualification remain required. The global default administrator
+authentication flow is unchanged.
 
-Since 2026-11-18 the normal flow shows username and password on one page: its own
-`animus-lan-normal-identification` stage embeds the existing inbuilt password
-stage, so the login still records the `password` method the validators require.
-The shared identification and password stages, enrollment and repair are
-unchanged. Consent is remembered permanently per user and application, so it
-appears on an account's first authorization only; the authorization entry and
-final validator Prompts run on every authorization and are not affected by a
-skipped consent page. Each validator Prompt has its own checkbox whose label says
-what it checks. The replaced normal-flow bindings are removed by `state: absent`
-entries guarded by an existence condition, because in 2026.8.5 an unguarded absent
-binding with no matching row makes every later apply fail.
+Since 2026-11-23 (P1 sign-in redesign) Connect shows **two pages**: username and
+password, then TOTP, then straight back to the app, with no consent page. The
+checks sit on the bindings of the stages that grant access, not on Prompt pages:
 
-With OIDC `prompt=login`, every Connect costs exactly one fresh ceremony. Stock
-2026.8.5 does not give that: application policies run before the authorize view
-handles `prompt`, so a stale or foreign session was denied, and its last-login
-marker made a later `prompt=login` either a second ceremony or a no-op. The final
-normal validator therefore records a hash of the normalised authorization request
-that started the ceremony (`alkion-lan` client, callback, S256 challenge; a label,
-never proof or time). The application policy continues only that exact request;
-any other session (stale, another account, another flow, ineligible) is sent back
-to the normal flow instead of being denied.
-Without `prompt=login` access is unchanged. Clients must not add a small
-`max_age`: re-authentication would repeat. Page counts, prompt
-handling and the deny checks are recorded in the
-[P1 qualification README](qualification/p1/README.md#normal-flow-simplification-2026-11-18).
+- the **entry gate**, a re-evaluated policy on the username+password binding, starts
+  the 300 s ceremony clock and binds the session envelope on the first request and
+  never renews it; it refuses restored, redirected, user-switch or already
+  authenticated plans and any change of session user or login event;
+- the **login gate**, on the User Login binding, runs in the request that logs in and
+  re-checks everything the final Prompt used to (ceremony age, same subject and
+  session, active non-admin normal-group account, password method, the user's own
+  confirmed TOTP device, no user-switch context). Only its success path writes the
+  `hub_policy_*` marker, including `hub_policy_gate`;
+- a **notice** (a re-evaluated Deny stage, explanation only) after login shows
+  "Sign-in couldn't be completed. Go back to Alkion and tap Connect again.";
+- the **authorization flow has no stages**, so the authorize view issues the code in
+  the same request whose application policy passed. That policy requires a fresh
+  qualified login written by the login gate and bound to exactly this request, lets
+  each login yield one code (an atomic `cache.add` claim keyed by the login event,
+  900 s), and refuses `prompt` other than `login`, non-query response modes,
+  `request`/`request_uri`, non-GET requests and policy subprocesses.
 
-Rollback is the reviewed `rollback/alkion-lan-20261118-rollback.yaml`, kept outside
-the mounted directory so the worker never discovers it. Copy it over
-`blueprints/alkion-lan.yaml` on the CT (same blueprint instance and context),
-Apply, and check the flow-stage bindings by read-only SQL: normal flow back to
-entry, identification, password, TOTP, final, login, and no
-`animus-lan-normal-identification` stage. It restores the previous attributes
-explicitly, including the previous final and application policies (so `prompt=login`
-behaves as stock again), and removes the added stage, binding and four checkbox fields. It does
-not delete remembered consent: `always_require` ignores those UserConsent rows,
-but they survive and would be honoured again by a later remembered mode, so delete
-them in the admin interface first if that matters.
+A false result, an error or a crash of a gate **removes** the stage it gates (no
+pending user, or no session), and every gate, PKCE and application binding is pinned
+(`enabled`, `negate`, `failure_result`, `timeout`; engine mode `all`). The residual
+risk is drift: a disabled or deleted binding, re-evaluation turned off or an engine
+mode switched to `any` removes a check instead of denying. `ops/check-alkion-lan-drift`
+detects each of those (see below). The replaced Prompt, consent and policy objects
+stay declared, unbound, so the rollback can rebind them. The mechanism, the residual
+cases and the isolated qualification are in the
+[P1 qualification README](qualification/p1/README.md#p1-sign-in-redesign-2026-11-23).
+
+With OIDC `prompt=login`, every Connect costs exactly one fresh ceremony: the login
+gate records a hash of the normalised authorization request that started the
+ceremony (`alkion-lan` client, callback, S256 challenge; a label, never proof or
+time), and the application policy continues only that exact request; any other
+session (stale, another account, another flow, ineligible) is sent back to the normal
+flow instead of being denied. Without `prompt=login` only the bound request of a
+fresh qualified login gets a code. Clients must not add a small `max_age`:
+re-authentication would repeat.
+
+### Install path, drift check and rollback chain
+
+Install a blueprint change only with no sign-in ceremony open, from the stack
+directory on the CT:
+
+1. Keep backups and rollbacks outside `blueprints/` (under `/root/` or `rollback/`).
+2. Write the new file as `blueprints/.alkion-lan.yaml.new` with the live file's owner
+   and mode (`install -m MODE -o UID -g GID`), check that the worker reads the same
+   bytes (`docker exec <auth-worker> sha512sum /blueprints/ct-animus/.alkion-lan.yaml.new`),
+   then `mv` it over `blueprints/alkion-lan.yaml`.
+3. Creating the hidden file schedules a blueprint discovery, which can find the renamed
+   file and apply it within seconds (seen in the isolated run); otherwise the explicit
+   Apply (admin UI, context unchanged) or the hourly discovery does. All three apply the
+   same content through the one existing instance and its context.
+4. Then the drift check with the reviewed sha512 pins (exact command and values in the
+   [P1 qualification README](qualification/p1/README.md#pinned-reviewed-files-and-the-daily-check))
+   must print PASS, and `check-config.py` must pass.
+
+`ops/check-alkion-lan-drift` is read-only (`default_transaction_read_only=on` and
+`BEGIN READ ONLY`, local socket, no password). It derives its expectation from the
+blueprint file it is given and compares the exact stage-binding set, the exact
+policy-binding set and attributes on the Alkion flows, their stage bindings and the
+application, the engine modes, the expression and mapping hashes, the brand flows,
+the one blueprint instance (owner-commissioning context, enabled, successful) and
+the file's sha512 against `last_applied_hash`. Because the worker applies any edit to
+the live file by itself, an edited and applied file would match itself, so the file's
+sha512 must also be one of the reviewed values given with `--expect-sha512`
+(repeatable; at least one is mandatory, otherwise exit 2). Exit 0 PASS, 1 drift, 2
+could not run. It needs PyYAML on the host, or `--yaml-via <auth-worker>` to parse
+inside the Auth image. Run it at install, after any admin change, and on a schedule.
+
+Rollback chain: `rollback/alkion-lan-20261123-rollback.yaml` is valid only from the
+redesigned state. It is the blueprint deployed before (infra `c693d82`) plus guarded
+removal of the gate and notice bindings and the engine mode reset, and restores the
+6-page flow exactly. Install it by the same hidden-file path, then run the same pinned
+drift check (the live file now holds the rollback, whose sha512 is one of the pins). Its
+entry order is not fail-closed prefix by prefix; that is safe only because the importer
+applies a file in one transaction. A ceremony open across
+the apply ends without a code (it may end with a session). The older
+`rollback/alkion-lan-20261118-rollback.yaml` is **superseded**: applied after the
+redesign it would block every login. Remembered consent rows from before stay and are
+harmless.
 
 Run `python3 check-config.py` and `python3 check-config.py --inspect-image` on the
 CT itself during every redeploy, including this one: they need

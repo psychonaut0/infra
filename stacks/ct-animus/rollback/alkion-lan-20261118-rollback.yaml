@@ -7,6 +7,10 @@
 # always_require ignores it, but it survives and would be honoured again if a
 # remembered mode returns. Delete it under Directory > Users > Consent first if
 # that matters. Re-applying this file is a no-op once the added objects are gone.
+# SUPERSEDED 2026-11-23 by rollback/alkion-lan-20261123-rollback.yaml. Do NOT apply this
+# file after the P1 sign-in redesign: it would reset the login binding while its gate
+# policy stays bound, so every login would be refused. Valid only from the 2026-11-18
+# state, which no longer exists once the redesign is applied.
 # Application issuance is CLOSED by default. The animus-lan-issuance-closed binding
 # is removed only when the operator selects the owner-commissioning profile through
 # the blueprint instance context (see stacks/ct-animus/README.md). That profile opens

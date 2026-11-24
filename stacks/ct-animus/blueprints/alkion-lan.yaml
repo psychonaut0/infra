@@ -1,3 +1,14 @@
+# P1 sign-in, 2026-11-23 redesign (infra feat/ct-animus-p1-gates-20261123; spec and plan
+# in Animus docs/specs|plans/2026-11-23-p1-signin-redesign.md). Normal flow:
+# username+password (gated by the re-evaluated entry gate) -> TOTP -> User Login (gated
+# by the re-evaluated login gate) -> notice (a re-evaluated Deny, explanation only).
+# Authorization flow: no stages, so the authorize view issues the code in the request
+# whose application policy passed. A false result, an error or a crash of a gate
+# REMOVES the stage it gates; disabled or deleted gate bindings do not (residual risk,
+# see qualification/p1/README.md), which is what ops/check-alkion-lan-drift detects.
+# The replaced Prompt, consent and policy objects stay declared for the rollback
+# (rollback/alkion-lan-20261123-rollback.yaml). The worker applies every .yaml in this
+# directory: keep only this file here and install it by hidden file + rename.
 # Application issuance is CLOSED by default. The animus-lan-issuance-closed binding
 # is removed only when the operator selects the owner-commissioning profile through
 # the blueprint instance context (see stacks/ct-animus/README.md). That profile opens
@@ -153,13 +164,17 @@ entries:
   - model: authentik_stages_user_logout.userlogoutstage
     id: logout
     identifiers: {name: animus-lan-logout}
+  - model: authentik_stages_deny.denystage
+    id: normal-denied
+    identifiers: {name: animus-lan-normal-denied}
+    attrs:
+      deny_message: Sign-in couldn't be completed. Go back to Alkion and tap Connect again.
   - model: authentik_stages_consent.consentstage
     id: consent
     identifiers: {name: animus-lan-consent}
-    # Remembered per user and application (one client), so it is asked once. It
-    # hosts no validator: the authorization entry and final Prompts run either way.
-    # consent_expire_in is unused in permanent mode; it is pinned so the row is
-    # fully declared. Remembered consent survives a rollback (see the README).
+    # Unbound since 2026-11-23 (OD1: no consent page); kept for the rollback, which
+    # binds it again. consent_expire_in is unused in permanent mode; it is pinned so
+    # the row is fully declared. Remembered consent rows stay and are harmless.
     attrs: {mode: permanent, consent_expire_in: 'weeks=4'}
   - model: authentik_policies_expression.expressionpolicy
     id: entry-policy
@@ -352,37 +367,66 @@ entries:
                         "policy": args["hub_policy_id"], "provider": str(provider.pk), "client": provider.client_id}
             except Exception:
                 return None
+        # The authorization flow has no stages, so the authorize view issues the code in
+        # this same request (flows/planner.py:129-176). This policy is therefore the last
+        # check before the code: it requires a fresh qualified ceremony bound to exactly
+        # this request, used at most once, and refuses every option that would need the
+        # flow executor (prompt=consent, non-query response modes), a request object or
+        # silence (prompt=none).
         try:
             import hashlib
             import json
             import multiprocessing
             from urllib.parse import parse_qs
+            from django.core.cache import cache
             from authentik.events.signals import get_login_event
             from authentik.providers.oauth2.views.authorize import SESSION_KEY_LAST_LOGIN_UID
+            process = multiprocessing.current_process()
+            if type(process).__name__ != "_MainProcess" or process.daemon:
+                return False
             http = request.http_request
-            if http.path != "/application/o/authorize/" or not http.user.is_authenticated or http.user.pk != request.user.pk:
+            if (http.path != "/application/o/authorize/" or http.method != "GET" or not http.user.is_authenticated
+                    or http.user.pk != request.user.pk):
+                return False
+            query = parse_qs(http.META.get("QUERY_STRING", ""), keep_blank_values=True)
+            prompts = query.get("prompt", [""])
+            if len(prompts) != 1 or any(value != "login" for value in prompts[0].split()):
+                return False
+            if "request" in query or "request_uri" in query or query.get("response_mode", ["query"]) != ["query"]:
                 return False
             event = get_login_event(http)
+            if event is None:
+                return False
             proof = event_proof(event, request.user, request.obj.provider, True)
-            process = multiprocessing.current_process()
-            if (http.method != "GET" or "login" not in http.GET.get("prompt", "").split() or event is None
-                    or type(process).__name__ != "_MainProcess" or process.daemon):
-                return proof is not None
-            # prompt=login: continue only the ceremony the final normal validator bound to
-            # this exact request (same normalised hash). Any other session (stale, another
-            # account, another flow) goes back to the normal flow: with the last-login marker
-            # equal to the current login, the authorize view re-authenticates before it plans
-            # any authorization (authorize.py:552-560), so True on that branch mints nothing.
-            query = parse_qs(http.META.get("QUERY_STRING", ""))
             fields = [query.get(key, []) for key in ("client_id", "redirect_uri", "code_challenge", "code_challenge_method")]
-            bound = event.context.get("auth_method_args", {}).get("hub_policy_request")
             current = (hashlib.sha256(json.dumps([values[0] for values in fields]).encode()).hexdigest()
                        if all(len(values) == 1 for values in fields) and fields[0][0] == "alkion-lan" else None)
-            if proof is not None and isinstance(bound, str) and current == bound:
-                http.session[SESSION_KEY_LAST_LOGIN_UID] = "animus-lan-continue:" + str(event.pk)
-            else:
+            args = event.context.get("auth_method_args", {})
+            bound = args.get("hub_policy_request")
+            login = "login" in prompts[0].split()
+            if (proof is not None and isinstance(bound, str) and current == bound
+                    and args.get("hub_policy_gate") == "animus-lan-login-gate"):
+                if (request.context.get("oauth_grant_type") != "authorization_code"
+                        or request.context.get("oauth_response_type") != "code"):
+                    return False
+                # Single use, claimed last: one code per qualified login event. cache.add
+                # is an INSERT on the cache table's primary key (django_postgres_cache), so
+                # of any number of concurrent requests exactly one succeeds. The claim
+                # lives 900 s, longer than the 300 s ceremony plus clock skew, so the proof
+                # is stale before the claim can expire. A refused claim is final: an exact
+                # replay of a fulfilled request is denied, not re-authenticated.
+                if not cache.add("animus-lan/claimed-login/" + str(event.pk), "claimed", 900):
+                    return False
+                if login:
+                    http.session[SESSION_KEY_LAST_LOGIN_UID] = "animus-lan-continue:" + str(event.pk)
+                return True
+            if login:
+                # Any other session goes back to the normal flow: with the last-login marker
+                # equal to the current login the authorize view re-authenticates before it
+                # plans anything (authorize.py:552-560), so True here mints nothing.
                 http.session[SESSION_KEY_LAST_LOGIN_UID] = str(event.pk)
-            return True
+                return True
+            return False
         except Exception:
             return False
   - model: authentik_policies_expression.expressionpolicy
@@ -528,6 +572,186 @@ entries:
             proof.update({"redirect_uri": params.redirect_uri, "challenge": params.code_challenge,
                           "challenge_method": params.code_challenge_method, "grant": params.grant_type, "response_type": params.response_type})
             return context.get("hub_p1_authorization") == proof
+        except Exception:
+            return False
+  # --- P1 redesign (2026-11-23): gates on the stages that grant, not Deny stages.
+  # Each gate is a re-evaluated policy on the binding of the stage it protects. A false
+  # result, an expression error (PolicyException -> failure_result false) or a crash
+  # REMOVES that stage from the plan (flows/markers.py ReevaluateMarker). Removing the
+  # identification stage leaves no pending user; removing User Login leaves no session.
+  # A stage whose gate binding is disabled or deleted runs ungated instead
+  # (PolicyEngine.empty_result): ops/check-alkion-lan-drift detects that.
+  - model: authentik_policies_expression.expressionpolicy
+    id: entry-gate-policy
+    identifiers: {name: animus-lan-entry-gate}
+    attrs:
+      execution_logging: false
+      expression: |
+        # Re-evaluated on every request while the username+password page is current.
+        # First run: start the ceremony clock before either factor. Later runs: accept
+        # only the same untouched envelope; never renew the time. Staleness is refused
+        # by the login gate, which re-checks everything.
+        try:
+            import multiprocessing
+            import re
+            import time
+            import uuid
+            from authentik.events.signals import get_login_event
+            from authentik.flows.views.executor import SESSION_KEY_PLAN
+            process = multiprocessing.current_process()
+            if type(process).__name__ != "_MainProcess" or process.daemon:
+                return False
+            http = request.http_request
+            plan = request.context["flow_plan"]
+            if plan is not http.session.get(SESSION_KEY_PLAN):
+                return False
+            binding = plan.bindings[0]
+            flow = str(plan.flow_pk)
+            if (binding.stage.name != "animus-lan-normal-identification" or binding.order != 10
+                    or binding.target_id.hex != flow or not re.fullmatch(r"[0-9a-f]{32}", flow)):
+                return False
+            context = plan.context
+            if not isinstance(context, dict):
+                return False
+            if any(key in context for key in ("auth_method", "auth_method_args", "is_restored", "is_redirected")):
+                return False
+            # User switching (core/views/user_switch.py) plans a login flow with these keys.
+            if any(not isinstance(key, str) or key.startswith("user_switch_") for key in context):
+                return False
+            principal = http.user.pk if http.user.is_authenticated else None
+            event = get_login_event(http) if principal is not None else None
+            if principal is not None and (event is None or event.user.get("pk") != principal):
+                return False
+            initial_event = str(event.pk) if event else None
+            state = context.get("hub_p1_execution")
+            if state is None:
+                context["hub_p1_execution"] = {
+                    "policy": "animus-password-totp-mechanism-v2", "flow": flow,
+                    "nonce": uuid.uuid4().hex, "factor_time": int(time.time()),
+                    "initial_session_user": principal, "initial_login_event": initial_event,
+                }
+                http.session[SESSION_KEY_PLAN] = plan
+                return True
+            expected = {"policy", "flow", "nonce", "factor_time", "initial_session_user", "initial_login_event"}
+            return (isinstance(state, dict) and set(state) == expected
+                    and state["policy"] == "animus-password-totp-mechanism-v2" and state["flow"] == flow
+                    and isinstance(state["nonce"], str) and re.fullmatch(r"[0-9a-f]{32}", state["nonce"]) is not None
+                    and type(state["factor_time"]) is int and 0 < state["factor_time"] <= time.time()
+                    and state["initial_session_user"] == principal and state["initial_login_event"] == initial_event)
+        except Exception:
+            return False
+  - model: authentik_policies_expression.expressionpolicy
+    id: login-gate-policy
+    identifiers: {name: animus-lan-login-gate}
+    attrs:
+      execution_logging: false
+      expression: |
+        # Re-evaluated in the same request that runs User Login, immediately before it.
+        # True stamps the proof marker into the login method arguments; anything else
+        # removes User Login from the plan, so no session and no marker exist.
+        try:
+            import multiprocessing
+            import re
+            import time
+            import hashlib
+            import json
+            from urllib.parse import parse_qs, urlsplit
+            from authentik.events.signals import get_login_event
+            from authentik.flows.views.executor import SESSION_KEY_GET, SESSION_KEY_PLAN
+            process = multiprocessing.current_process()
+            if type(process).__name__ != "_MainProcess" or process.daemon:
+                return False
+            http = request.http_request
+            plan = request.context["flow_plan"]
+            if plan is not http.session.get(SESSION_KEY_PLAN):
+                return False
+            binding = plan.bindings[0]
+            if binding.stage.name != "animus-lan-login" or binding.order != 50 or binding.target_id.hex != plan.flow_pk:
+                return False
+            context = plan.context
+            if not isinstance(context, dict) or "is_restored" in context or "is_redirected" in context:
+                return False
+            if any(not isinstance(key, str) or key.startswith("user_switch_") for key in context):
+                return False
+            state = context.get("hub_p1_execution")
+            expected = {"policy", "flow", "nonce", "factor_time", "initial_session_user", "initial_login_event"}
+            if not isinstance(state, dict) or set(state) != expected:
+                return False
+            if state["policy"] != "animus-password-totp-mechanism-v2" or state["flow"] != plan.flow_pk:
+                return False
+            if not isinstance(state["nonce"], str) or not re.fullmatch(r"[0-9a-f]{32}", state["nonce"]):
+                return False
+            started = state["factor_time"]
+            if type(started) is not int or started <= 0 or not 0 <= time.time() - started <= 300:
+                return False
+            principal = http.user.pk if http.user.is_authenticated else None
+            event = get_login_event(http) if principal is not None else None
+            if principal != state["initial_session_user"] or (str(event.pk) if event else None) != state["initial_login_event"]:
+                return False
+            user = context.get("pending_user")
+            if user is None or not user.pk or not user.is_active or user.is_superuser or request.user.pk != user.pk:
+                return False
+            # The plan holds the copy of the account stored when it was identified. Read it
+            # again, so that a deactivation or a superuser grant during the ceremony refuses
+            # here, before User Login creates a session or a login event.
+            current = ak_user_by(pk=user.pk, is_active=True)
+            if current is None or current.pk != user.pk or not current.is_active or current.is_superuser:
+                return False
+            if not ak_is_group_member(current, name="animus-lan-normal") or context.get("auth_method") != "password":
+                return False
+            args = context.get("auth_method_args")
+            if not isinstance(args, dict) or not isinstance(args.get("mfa_devices"), list) or not args["mfa_devices"]:
+                return False
+            for device in args["mfa_devices"]:
+                if type(device).__name__ != "TOTPDevice" or not device.confirmed or device.user_id != user.pk:
+                    return False
+            # Label (never proof or time): hash of the normalised alkion-lan authorize request
+            # that started this ceremony. The application policy requires it on every code.
+            bound = None
+            target = http.session.get(SESSION_KEY_GET, {}).get("next")
+            if isinstance(target, str):
+                parts = urlsplit(target)
+                query = parse_qs(parts.query)
+                fields = [query.get(key, []) for key in ("client_id", "redirect_uri", "code_challenge", "code_challenge_method")]
+                if (not parts.scheme and not parts.netloc and parts.path == "/application/o/authorize/"
+                        and all(len(values) == 1 for values in fields) and fields[0][0] == "alkion-lan"
+                        and fields[3][0] == "S256" and re.fullmatch(r"[A-Za-z0-9_-]{43}", fields[2][0])):
+                    bound = hashlib.sha256(json.dumps([values[0] for values in fields]).encode()).hexdigest()
+            # hub_policy_gate (internal, never a claim) says that this gate, not the
+            # retired final Prompt, wrote the marker: a plan started before the
+            # 2026-11-23 apply cannot yield a code after it.
+            marker = {"hub_policy_id": state["policy"], "hub_factor_time": started,
+                      "hub_policy_flow": state["flow"], "hub_policy_execution": state["nonce"],
+                      "hub_policy_subject": user.pk, "hub_policy_request": bound,
+                      "hub_policy_gate": "animus-lan-login-gate"}
+            if any(key in args and args[key] != value for key, value in marker.items()):
+                return False
+            args.update(marker)
+            http.session[SESSION_KEY_PLAN] = plan
+            return True
+        except Exception:
+            return False
+  - model: authentik_policies_expression.expressionpolicy
+    id: denied-notice-policy
+    identifiers: {name: animus-lan-denied-notice}
+    attrs:
+      execution_logging: false
+      expression: |
+        # Explanation only, never a security control. True (show the notice) unless this
+        # ceremony's own qualified login just happened, which only the login gate's
+        # success path can record. If this policy raises or errors, the notice is
+        # removed (failure_result false, and False below): an eligible user still
+        # completes and gets a code; an ineligible user, whose User Login the login gate
+        # already removed, has no session and gets no code.
+        try:
+            from authentik.events.signals import get_login_event
+            http = request.http_request
+            state = request.context["flow_plan"].context.get("hub_p1_execution")
+            event = get_login_event(http) if http.user.is_authenticated else None
+            args = event.context.get("auth_method_args", {}) if event is not None else {}
+            done = (isinstance(state, dict) and event is not None and event.user.get("pk") == http.user.pk
+                    and args.get("hub_policy_execution") == state.get("nonce"))
+            return not done
         except Exception:
             return False
   - model: authentik_policies_expression.expressionpolicy
@@ -693,9 +917,6 @@ entries:
             return {"hub_authentication_policy": proof["policy"], "hub_factor_time": proof["factor_time"]}
         except Exception:
             return {}
-  - model: authentik_flows.flowstagebinding
-    identifiers: {target: !KeyOf normal-flow, stage: !KeyOf normal-entry, order: 0}
-    attrs: {evaluate_on_plan: true, re_evaluate_policies: false, invalid_response_action: retry}
   # A re-apply never deletes entries by itself: the two bindings replaced by the
   # combined page are removed explicitly, before the replacement is bound. Each
   # removal runs only while its binding exists: in 2026.8.5 an absent binding entry
@@ -711,18 +932,59 @@ entries:
     conditions:
       - !Find [authentik_flows.flowstagebinding, [target, !KeyOf normal-flow], [stage, !KeyOf password], [order, 20]]
     identifiers: {target: !KeyOf normal-flow, stage: !KeyOf password, order: 20}
+  # Fail-closed entry order (2026-11-23). The importer applies the file in one
+  # transaction; the order is defence in depth, so that every prefix of this file
+  # is fail-closed on its own:
+  #   1. the two granting bindings, still with their 2026-11-18 attributes;
+  #   2. their gate policies bound (pinned). With evaluate_on_plan still true, a gate
+  #      runs at plan time, where it always refuses, so the stage is planned out;
+  #   3. only then are they switched to re-evaluation, with the engine mode pinned;
+  #   4. the notice is bound (with no policy yet it denies everyone after login);
+  #   5. only then are the two validator Prompts unbound (guarded removals). Their
+  #      stage and policy objects stay declared for the rollback.
   - model: authentik_flows.flowstagebinding
+    id: normal-identification-binding
     identifiers: {target: !KeyOf normal-flow, stage: !KeyOf normal-identification, order: 10}
     attrs: {evaluate_on_plan: true, re_evaluate_policies: false, invalid_response_action: retry}
+  - model: authentik_flows.flowstagebinding
+    id: normal-login-binding
+    identifiers: {target: !KeyOf normal-flow, stage: !KeyOf login, order: 50}
+    attrs: {evaluate_on_plan: true, re_evaluate_policies: false, invalid_response_action: retry}
+  - model: authentik_policies.policybinding
+    identifiers: {target: !KeyOf normal-identification-binding, policy: !KeyOf entry-gate-policy, order: 0}
+    attrs: {negate: false, failure_result: false, enabled: true, timeout: 30}
+  - model: authentik_policies.policybinding
+    identifiers: {target: !KeyOf normal-login-binding, policy: !KeyOf login-gate-policy, order: 0}
+    attrs: {negate: false, failure_result: false, enabled: true, timeout: 30}
+  # Gate bindings: never evaluated at plan time (plans are cached per flow and user),
+  # always re-evaluated uncached when the stage is next (flows/planner.py:347-376,
+  # flows/markers.py). Engine mode "all": an extra binding can only add a condition.
+  - model: authentik_flows.flowstagebinding
+    identifiers: {target: !KeyOf normal-flow, stage: !KeyOf normal-identification, order: 10}
+    attrs: {evaluate_on_plan: false, re_evaluate_policies: true, invalid_response_action: retry, policy_engine_mode: all}
   - model: authentik_flows.flowstagebinding
     identifiers: {target: !KeyOf normal-flow, stage: !KeyOf totp-validation, order: 30}
     attrs: {evaluate_on_plan: true, re_evaluate_policies: false, invalid_response_action: retry}
   - model: authentik_flows.flowstagebinding
-    identifiers: {target: !KeyOf normal-flow, stage: !KeyOf normal-final, order: 40}
-    attrs: {evaluate_on_plan: true, re_evaluate_policies: false, invalid_response_action: retry}
-  - model: authentik_flows.flowstagebinding
     identifiers: {target: !KeyOf normal-flow, stage: !KeyOf login, order: 50}
-    attrs: {evaluate_on_plan: true, re_evaluate_policies: false, invalid_response_action: retry}
+    attrs: {evaluate_on_plan: false, re_evaluate_policies: true, invalid_response_action: retry, policy_engine_mode: all}
+  - model: authentik_flows.flowstagebinding
+    id: normal-denied-binding
+    identifiers: {target: !KeyOf normal-flow, stage: !KeyOf normal-denied, order: 60}
+    attrs: {evaluate_on_plan: false, re_evaluate_policies: true, invalid_response_action: retry, policy_engine_mode: all}
+  - model: authentik_policies.policybinding
+    identifiers: {target: !KeyOf normal-denied-binding, policy: !KeyOf denied-notice-policy, order: 0}
+    attrs: {negate: false, failure_result: false, enabled: true, timeout: 30}
+  - model: authentik_flows.flowstagebinding
+    state: absent
+    conditions:
+      - !Find [authentik_flows.flowstagebinding, [target, !KeyOf normal-flow], [stage, !KeyOf normal-entry], [order, 0]]
+    identifiers: {target: !KeyOf normal-flow, stage: !KeyOf normal-entry, order: 0}
+  - model: authentik_flows.flowstagebinding
+    state: absent
+    conditions:
+      - !Find [authentik_flows.flowstagebinding, [target, !KeyOf normal-flow], [stage, !KeyOf normal-final], [order, 40]]
+    identifiers: {target: !KeyOf normal-flow, stage: !KeyOf normal-final, order: 40}
   - model: authentik_flows.flowstagebinding
     identifiers: {target: !KeyOf enrollment-flow, stage: !KeyOf identification, order: 0}
     attrs: {evaluate_on_plan: true, re_evaluate_policies: false, invalid_response_action: retry}
@@ -771,15 +1033,25 @@ entries:
   - model: authentik_flows.flowstagebinding
     identifiers: {target: !KeyOf repair-flow, stage: !KeyOf logout, order: 80}
     attrs: {evaluate_on_plan: true, re_evaluate_policies: false, invalid_response_action: retry}
+  # The authorization flow has no stages (2026-11-23). With only the in-memory fulfilment
+  # stage planned, the authorize view issues the code in the same request that ran the
+  # application policies (flows/planner.py:129-176, authorize.py:594-606). The new
+  # application policy above is already in place when these Prompts are unbound.
   - model: authentik_flows.flowstagebinding
+    state: absent
+    conditions:
+      - !Find [authentik_flows.flowstagebinding, [target, !KeyOf authorization-flow], [stage, !KeyOf authorization-entry], [order, 0]]
     identifiers: {target: !KeyOf authorization-flow, stage: !KeyOf authorization-entry, order: 0}
-    attrs: {evaluate_on_plan: true, re_evaluate_policies: false, invalid_response_action: retry}
   - model: authentik_flows.flowstagebinding
+    state: absent
+    conditions:
+      - !Find [authentik_flows.flowstagebinding, [target, !KeyOf authorization-flow], [stage, !KeyOf consent], [order, 10]]
     identifiers: {target: !KeyOf authorization-flow, stage: !KeyOf consent, order: 10}
-    attrs: {evaluate_on_plan: true, re_evaluate_policies: false, invalid_response_action: retry}
   - model: authentik_flows.flowstagebinding
+    state: absent
+    conditions:
+      - !Find [authentik_flows.flowstagebinding, [target, !KeyOf authorization-flow], [stage, !KeyOf authorization-final], [order, 20]]
     identifiers: {target: !KeyOf authorization-flow, stage: !KeyOf authorization-final, order: 20}
-    attrs: {evaluate_on_plan: true, re_evaluate_policies: false, invalid_response_action: retry}
   - model: authentik_providers_oauth2.oauth2provider
     id: alkion-lan-provider
     identifiers: {name: Alkion LAN commissioning}
@@ -810,15 +1082,17 @@ entries:
     id: application
     identifiers: {slug: alkion-lan}
     attrs: {name: Alkion LAN commissioning, provider: !KeyOf alkion-lan-provider, policy_engine_mode: all}
+  # Application bindings pinned like the gates: the application policy is the last
+  # check before the code, and a disabled or deleted binding would not deny.
   - model: authentik_policies.policybinding
     identifiers: {target: !KeyOf application, policy: !KeyOf pkce-policy, order: 0}
-    attrs: {negate: false, failure_result: false}
+    attrs: {negate: false, failure_result: false, enabled: true, timeout: 30}
   - model: authentik_policies.policybinding
     identifiers: {target: !KeyOf application, policy: !KeyOf application-policy, order: 1}
-    attrs: {negate: false, failure_result: false}
+    attrs: {negate: false, failure_result: false, enabled: true, timeout: 30}
   - model: authentik_policies.policybinding
     # Exact-key lookup: any value other than the string owner-commissioning keeps it.
     # (!Condition is unsuitable here: it compares only the truthiness of its arguments.)
     state: !AtIndex [{owner-commissioning: absent}, !Context [animus_issuance_profile, closed], present]
     identifiers: {target: !KeyOf application, policy: !KeyOf issuance-closed-policy, order: 2}
-    attrs: {negate: false, failure_result: false}
+    attrs: {negate: false, failure_result: false, enabled: true, timeout: 30}

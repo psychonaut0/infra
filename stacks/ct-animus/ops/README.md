@@ -89,6 +89,30 @@ Qualify actual Docker restart and guest reboot with current, missing/stale G and
 holds before enabling CT auto-start. A hypervisor reboot is a separate event;
 no host-reboot qualification follows from the guest test.
 
+## Alkion LAN drift check
+
+`check-alkion-lan-drift` is a read-only check of the `alkion-lan` Authentik
+configuration against `../blueprints/alkion-lan.yaml` (or the file given with
+`--blueprint`). The file's sha512 must be one of the reviewed values passed with
+`--expect-sha512` (repeatable, mandatory): the worker applies any edit to the live file
+by itself, so without the pin an edited, applied file would pass. Run it as root on the
+CT from the stack directory, with the forward and rollback values recorded in the
+[P1 qualification README](../qualification/p1/README.md#pinned-reviewed-files-and-the-daily-check):
+
+```sh
+ops/check-alkion-lan-drift --db-container "$(docker compose ps -q auth-postgres)" \
+  --expect-sha512 FORWARD_SHA512 --expect-sha512 ROLLBACK_SHA512
+```
+
+It reads through `docker exec` and `psql` as the `authentik` role over the local
+socket, with `default_transaction_read_only=on`; it reads no password and prints no
+secret. Exit 0 is PASS, 1 lists each difference, 2 means it could not run. It needs
+PyYAML on the host, or `--yaml-via <auth-worker container>` to parse the blueprint
+inside the Auth image. The expectation, residual cases and install procedure are in
+[the stack README](../README.md#install-path-drift-check-and-rollback-chain). A
+recurring run (daily timer logging PASS/FAIL to the journal) is installed on the CT
+only with the owner's GO.
+
 ## Backup and monitoring installation
 
 Use [coherent backup](../backup/README.md), existing forced backup SSH key and
