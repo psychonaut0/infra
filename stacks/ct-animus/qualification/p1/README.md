@@ -287,7 +287,9 @@ state this replaces; its rollback is superseded.
   about to serve the stage, and a false result, a `PolicyException`
   (`failure_result: false`) or any exception caught inside the gate (`return False`)
   removes the stage (`flows/planner.py:96-115`). Without the identification stage
-  there is no pending user, so TOTP and User Login cannot run; without User Login there
+  there is no pending user and no `hub_p1_execution` envelope, so the login gate
+  refuses (with a live session the TOTP stage may still challenge the session's own
+  user, as in case 33, but nothing after it grants); without User Login there
   is no session and no `hub_policy_*` marker. Gate, PKCE and application bindings are
   pinned `enabled: true`, `negate: false`, `failure_result: false`, `timeout: 30`.
 - **Entry gate.** First request: refuses restored, redirected, user-switch and
@@ -365,3 +367,188 @@ fulfilment (`authorize.py:525-606`); `FlowPlan.requires_flow_executor`;
 `ReevaluateMarker` and plan re-evaluation; `PolicyEngine.empty_result` and binding
 evaluation; `SESSION_KEY_GET` and the stored `next`; `django_postgres_cache.add`;
 the blueprint watcher and discovery.
+
+### Isolated campaign at the final tree (2026-11-24)
+
+Every command below ran in the infra worktree at `e8aa135` with a clean tree; the
+commit that adds this section changes only this README. Case numbers are receipt
+file prefixes. Receipts are private, outside the repository (Animus
+`.data/hosting/p1-redesign-20261123/t1/campaign-20261124/`); they hold page counts,
+outcome classes, booleans and claim names only.
+
+| File | sha256 |
+| --- | --- |
+| `blueprints/alkion-lan.yaml` | `70662ab7ad25a2a0c989b74d505467bf2fe48b92b075b815e288b7658b6ca1d1` |
+| `rollback/alkion-lan-20261123-rollback.yaml` | `25eb7b3b4a05246a7a882070c4d3f927bb1be3e20675f83b7aafdc482fa6e0e6` |
+| `ops/check-alkion-lan-drift` | `2a66208b88f67eebe5b3c89f9f8a959ae3010256cdbddf31060fde79b01298ce` |
+| `qualification/p1/redesign/actor.py` | `6b5ea37506778af64b08c43f6d47f652b14e6a36885044c5c33b02264069152d` |
+| `qualification/p1/redesign/seed.py` | `f520f4db2c0e7c0240d2d59ab1604a6827eca85333977a7323e56fd40657728c` |
+| `qualification/p1/redesign/run.sh` | `95d797dcde60b4cbfa685bde1108216fb81abd318726304032f5f6257aa0d952` |
+
+**Checks (`command` → result):**
+
+- `python3 -m pytest -q -p no:cacheprovider stacks/ct-animus/test_blueprint.py stacks/ct-animus/ops/test_check_alkion_lan_drift.py stacks/ct-animus/qualification/p1/redesign/test_redesign.py stacks/ct-animus/qualification/p1/redesign/test_harness.py`
+  (a venv with pytest and PyYAML) → 68 passed, 206 subtests passed.
+- `python3 stacks/ct-animus/check-config.py --self-test` → five PASS lines, exit 0.
+- `git diff --check origin/master..HEAD` → clean.
+- `T4_STATE=<new private 0700 dir> stacks/ct-animus/qualification/p1/redesign/run.sh campaign`
+  → `{"campaign": "done"}`, exit 0, 2026-11-24 11:15–12:04 UTC, 117 receipts.
+  `00-up.json` records commit `e8aa135`, `tree_clean: true`, Auth image ID
+  `sha256:a662172cf4530a83982dfdea9ce5e41aebb66b9d7ade9e90cf22394e0724c38a` and the
+  six hashes above.
+- `run.sh down` → `{"down": true}`; `docker ps -a` and `docker network ls` → no
+  `p1g-*` container or network left.
+- Receipt hashes: `SHA256SUMS` over all 117 receipts
+  `19005693d11b22b3d7c5c6c707c77b8afdf279e7585639670391359d2b5f48c1`; key receipts
+  `00-up` `b656a492…26bc`, `21-main` `0fb47aba…dc50`, `22-negatives` `05fa152e…f3fe`,
+  `26-single-use` `ec01bdef…a2cd`, `27-refresh` `dafe5514…10edb`,
+  `120-across-rollback` `2934dbc9…703e`, `122b-drift-rollback-against-base`
+  `71d81ab3…5601`, `125-across-apply` `9ee8b6ec…e2ef`, `128-actor-reforward`
+  `db72fb5e…1be9`.
+
+**Apply and install.** The `c693d82` blueprint was discovered with an empty
+context (issuance closed), then applied with the owner-commissioning context (02);
+`run.sh drift base` → PASS (05). `run.sh install forward` (hidden file, mode 644
+kept, worker read the same bytes, `alkion-lan.yaml` the only file; 07), and within
+60 s, with no explicit Apply, the watcher had applied it through the one instance
+with its context unchanged (08). All 22 applies in the run were valid, without
+warnings, successful, with `last_applied_hash` equal to the file's sha512 and one
+instance. `run.sh drift forward` → PASS (11: 20 stage bindings, 5 policy bindings,
+13 expressions, 1 mapping, 1 brand, 1 instance).
+
+**B1 pages.** One ceremony each. Every code was redeemed with PKCE; every ID token
+passed RS256, issuer and audience checks, carried `hub_authentication_policy`
+`animus-password-totp-mechanism-v2` and an integer `hub_factor_time` ≤ `auth_time`,
+came with a refresh token and named the connecting user; reusing the code at the
+token endpoint was refused.
+
+| Connect (`prompt=login` unless noted) | Deployed `c693d82` | Redesign |
+| --- | --- | --- |
+| No session, the account's first Connect | 7 incl. consent (04) | 2 (21 `other_user_first`, and every `p1g-*` account) |
+| No session, later Connect | 6 (04) | 2 (21) |
+| Same user's live session, twice | — | 2 / 2 (21) |
+| Another user's live session | — | 2 (21) |
+| No session, no `prompt` | — | 2 (21) |
+| Same user's session older than 300 s | — | 2 (20-slow-stale) |
+| Another user's session older than 300 s | — | 2 (20-slow-other-stale) |
+| Login from the default authentication flow | — | 2 (22) |
+| After the rollback / after re-applying | 6 (124) | 2 (128) |
+
+**B2 negatives, all without a code.**
+- No TOTP device: denied after 1 page. Wrong TOTP: refused. Ceremony over 300 s
+  after the password, after TOTP or on the page: the notice after 2 pages (20).
+  Same user's stale session without `prompt`: denied.
+- Superuser or outside the group: the notice after 2 pages; with their own live
+  default-flow session and `prompt=login`, a fresh ceremony and then the notice.
+- Inactive: refused on the username+password page. Deactivated mid-ceremony after
+  the password or after an accepted TOTP (30): executor 400, no session. After TOTP
+  the login gate and User Login see the plan's stored user, so the session is
+  removed by `AuthenticationMiddleware`, which logs out an inactive user on the next
+  request (`core/middleware.py:63-65`).
+- Unknown client: 400. Unregistered or near-miss redirect: "Redirect URI Error".
+  Plain or missing PKCE: denied, with and without `prompt=login`.
+- Restored plans (forged flow tokens, login and full variants; 25): the notice, 0
+  pages, no session. Redirected plan (29): the notice, no session. Cookies parked
+  after TOTP and replayed after login (22): a new ceremony is required.
+- Another flow's login: without `prompt` denied; a direct normal-flow login with
+  no authorize request: denied without `prompt`.
+- User switch (only reachable by pointing a brand flow at the Alkion flow, which
+  the drift check flags; 32, 35): "add user" (33) never reached a login, the
+  session stayed with the original account; "switch" (36) showed the notice after
+  one page. Drift PASS again after the brand was restored (38).
+- `prompt=none`: no session → 400, live session → denied. `prompt=consent`,
+  `login consent`, `none login`, `response_mode` `form_post` or `fragment`, and
+  `request_uri`: denied on a live session and after a full ceremony bound to that
+  request. A `request` object: `request_not_supported` (400) before any page. A POST
+  of the bound request: 400; the GET after it gets the code.
+- Silent authorization within 300 s (a new request, no `prompt`): denied. An exact
+  replay of a fulfilled request, with or without `prompt=login`: denied without
+  re-authentication.
+- `run.sh seed sessions` (111): none of `t4-notp`, `t4-inactive`, `t4-slow-a`,
+  `p1r-slow-d`, `p1r-slow-e`, `p1r-forge`, `p1g-deact`, `p1g-deact-b`, `p1g-redir`
+  has an Authentik session. `t4-nogroup` and `t4-admin` have one only from their
+  deliberate default-flow logins.
+
+**B3 faults** (each restored by a valid re-apply; the drift check flagged each):
+
+| Fault | Eligible account | Outside-group account | Drift |
+| --- | --- | --- | --- |
+| Entry gate raises (41) | notice, 0 pages, no session | — | expression differs |
+| Login gate raises (45) | notice after 2 pages, no session | — | expression differs |
+| Notice raises (49) | code, 2 pages | no code, no session; loops through new ceremonies (7, to the harness's 13-page limit) | expression differs |
+| Application policy raises (53) | session, access denied | — | expression differs |
+| PKCE policy raises (57) | session, access denied | — | expression differs |
+| Login gate negated (61) | notice, no session | session, notice, no code | `negate is True` |
+| Entry gate negated (65) | notice, 0 pages, no session | — | `negate is True` |
+
+**Residual cases (decision 6), recorded, not passes** (70–109). Each was made by
+model save or delete; `run.sh drift forward` exited 1 naming the change, and PASS
+after the restore.
+
+| Case | Eligible | Outside group | Drift reported |
+| --- | --- | --- | --- |
+| Entry binding disabled | notice, no session | notice, no session | `enabled is False` |
+| Login binding disabled | session, notice, no code | session, notice, no code | `enabled is False` |
+| Login binding deleted | session, notice, no code | session, notice, no code | declared but not bound |
+| Login `re_evaluate_policies` off | session, notice, no code | session, notice, no code | `re_evaluate_policies is False` |
+| Login: extra always-true binding, engine `any` | code | session, notice, no code | engine mode `any`; extra binding not declared |
+| Application binding disabled | `prompt=login` loops to a second ceremony, no code | default-flow session, no `prompt`: **code** | `enabled is False` |
+| Application binding deleted | as above | **code** | declared but not bound |
+| Application engine mode `any` | code | default-flow session, no `prompt`: **code** | `policy_engine_mode is 'any'` |
+
+**B4 single use.** One qualified login, its request sent 8 times at once: exactly 1
+code, 7 denied, and a 9th request afterwards denied (26). Sequential exact replay:
+denied (21).
+
+**B5 rollback.** With two ceremonies parked under the redesign (after the password,
+after TOTP), the rollback applied (120): both ended with the notice, no code. The
+rollback again (121): valid, no warnings. `run.sh drift rollback` → PASS (122).
+`run.sh drift base` → exit 1 with one difference only, the file sha512 against
+`last_applied_hash` (122b). Inventory 123 against 06: the normal, enrollment, repair
+and authorization bindings, the application bindings, every deployed expression
+hash, consent, Prompt fields and identification stages are identical; the unbound
+`animus-lan-entry-gate`, `-login-gate` and `-denied-notice` policies remain. Connect
+after the rollback: 6 pages, code (124). Re-applying the redesign with two
+ceremonies parked under the rolled-back flow (125): each finished its old flow and
+was sent to a second ceremony (`hub_policy_gate` missing), no code. Again (126):
+valid. `run.sh drift forward` → PASS (127); Connect: 2 pages (128); inventory 129
+equals 12.
+
+**B6 neighbours.** Enrollment and repair bindings are identical to the deployed
+ones (12 and 129 against 06). ID-token claim names are identical before and after
+(04 against 21): `acr amr aud auth_time exp given_name groups
+hub_authentication_policy hub_factor_time iat iss jti name nickname nonce
+preferred_username sid sub`. Two real refresh exchanges (27): signatures verified,
+the same `sub`, `hub_authentication_policy`, `hub_factor_time` and `auth_time`,
+`hub_factor_time` ≤ `auth_time`, a rotated refresh token; only `nonce` is absent
+from the refreshed ID tokens.
+
+**Argued from source only, with reasons:**
+- *Policy subprocesses.* 2026.8.5 runs a binding in-process unless the current
+  process is a daemon (`policies/engine.py:164-170`); request handling is not, so
+  the gates' `_MainProcess`/daemon refusal is not reachable from a request.
+  Unit-tested.
+- *Gate timeout.* `timeout` applies only to subprocess evaluation
+  (`policies/engine.py:174-176`), which the gates refuse; it is pinned so the drift
+  check covers it.
+- *A crash outside the expression.* `PolicyProcess.run` turns any exception into
+  `PolicyResult(False)` (`policies/process.py:133-145`); the campaign injects
+  expression errors (`PolicyException` → `failure_result`) only.
+- *A change of session user or login event during one ceremony.* Needs a second
+  login in the same browser mid-ceremony; both gates compare the recorded envelope.
+  Unit-tested.
+- *An unconfirmed or another user's TOTP device in `mfa_devices`.* The validate
+  stage records only the verifying device of the pending user; the login gate's
+  refusal is unit-tested.
+- *The policy's own `request` refusal.* The authorize view rejects a request object
+  first (`providers/oauth2/views/authorize.py:160-172`); unit-tested.
+- *Partial files.* The importer applies a file in one transaction, so no prefix is
+  observable; `test_fail_closed_entry_order` checks every prefix.
+- *Hourly discovery and RBAC.* Discovery runs the same apply task through the same
+  instance as cases 08 and the explicit Applies. The residual cases write the same
+  rows an admin, an apply or an RBAC-granted API call would; `re_evaluate` off is
+  possible only below the API.
+- *Claim expiry.* Not waited for: the 900 s claim outlives the 300 s proof, which
+  both the login gate and the application policy check.
+
+Still to run on CT117 and the phone (T5/T6): B1 on the device, B7 (D8), B8 and B9.
