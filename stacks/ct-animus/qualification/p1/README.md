@@ -408,51 +408,62 @@ the blueprint watcher and discovery.
 
 ### Isolated campaign at the final tree (2026-11-24)
 
-Every command below ran in the infra worktree at `e8aa135` with a clean tree; the
+Every command below ran in the infra worktree at `3220d52` with a clean tree; the
 commit that adds this section changes only this README. Case numbers are receipt
 file prefixes. Receipts are private, outside the repository (Animus
-`.data/hosting/p1-redesign-20261123/t1/campaign-20261124/`); they hold page counts,
-outcome classes, booleans and claim names only.
+`.data/hosting/p1-redesign-20261123/t1/campaign-20261124b/`); they hold page counts,
+outcome classes, booleans, counts and claim names only. An earlier full run at
+`e8aa135` (receipt list `19005693…48c1`) predates the login gate's database re-read and
+the drift pin; its outcomes were the same except mid-ceremony deactivation (below).
 
 | File | sha256 |
 | --- | --- |
-| `blueprints/alkion-lan.yaml` | `70662ab7ad25a2a0c989b74d505467bf2fe48b92b075b815e288b7658b6ca1d1` |
+| `blueprints/alkion-lan.yaml` | `5eb3a9695c034572fc18da682c333b7f92cc3dc21c1c524c9f20e0482e172013` |
 | `rollback/alkion-lan-20261123-rollback.yaml` | `25eb7b3b4a05246a7a882070c4d3f927bb1be3e20675f83b7aafdc482fa6e0e6` |
-| `ops/check-alkion-lan-drift` | `2a66208b88f67eebe5b3c89f9f8a959ae3010256cdbddf31060fde79b01298ce` |
+| `ops/check-alkion-lan-drift` | `d112f7278a2f7a7daab2f20ab5c049b6d9b83194ca1ae1ff9ef5386fe22a89b9` |
 | `qualification/p1/redesign/actor.py` | `6b5ea37506778af64b08c43f6d47f652b14e6a36885044c5c33b02264069152d` |
-| `qualification/p1/redesign/seed.py` | `f520f4db2c0e7c0240d2d59ab1604a6827eca85333977a7323e56fd40657728c` |
-| `qualification/p1/redesign/run.sh` | `95d797dcde60b4cbfa685bde1108216fb81abd318726304032f5f6257aa0d952` |
+| `qualification/p1/redesign/seed.py` | `192f46ef84862151a287c1b056684db2d0902ce70606a50284850fd75b7b109b` |
+| `qualification/p1/redesign/run.sh` | `5dd6059abceae3963e31773dcba7f53ea8233b4e04313dcd9ba10c075a9658be` |
+
+The reviewed sha512 pins are in
+[Pinned reviewed files and the daily check](#pinned-reviewed-files-and-the-daily-check).
 
 **Checks (`command` → result):**
 
 - `python3 -m pytest -q -p no:cacheprovider stacks/ct-animus/test_blueprint.py stacks/ct-animus/ops/test_check_alkion_lan_drift.py stacks/ct-animus/qualification/p1/redesign/test_redesign.py stacks/ct-animus/qualification/p1/redesign/test_harness.py`
-  (a venv with pytest and PyYAML) → 68 passed, 206 subtests passed.
+  (a venv with pytest and PyYAML) → 72 passed, 213 subtests passed.
 - `python3 stacks/ct-animus/check-config.py --self-test` → five PASS lines, exit 0.
 - `git diff --check origin/master..HEAD` → clean.
 - `T4_STATE=<new private 0700 dir> stacks/ct-animus/qualification/p1/redesign/run.sh campaign`
-  → `{"campaign": "done"}`, exit 0, 2026-11-24 11:15–12:04 UTC, 117 receipts.
-  `00-up.json` records commit `e8aa135`, `tree_clean: true`, Auth image ID
+  → `{"campaign": "done"}`, exit 0, 2026-11-24 13:20–14:09 UTC, 122 receipts.
+  `00-up.json` records commit `3220d52`, `tree_clean: true`, Auth image ID
   `sha256:a662172cf4530a83982dfdea9ce5e41aebb66b9d7ade9e90cf22394e0724c38a` and the
-  six hashes above.
+  six hashes above. Every `run.sh drift` in it passes the forward, rollback and
+  deployed (`c693d82`) sha512 as `--expect-sha512` pins.
 - `run.sh down` → `{"down": true}`; `docker ps -a` and `docker network ls` → no
   `p1g-*` container or network left.
-- Receipt hashes: `SHA256SUMS` over all 117 receipts
-  `19005693d11b22b3d7c5c6c707c77b8afdf279e7585639670391359d2b5f48c1`; key receipts
-  `00-up` `b656a492…26bc`, `21-main` `0fb47aba…dc50`, `22-negatives` `05fa152e…f3fe`,
-  `26-single-use` `ec01bdef…a2cd`, `27-refresh` `dafe5514…10edb`,
-  `120-across-rollback` `2934dbc9…703e`, `122b-drift-rollback-against-base`
-  `71d81ab3…5601`, `125-across-apply` `9ee8b6ec…e2ef`, `128-actor-reforward`
-  `db72fb5e…1be9`.
+- Receipt hashes (sha256, first 8 and last 4 hex digits): `SHA256SUMS` over all 122
+  receipts `1406e5585242406be77e1d5acaf782ddcc86c3fac94a33eefff0405d46cd794e`;
+  `00-up` `fdf34e56…5e6c`, `21-main` `0fb47aba…dc50`, `22-negatives` `05fa152e…f3fe`,
+  `26-single-use` `ec01bdef…a2cd`, `27-refresh` `dafe5514…0edb`,
+  `30-deactivated-mid-ceremony` `d11b15cc…7945`, `30b-deactivated-logins`
+  `e72d948f…4767`, `39b-drift-edited-applied` `d2915533…f34c`, `120-across-rollback`
+  `80ac98d5…d611`, `122b-drift-rollback-against-base` `71d81ab3…5601`,
+  `125-across-apply` `eac4a637…26c2`, `128-actor-reforward` `db72fb5e…1be9`.
 
-**Apply and install.** The `c693d82` blueprint was discovered with an empty
+**Apply, install and the pin.** The `c693d82` blueprint was discovered with an empty
 context (issuance closed), then applied with the owner-commissioning context (02);
 `run.sh drift base` → PASS (05). `run.sh install forward` (hidden file, mode 644
 kept, worker read the same bytes, `alkion-lan.yaml` the only file; 07), and within
 60 s, with no explicit Apply, the watcher had applied it through the one instance
-with its context unchanged (08). All 22 applies in the run were valid, without
+with its context unchanged (08). All 24 applies in the run were valid, without
 warnings, successful, with `last_applied_hash` equal to the file's sha512 and one
 instance. `run.sh drift forward` → PASS (11: 20 stage bindings, 5 policy bindings,
-13 expressions, 1 mapping, 1 brand, 1 instance).
+13 expressions, 1 mapping, 1 brand, 1 instance). An edited forward file (one
+unreviewed line appended) installed and applied (39a) matched itself in every
+respect; `run.sh drift edited` → exit 1 with the single difference "blueprint file
+sha512 is not one of the pinned reviewed values" (39b). Re-applying the forward file:
+PASS again (39c, 39d).
 
 **B1 pages.** One ceremony each. Every code was redeemed with PKCE; every ID token
 passed RS256, issuer and audience checks, carried `hub_authentication_policy`
@@ -479,10 +490,11 @@ token endpoint was refused.
 - Superuser or outside the group: the notice after 2 pages; with their own live
   default-flow session and `prompt=login`, a fresh ceremony and then the notice.
 - Inactive: refused on the username+password page. Deactivated mid-ceremony after
-  the password or after an accepted TOTP (30): executor 400, no session. After TOTP
-  the login gate and User Login see the plan's stored user, so the session is
-  removed by `AuthenticationMiddleware`, which logs out an inactive user on the next
-  request (`core/middleware.py:63-65`).
+  the password or after an accepted TOTP (30): the login gate reads the account
+  again and refuses, so the flow ends at the notice; no session, and `run.sh seed
+  logins:p1g-deact,p1g-deact-b` → 0 login events and 0 sessions for both (30b). (At
+  `e8aa135`, before the re-read, the after-TOTP case logged in for one request and
+  `AuthenticationMiddleware` then logged it out with a 400.)
 - Unknown client: 400. Unregistered or near-miss redirect: "Redirect URI Error".
   Plain or missing PKCE: denied, with and without `prompt=login`.
 - Restored plans (forged flow tokens, login and full variants; 25): the notice, 0
@@ -575,13 +587,17 @@ from the refreshed ID tokens.
 - *A change of session user or login event during one ceremony.* Needs a second
   login in the same browser mid-ceremony; both gates compare the recorded envelope.
   Unit-tested.
+- *A superuser grant or a group change mid-ceremony.* The login gate checks both on
+  the account read again (`ak_user_by`; `is_superuser` is computed from the fresh
+  row's groups); the campaign runs deactivation only. Unit-tested.
 - *An unconfirmed or another user's TOTP device in `mfa_devices`.* The validate
   stage records only the verifying device of the pending user; the login gate's
-  refusal is unit-tested.
+  refusal is unit-tested. The device rows are not read again.
 - *The policy's own `request` refusal.* The authorize view rejects a request object
   first (`providers/oauth2/views/authorize.py:160-172`); unit-tested.
 - *Partial files.* The importer applies a file in one transaction, so no prefix is
-  observable; `test_fail_closed_entry_order` checks every prefix.
+  observable; `test_fail_closed_entry_order` checks every prefix of the forward file
+  (the rollback's order is not fail-closed and relies on the transaction alone).
 - *Hourly discovery and RBAC.* Discovery runs the same apply task through the same
   instance as cases 08 and the explicit Applies. The residual cases write the same
   rows an admin, an apply or an RBAC-granted API call would; `re_evaluate` off is
