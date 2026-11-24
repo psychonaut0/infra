@@ -697,8 +697,10 @@ def scenario_across_apply():
 
 
 def scenario_deactivate_mid():
-    """B2: the account is deactivated between the password and the TOTP page."""
-    return parked_connects([("deactivated_after_password", "p1g-deact", "identification+password", "after")])
+    """B2: the account is deactivated between the password and the TOTP page, and another
+    one between the accepted TOTP and the login gate."""
+    return parked_connects([("deactivated_after_password", "p1g-deact", "identification+password", "after"),
+                            ("deactivated_after_totp", "p1g-deact-b", "authenticator-validate", "after")])
 
 
 def follow(browser, redirect, users, **kwargs):

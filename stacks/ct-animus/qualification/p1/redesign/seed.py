@@ -41,7 +41,7 @@ USERS = {
     "t4-admin": (True, True, True, True), "p1r-slow-d": ELIGIBLE, "p1r-slow-e": ELIGIBLE,
     "p1r-inj-a": ELIGIBLE, "p1r-inj-b": ELIGIBLE, "p1r-inj-c": ELIGIBLE, "p1r-inj-nogroup": (False, False, True, True),
     "p1r-forge": ELIGIBLE, "p1r-replay": ELIGIBLE, "p1g-burst": ELIGIBLE, "p1g-refresh": ELIGIBLE,
-    "p1g-redir": ELIGIBLE, "p1g-deact": ELIGIBLE, "p1g-switch-a": ELIGIBLE, "p1g-switch-b": ELIGIBLE,
+    "p1g-redir": ELIGIBLE, "p1g-deact": ELIGIBLE, "p1g-deact-b": ELIGIBLE, "p1g-switch-a": ELIGIBLE, "p1g-switch-b": ELIGIBLE,
     "p1g-res-a": ELIGIBLE, "p1g-res-nogroup": (False, False, True, True), "p1g-across-a": ELIGIBLE,
     "p1g-across-b": ELIGIBLE, "p1g-across-c": ELIGIBLE, "p1g-across-d": ELIGIBLE,
 }
@@ -306,11 +306,13 @@ def redirector():
     return {"redirector": True}
 
 
-def deactivate(name):
-    user = User.objects.get(username=name)
-    user.is_active = False
-    user.save()
-    return {"deactivated": name}
+def deactivate(names):
+    """Deactivate one or more accounts (comma-separated), as an admin would."""
+    for name in names.split(","):
+        user = User.objects.get(username=name)
+        user.is_active = False
+        user.save()
+    return {"deactivated": names.split(",")}
 
 
 def brand(variant):

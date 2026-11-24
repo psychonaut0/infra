@@ -184,7 +184,7 @@ case "${1:-}" in
     "$0" actor refresh > "$out/27-refresh.json"
     "$0" seed redirector > "$out/28-seed-redirector.json"
     "$0" actor redirected > "$out/29-redirected.json"
-    "$0" parked deactivate-mid "$0" seed deactivate:p1g-deact > "$out/30-deactivated-mid-ceremony.json"
+    "$0" parked deactivate-mid "$0" seed deactivate:p1g-deact,p1g-deact-b > "$out/30-deactivated-mid-ceremony.json"
     wait
     # User switching: point the brand at the Alkion flow (a misconfiguration the drift
     # check must flag), run the switch, restore and check again.
@@ -224,6 +224,9 @@ case "${1:-}" in
     "$0" parked across-rollback "$0" apply rollback > "$out/120-across-rollback.json"
     "$0" apply rollback > "$out/121-apply-rollback-again.json"
     "$0" drift rollback > "$out/122-drift-rollback.json"
+    # Exactly the deployed state: against the c693d82 file the only expected difference
+    # is the file hash (the instance last applied the rollback file).
+    "$0" drift base > "$out/122b-drift-rollback-against-base.json"
     "$0" seed inventory > "$out/123-inventory-rollback.json"
     "$0" actor rollback > "$out/124-actor-rollback.json"
     "$0" parked across-apply "$0" apply forward > "$out/125-across-apply.json"
