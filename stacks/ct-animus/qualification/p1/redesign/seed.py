@@ -110,7 +110,9 @@ def apply_and_wait(instance, timeout=240):
     deadline = time.time() + timeout
     while time.time() < deadline:
         instance.refresh_from_db()
-        if instance.last_applied > before and instance.status != "unknown":
+        # Wait for an apply of THIS content: a watcher-triggered apply can finish in
+        # between (the hidden file's creation schedules a discovery) and must not count.
+        if instance.last_applied > before and instance.status != "unknown" and instance.last_applied_hash == digest:
             break
         time.sleep(2)
     return {"valid": valid, "warnings": warnings, "applied": instance.status == "successful"
@@ -346,6 +348,18 @@ def brand(variant):
             "flow_user_switch": target.flow_user_switch.slug if target.flow_user_switch else None}
 
 
+def logins(names):
+    """Per account (comma-separated): login events and Authentik sessions, counts only."""
+    from authentik.core.models import AuthenticatedSession
+    from authentik.events.models import Event, EventAction
+    out = {}
+    for name in names.split(","):
+        user = User.objects.get(username=name)
+        out[name] = {"login_events": Event.objects.filter(action=EventAction.LOGIN, user__pk=user.pk).count(),
+                     "sessions": AuthenticatedSession.objects.filter(user=user).count()}
+    return {"logins": out}
+
+
 def sessions():
     """Authenticated-session owners (usernames only, synthetic)."""
     from authentik.core.models import AuthenticatedSession
@@ -364,6 +378,8 @@ elif PHASE.startswith("unresidual:"):
     out = unresidual(PHASE.removeprefix("unresidual:"))
 elif PHASE.startswith("deactivate:"):
     out = deactivate(PHASE.removeprefix("deactivate:"))
+elif PHASE.startswith("logins:"):
+    out = logins(PHASE.removeprefix("logins:"))
 elif PHASE.startswith("brand:"):
     out = brand(PHASE.removeprefix("brand:"))
 elif PHASE == "redirector":

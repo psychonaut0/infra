@@ -44,6 +44,7 @@ source_file() {
     base) echo "$STATE/alkion-lan.base.yaml" ;;
     forward) echo "$STACK/blueprints/alkion-lan.yaml" ;;
     rollback) echo "$STACK/rollback/alkion-lan-20261123-rollback.yaml" ;;
+    edited) echo "$STATE/alkion-lan.edited.yaml" ;;
     *) echo "unknown blueprint $1" >&2; exit 2 ;;
   esac
 }
@@ -98,10 +99,13 @@ install_blueprint() {
 
 drift() {
   # Read-only drift check of the live instance against one blueprint file; one JSON line.
-  local file output status
+  # Pinned like the CT117 timer: only the reviewed files (base, forward, rollback) pass;
+  # "edited" (forward plus one unreviewed line) never does, even once applied.
+  local file output status pin pins=()
   file=$(source_file "$1")
+  for pin in base forward rollback; do pins+=(--expect-sha512 "$(sha512sum < "$(source_file "$pin")" | cut -d' ' -f1)"); done
   set +e
-  output=$(python3 -I "$DRIFT" --db-container "$(name)-pg" --blueprint "$file" --json)
+  output=$(python3 -I "$DRIFT" --db-container "$(name)-pg" --blueprint "$file" "${pins[@]}" --json)
   status=$?
   set -e
   python3 -c 'import json, sys; d = json.loads(sys.argv[1] or "{}"); d["exit"] = int(sys.argv[2]); d["against"] = sys.argv[3]; print(json.dumps(d, sort_keys=True))' \
@@ -118,7 +122,8 @@ case "${1:-}" in
     python3 -c 'import secrets; print(secrets.token_hex(32))' > "$STATE/pg-password"
     python3 -c 'import secrets; print(secrets.token_urlsafe(64))' > "$STATE/secret-key"
     git -C "$REPO" show c693d82:stacks/ct-animus/blueprints/alkion-lan.yaml > "$STATE/alkion-lan.base.yaml"
-    chmod 0644 "$STATE/alkion-lan.base.yaml"
+    { cat "$STACK/blueprints/alkion-lan.yaml"; echo "# p1g: an edit nobody reviewed"; } > "$STATE/alkion-lan.edited.yaml"
+    chmod 0644 "$STATE/alkion-lan.base.yaml" "$STATE/alkion-lan.edited.yaml"
     install -d -m 0755 "$STATE/bp" "$STATE/signal"
     auth_env
     n=$(name)
@@ -185,6 +190,7 @@ case "${1:-}" in
     "$0" seed redirector > "$out/28-seed-redirector.json"
     "$0" actor redirected > "$out/29-redirected.json"
     "$0" parked deactivate-mid "$0" seed deactivate:p1g-deact,p1g-deact-b > "$out/30-deactivated-mid-ceremony.json"
+    "$0" seed logins:p1g-deact,p1g-deact-b > "$out/30b-deactivated-logins.json"
     wait
     # User switching: point the brand at the Alkion flow (a misconfiguration the drift
     # check must flag), run the switch, restore and check again.
@@ -196,6 +202,11 @@ case "${1:-}" in
     "$0" actor user-switch-target > "$out/36-user-switch-target.json"
     "$0" seed brand:restore > "$out/37-seed-brand-restore.json"
     "$0" drift forward > "$out/38-drift-brand-restored.json"
+    # An edited live file that the worker applied matches itself: only the pin catches it.
+    "$0" apply edited > "$out/39a-apply-edited.json"
+    "$0" drift edited > "$out/39b-drift-edited-applied.json"
+    "$0" apply forward > "$out/39c-apply-forward.json"
+    "$0" drift forward > "$out/39d-drift-forward.json"
     n=40
     for fault in inject:animus-lan-entry-gate inject:animus-lan-login-gate inject:animus-lan-denied-notice \
                  inject:animus-lan-application inject:animus-lan-pkce negate:animus-lan-login-gate \
