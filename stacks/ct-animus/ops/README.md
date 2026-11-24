@@ -93,11 +93,15 @@ no host-reboot qualification follows from the guest test.
 
 `check-alkion-lan-drift` is a read-only check of the `alkion-lan` Authentik
 configuration against `../blueprints/alkion-lan.yaml` (or the file given with
-`--blueprint`, such as the rollback after a rollback). Run it as root on the CT from
-the stack directory:
+`--blueprint`). The file's sha512 must be one of the reviewed values passed with
+`--expect-sha512` (repeatable, mandatory): the worker applies any edit to the live file
+by itself, so without the pin an edited, applied file would pass. Run it as root on the
+CT from the stack directory, with the forward and rollback values recorded in the
+[P1 qualification README](../qualification/p1/README.md#pinned-reviewed-files-and-the-daily-check):
 
 ```sh
-ops/check-alkion-lan-drift --db-container "$(docker compose ps -q auth-postgres)"
+ops/check-alkion-lan-drift --db-container "$(docker compose ps -q auth-postgres)" \
+  --expect-sha512 FORWARD_SHA512 --expect-sha512 ROLLBACK_SHA512
 ```
 
 It reads through `docker exec` and `psql` as the `authentik` role over the local

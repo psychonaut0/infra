@@ -366,7 +366,8 @@ directory on the CT:
    file and apply it within seconds (seen in the isolated run); otherwise the explicit
    Apply (admin UI, context unchanged) or the hourly discovery does. All three apply the
    same content through the one existing instance and its context.
-4. Then `ops/check-alkion-lan-drift --db-container "$(docker compose ps -q auth-postgres)"`
+4. Then the drift check with the reviewed sha512 pins (exact command and values in the
+   [P1 qualification README](qualification/p1/README.md#pinned-reviewed-files-and-the-daily-check))
    must print PASS, and `check-config.py` must pass.
 
 `ops/check-alkion-lan-drift` is read-only (`default_transaction_read_only=on` and
@@ -375,15 +376,20 @@ blueprint file it is given and compares the exact stage-binding set, the exact
 policy-binding set and attributes on the Alkion flows, their stage bindings and the
 application, the engine modes, the expression and mapping hashes, the brand flows,
 the one blueprint instance (owner-commissioning context, enabled, successful) and
-the file's sha512 against `last_applied_hash`. Exit 0 PASS, 1 drift, 2 could not run.
-It needs PyYAML on the host, or `--yaml-via <auth-worker>` to parse inside the Auth
-image. Run it at install, after any admin change, and on a schedule.
+the file's sha512 against `last_applied_hash`. Because the worker applies any edit to
+the live file by itself, an edited and applied file would match itself, so the file's
+sha512 must also be one of the reviewed values given with `--expect-sha512`
+(repeatable; at least one is mandatory, otherwise exit 2). Exit 0 PASS, 1 drift, 2
+could not run. It needs PyYAML on the host, or `--yaml-via <auth-worker>` to parse
+inside the Auth image. Run it at install, after any admin change, and on a schedule.
 
 Rollback chain: `rollback/alkion-lan-20261123-rollback.yaml` is valid only from the
 redesigned state. It is the blueprint deployed before (infra `c693d82`) plus guarded
 removal of the gate and notice bindings and the engine mode reset, and restores the
-6-page flow exactly. Install it by the same hidden-file path, then run the drift check
-with `--blueprint rollback/alkion-lan-20261123-rollback.yaml`. A ceremony open across
+6-page flow exactly. Install it by the same hidden-file path, then run the same pinned
+drift check (the live file now holds the rollback, whose sha512 is one of the pins). Its
+entry order is not fail-closed prefix by prefix; that is safe only because the importer
+applies a file in one transaction. A ceremony open across
 the apply ends without a code (it may end with a session). The older
 `rollback/alkion-lan-20261118-rollback.yaml` is **superseded**: applied after the
 redesign it would block every login. Remembered consent rows from before stay and are

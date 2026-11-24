@@ -298,8 +298,12 @@ state this replaces; its rollback is superseded.
   requests accept only the same untouched envelope and never renew the time.
 - **Login gate.** Today's final check (300 s, same subject and session, active,
   non-superuser, normal group, password method, the user's own confirmed TOTP
-  devices, no `user_switch_*` key) in the request that logs in. Its success path
-  alone writes the marker, now with `hub_policy_gate: animus-lan-login-gate`.
+  devices, no `user_switch_*` key) in the request that logs in. The plan holds the
+  copy of the account stored at identification, so the gate reads the account again
+  (`ak_user_by(pk=…, is_active=True)`) and checks superuser status and group membership
+  on that fresh row: an account deactivated or made superuser mid-ceremony is refused
+  before User Login creates a session or a login event. Its success path alone writes
+  the marker, now with `hub_policy_gate: animus-lan-login-gate`.
 - **Authorization without stages.** With only the in-memory fulfilment stage, the
   authorize view issues the code in the request whose application policies passed
   (`flows/planner.py:129-176`, `providers/oauth2/views/authorize.py:594-606`). The
@@ -358,6 +362,40 @@ issuance (`check_blueprint_v1_file`); the drift check reports the context.
 two gate bindings and the notice binding + engine mode reset to `any`; valid only from
 the redesigned state. The 2026-11-18 rollback is marked superseded: after the redesign
 it would reset the login binding while its gate stays bound, refusing every login.
+Unlike the forward file, the rollback's entry order is **not** claimed or tested to be
+fail-closed prefix by prefix (it is `c693d82` with the removals inserted after the
+bindings they belong to); it is safe only because the importer applies a file in one
+transaction, so no prefix is ever live.
+
+### Pinned reviewed files and the daily check
+
+The drift check derives its expectation from the file it reads, and the worker applies
+any edit to `blueprints/alkion-lan.yaml` by itself, so an edited, applied file would
+match itself. The check therefore also requires the file's sha512 to be one of the
+reviewed values passed with `--expect-sha512` (repeatable; at least one is mandatory,
+otherwise exit 2; an unpinned file is a FAIL even when everything else matches). The
+reviewed values at this branch:
+
+| File | sha512 |
+| --- | --- |
+| `blueprints/alkion-lan.yaml` (forward) | `e5c5d91f11a466324917aaad87abc1560be20a9e6ec9209a8478332545f84fe9e56e721177514c49698fd8fbf3b357fb51f5102e00158de2b2e8079f2557f2e9` |
+| `rollback/alkion-lan-20261123-rollback.yaml` | `d36b69bbda4c103b934f77859d4a52b7cb682a913503b7da5cd1a0a5fbeea6bf668c6da12976cf06e05579bb23d79023e842e1cdbe9a6cd58dab1baa84ff7ff2` |
+
+The T5 daily timer (root, from the stack directory on CT117, installed only with the
+owner's GO) runs exactly this, and logs its PASS/FAIL line to the journal:
+
+```sh
+ops/check-alkion-lan-drift --db-container "$(docker compose ps -q auth-postgres)" \
+  --blueprint blueprints/alkion-lan.yaml \
+  --expect-sha512 e5c5d91f11a466324917aaad87abc1560be20a9e6ec9209a8478332545f84fe9e56e721177514c49698fd8fbf3b357fb51f5102e00158de2b2e8079f2557f2e9 \
+  --expect-sha512 d36b69bbda4c103b934f77859d4a52b7cb682a913503b7da5cd1a0a5fbeea6bf668c6da12976cf06e05579bb23d79023e842e1cdbe9a6cd58dab1baa84ff7ff2
+```
+
+Both pins stay in the unit so the check keeps passing after a reviewed rollback (the
+live file then holds the rollback). Keep the pins in the root-owned unit, not in the
+stack directory: whoever can write the stack directory can also edit the script, so
+the pin protects against an out-of-band or accidental blueprint edit, not against a
+root compromise. Any blueprint change needs new pins from its review.
 
 ### Re-qualification triggers
 
