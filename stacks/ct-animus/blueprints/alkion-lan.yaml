@@ -691,7 +691,13 @@ entries:
             user = context.get("pending_user")
             if user is None or not user.pk or not user.is_active or user.is_superuser or request.user.pk != user.pk:
                 return False
-            if not ak_is_group_member(user, name="animus-lan-normal") or context.get("auth_method") != "password":
+            # The plan holds the copy of the account stored when it was identified. Read it
+            # again, so that a deactivation or a superuser grant during the ceremony refuses
+            # here, before User Login creates a session or a login event.
+            current = ak_user_by(pk=user.pk, is_active=True)
+            if current is None or current.pk != user.pk or not current.is_active or current.is_superuser:
+                return False
+            if not ak_is_group_member(current, name="animus-lan-normal") or context.get("auth_method") != "password":
                 return False
             args = context.get("auth_method_args")
             if not isinstance(args, dict) or not isinstance(args.get("mfa_devices"), list) or not args["mfa_devices"]:

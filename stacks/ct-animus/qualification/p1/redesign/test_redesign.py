@@ -102,7 +102,8 @@ class CandidateShape(unittest.TestCase):
     def test_login_gate_keeps_every_p1_check(self):
         expression = POLICIES['animus-lan-login-gate']['attrs']['expression']
         for needle in ('0 <= time.time() - started <= 300', 'user.is_superuser', 'not user.is_active',
-                       'ak_is_group_member(user, name="animus-lan-normal")', 'context.get("auth_method") != "password"',
+                       'current = ak_user_by(pk=user.pk, is_active=True)', 'current.is_superuser',
+                       'ak_is_group_member(current, name="animus-lan-normal")', 'context.get("auth_method") != "password"',
                        'type(device).__name__ != "TOTPDevice"', 'device.user_id != user.pk',
                        'principal != state["initial_session_user"]', 'args.update(marker)',
                        '"hub_policy_gate": "animus-lan-login-gate"'):

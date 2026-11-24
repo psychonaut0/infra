@@ -104,9 +104,22 @@ def merged(instance_context):
     return {**DOCUMENT.get('context', {}), **instance_context}
 
 
+def fake_user_by(accounts=None):
+    """ak_user_by over a fake user table: by default every pk is an active, non-superuser
+    account; `accounts` maps a pk to the account's current database row (None: no row)."""
+    accounts = accounts or {}
+
+    def lookup(**filters):
+        row = accounts[filters['pk']] if filters['pk'] in accounts else user(filters['pk'])
+        if row is None or any(getattr(row, key) != value for key, value in filters.items()):
+            return None
+        return row
+    return lookup
+
+
 def expression(entry_id, **globals_):
     source = BY_ID[entry_id]['attrs']['expression']
-    namespace = {'ak_is_group_member': lambda *a, **k: True} | globals_
+    namespace = {'ak_is_group_member': lambda *a, **k: True, 'ak_user_by': fake_user_by()} | globals_
     wrapped = 'def evaluate(request=None, provider=None, token=None):\n' + ''.join(
         '    ' + line + '\n' for line in source.splitlines())
     exec(compile(wrapped, entry_id, 'exec'), namespace)
@@ -753,9 +766,9 @@ def gate_request(policy, context, now_user=None, event=None, stage='animus-lan-n
 
 
 class GateTests(unittest.TestCase):
-    def run_gate(self, policy, request, now=1000):
+    def run_gate(self, policy, request, now=1000, **globals_):
         with stock_imports(), patch('time.time', return_value=now), patch('uuid.uuid4', return_value=UUID('a' * 32)):
-            return expression(policy)(request)
+            return expression(policy, **globals_)(request)
 
     def test_entry_gate_starts_the_clock_once_and_never_renews_it(self):
         request, plan = gate_request('entry-gate-policy', {})
@@ -818,6 +831,34 @@ class GateTests(unittest.TestCase):
         request, plan = gate_request('login-gate-policy', self.login_context(), stage='animus-lan-login', order=50)
         with stock_imports(), patch('time.time', return_value=1200):
             self.assertIs(expression('login-gate-policy', ak_is_group_member=lambda *a, **k: False)(request), False)
+
+    def test_login_gate_reads_the_account_again_from_the_database(self):
+        # The plan's pending user is the copy stored at identification: a deactivation, a
+        # deleted account or a superuser grant during the ceremony is seen only in the
+        # database, and refuses before User Login creates a session or a login event.
+        for label, row in {'deactivated': user(is_active=False), 'deleted': None,
+                           'made-superuser': user(is_superuser=True)}.items():
+            with self.subTest(case=label):
+                request, plan = gate_request('login-gate-policy', self.login_context(), stage='animus-lan-login', order=50)
+                self.assertIs(self.run_gate('login-gate-policy', request, 1200, ak_user_by=fake_user_by({7: row})), False)
+                self.assertNotIn('hub_policy_id', plan.context['auth_method_args'])
+        lookups, members = [], []
+
+        def user_by(**filters):
+            lookups.append(filters)
+            return fake_user_by()(**filters)
+
+        def is_member(account, **group):
+            members.append((account, group))
+            return True
+        request, _ = gate_request('login-gate-policy', self.login_context(), stage='animus-lan-login', order=50)
+        self.assertIs(self.run_gate('login-gate-policy', request, 1200, ak_user_by=user_by,
+                                    ak_is_group_member=is_member), True)
+        self.assertEqual(lookups, [{'pk': 7, 'is_active': True}])
+        # Group membership is checked on the account read again, not on the stored copy.
+        self.assertEqual(len(members), 1)
+        self.assertIsNot(members[0][0], request.context['flow_plan'].context['pending_user'])
+        self.assertEqual(members[0][1], {'name': 'animus-lan-normal'})
 
     def test_notice_shows_unless_this_ceremonys_qualified_login_happened(self):
         state = {'nonce': 'a' * 32}
